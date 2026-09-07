@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# PyCharm
+.idea/
+
+# 运行时数据与缓存
+data/mods.db
+data/mods.db-wal
+data/mods.db-shm
+data/backup/
+data/cache/
+
+# 打包产物
+build/
+dist/
+*.spec
+
+# 日志
+logs/
+*.log
+
+#其他
+项目文件夹/
+/tests/fixtures
