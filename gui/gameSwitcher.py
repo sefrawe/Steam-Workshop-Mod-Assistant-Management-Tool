@@ -19,9 +19,10 @@ class GameSwitcher(QWidget):
 
     current_game_changed = Signal(object)
 
-    def __init__(self, repo, parent: QWidget | None = None) -> None:
+    def __init__(self, repo, parent: QWidget | None = None, settings=None) -> None:
         super().__init__(parent)
         self._repo = repo
+        self._settings = settings
         self._games: list[Game] = []
 
         layout = QVBoxLayout(self)
@@ -85,10 +86,10 @@ class GameSwitcher(QWidget):
         if not ok or not name.strip():
             return
 
+        default_dir = self._settings.get("default_download_dir") if self._settings else ""
         download_dir, ok = QInputDialog.getText(
-            self, "添加游戏档案", "mod 下载目录（steamcmd force_install_dir）：")
-        if not ok or not download_dir.strip():
-            return
+            self, "添加游戏档案", "mod 下载目录（steamcmd force_install_dir）：",
+            text=default_dir)
 
         try:
             self._repo.add_game(app_id, name.strip(), download_dir.strip())

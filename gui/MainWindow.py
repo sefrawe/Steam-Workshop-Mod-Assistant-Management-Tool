@@ -1,11 +1,9 @@
-"""主窗口骨架
+"""主窗口骨架"""
+"""
+结构：左导航（游戏切换器 + 导航列表）+ 中央页面栈 + 底部终端 Dock 占位。
+中央页面从 mod 库页起逐个替换占位；终端的交互实现属于后续阶段。
 """
 
-"""
-结构：左导航（游戏切换器 + 导航列表）+ 中央 QStackedWidget + 底部终端 Dock。
-G1 阶段中央页面全部为占位；G2 起逐个替换 _pages 里的条目。
-终端 Dock 的 QProcess 实现属于 M3，此处只放占位标签。
-"""
 from pathlib import Path
 
 from gui.modListPage import ModListPage
@@ -20,7 +18,8 @@ from core.models import Game
 from core.sqliteRepository import SQLiteRepository
 from gui.gameSwitcher import GameSwitcher
 from gui.placeholderPage import PlaceholderPage
-
+from core.appSettings import AppSettings
+from gui.settingsPage import SettingsPage
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "mods.db"
 
@@ -36,6 +35,7 @@ class MainWindow(QMainWindow):
 
         # G1 阶段所有 DB 操作都在主线程（237 行毫秒级）；任务 4 起长操作才上 worker
         self._repo = SQLiteRepository(DEFAULT_DB_PATH)
+        self._settings = AppSettings()
         self._current_game: Game | None = None
 
         self._build_central()
@@ -57,7 +57,7 @@ class MainWindow(QMainWindow):
         side_layout.setContentsMargins(8, 8, 8, 8)
         side_layout.setSpacing(8)
 
-        self._switcher = GameSwitcher(self._repo, side)
+        self._switcher = GameSwitcher(self._repo, side, settings=self._settings)
         self._switcher.current_game_changed.connect(self._on_game_changed)
         side_layout.addWidget(self._switcher)
 
@@ -75,7 +75,7 @@ class MainWindow(QMainWindow):
             PlaceholderPage("基础功能", "网址批量导入、更新检测、下载命令生成\n将随对应功能模块完成逐个开放",
                             self._stack),
             PlaceholderPage("备份管理", "mod 备份与恢复功能开发中", self._stack),
-            PlaceholderPage("设置", "全局设置（目录路径、steamcmd 位置等）开发中", self._stack),
+            SettingsPage(self._settings, self._stack),  # ← 第 3 位
         ]
 
         for page in self._pages:

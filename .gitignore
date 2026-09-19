@@ -26,3 +26,5 @@ logs/
 #其他
 项目文件夹/
 /tests/fixtures
+
+config/
