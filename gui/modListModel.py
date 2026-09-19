@@ -10,13 +10,14 @@ from PySide6.QtGui import QColor
 
 from core.models import Mod
 
-from gui.formatters import fmt_size, relative_time, status_zh   # 改导入
+from gui.formatters import fmt_size, relative_time, status_zh
 
 COLUMNS = ["编号", "标题", "状态", "远端版本", "本地版本", "更新", "大小", "标签", "关注", "备注"]
 
 
 # 列号 → 白名单排序；None = 白名单只给了单向。不在表内的列点击不排序
 _SORT_MAP: dict[int, tuple[str, str | None]] = {
+    0: ("mod_id ASC", "mod_id DESC"),
     1: ("title ASC", "title DESC"),
     3: ("time_updated DESC", "time_updated ASC"),
     6: ("local_size DESC", None),

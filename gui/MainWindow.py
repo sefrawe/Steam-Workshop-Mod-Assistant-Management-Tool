@@ -3,27 +3,44 @@
 结构：左导航（游戏切换器 + 导航列表）+ 中央页面栈 + 底部终端 Dock 占位。
 中央页面从 mod 库页起逐个替换占位；终端的交互实现属于后续阶段。
 """
-
 from pathlib import Path
 
-from gui.modListPage import ModListPage
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QDockWidget, QHBoxLayout, QLabel, QListWidget, QMainWindow,
-    QStackedWidget, QVBoxLayout, QWidget,
+    QDockWidget, QHBoxLayout, QLabel, QMainWindow,
+    QStackedWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
-
+from core.appSettings import AppSettings
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
 from gui.gameSwitcher import GameSwitcher
+from gui.importPage import ImportPage
+from gui.modListPage import ModListPage
 from gui.placeholderPage import PlaceholderPage
-from core.appSettings import AppSettings
 from gui.settingsPage import SettingsPage
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "mods.db"
 
 _NAV_WIDTH = 210
+
+# 左导航树：整数 = 页面栈下标（真实页面）；None = 未完成模块，灰色"开发中"。
+# 完成模块时：在 _pages 末尾 append 新页面（栈顺序不再需要和导航一致），
+# 然后把对应条目的 None 改成新下标、去掉后缀、setDisabled(False) 即点亮。
+_NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
+    ("mod 库", 0),
+    ("基础功能", [
+        ("网址批量导入", 1),
+        ("更新检测", None),
+        ("下载命令生成", None),
+    ]),
+    ("备份管理", [
+        ("备份与恢复", None),
+    ]),
+    ("设置", 3),
+]
 
 
 class MainWindow(QMainWindow):
@@ -32,8 +49,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Steam创意工坊Mod辅助管理工具")
 
         self.resize(1200, 800)
-
-        # G1 阶段所有 DB 操作都在主线程（237 行毫秒级）；任务 4 起长操作才上 worker
+        # 数据库操作全在主线程（毫秒级）；联网/扫描等长操作后续再上工作线程
         self._repo = SQLiteRepository(DEFAULT_DB_PATH)
         self._settings = AppSettings()
         self._current_game: Game | None = None
@@ -61,26 +77,46 @@ class MainWindow(QMainWindow):
         self._switcher.current_game_changed.connect(self._on_game_changed)
         side_layout.addWidget(self._switcher)
 
-        self._nav = QListWidget(side)
-        for name in ("mod 库", "基础功能", "备份管理", "设置"):
-            self._nav.addItem(name)
-        self._nav.currentRowChanged.connect(self._on_nav_changed)
+        self._nav = QTreeWidget(side)
+        self._nav.setHeaderHidden(True)
+        self._nav.setIndentation(14)
+        self._nav_items: dict[int, QTreeWidgetItem] = {}  # 页面下标 → 树条目
+        for name, spec in _NAV_SCHEMA:
+            if isinstance(spec, int):
+                item = QTreeWidgetItem([name])
+                item.setData(0, Qt.ItemDataRole.UserRole, spec)
+                self._nav.addTopLevelItem(item)
+                self._nav_items[spec] = item
+                continue
+            group = QTreeWidgetItem([name])
+            group.setFlags(Qt.ItemFlag.ItemIsEnabled)  # 组节点不可选中，只负责折叠
+            for label, index in spec:
+                child = QTreeWidgetItem([label if index is not None else f"{label}（开发中）"])
+                if index is None:
+                    child.setDisabled(True)  # 灰色、点不动
+                else:
+                    child.setData(0, Qt.ItemDataRole.UserRole, index)
+                    self._nav_items[index] = child
+                group.addChild(child)
+            group.setExpanded(True)
+            self._nav.addTopLevelItem(group)
+        self._nav.currentItemChanged.connect(self._on_nav_changed)
+        self._nav.itemClicked.connect(self._on_nav_clicked)
         side_layout.addWidget(self._nav, 1)
-        root.addWidget(side)
 
         self._stack = QStackedWidget(central)
-        # G2 起逐个替换：第 0 页最先换成 ModListPage
         self._pages = [
             ModListPage(self._repo, self._stack),
-            PlaceholderPage("基础功能", "网址批量导入、更新检测、下载命令生成\n将随对应功能模块完成逐个开放",
-                            self._stack),
+            ImportPage(self._repo, self._stack),
             PlaceholderPage("备份管理", "mod 备份与恢复功能开发中", self._stack),
-            SettingsPage(self._settings, self._stack),  # ← 第 3 位
+            SettingsPage(self._settings, self._stack),
         ]
-
         for page in self._pages:
             self._stack.addWidget(page)
-        self._nav.setCurrentRow(0)
+        self._pages[1].imported.connect(self._on_imported)
+
+        self._nav.setCurrentItem(self._nav_items[0])
+        root.addWidget(side)
         root.addWidget(self._stack, 1)
 
         self.setCentralWidget(central)
@@ -121,8 +157,16 @@ class MainWindow(QMainWindow):
 
     # ---------- 槽 ----------
 
-    def _on_nav_changed(self, row: int) -> None:
-        self._stack.setCurrentIndex(row)
+    def _on_nav_changed(self, current: QTreeWidgetItem | None, _previous) -> None:
+        if current is None:
+            return
+        index = current.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(index, int):
+            self._stack.setCurrentIndex(index)
+
+    def _on_nav_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
+        if item.childCount():  # 点组名 = 折叠/展开，和点小箭头等效
+            item.setExpanded(not item.isExpanded())
 
     def _on_game_changed(self, game: Game | None) -> None:
         self._current_game = game
@@ -130,10 +174,15 @@ class MainWindow(QMainWindow):
             self._status_game.setText("当前游戏：（无）—— 请先添加档案")
         else:
             self._status_game.setText(f"当前游戏：{game.name}（{game.app_id}）")
-        first = self._pages[0]
-        if hasattr(first, "set_game"):
-            first.set_game(game)
+        for page in self._pages:
+            if hasattr(page, "set_game"):
+                page.set_game(game)
 
     def closeEvent(self, event) -> None:
         self._repo.close()
         super().closeEvent(event)
+
+    def _on_imported(self, count: int) -> None:
+        self._nav.setCurrentItem(self._nav_items[0])  # 跳到 mod 库页
+        self._pages[0].set_game(self._switcher.current_game())  # 触发重载
+        self.statusBar().showMessage(f"已导入 {count} 个 mod", 5000)
