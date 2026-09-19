@@ -1,5 +1,6 @@
 """主窗口骨架
 """
+
 """
 结构：左导航（游戏切换器 + 导航列表）+ 中央 QStackedWidget + 底部终端 Dock。
 G1 阶段中央页面全部为占位；G2 起逐个替换 _pages 里的条目。
@@ -7,6 +8,7 @@ G1 阶段中央页面全部为占位；G2 起逐个替换 _pages 里的条目。
 """
 from pathlib import Path
 
+from gui.modListPage import ModListPage
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
@@ -28,7 +30,8 @@ _NAV_WIDTH = 210
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Steam Workshop Mod Assistant Management Tool")
+        self.setWindowTitle("Steam创意工坊Mod辅助管理工具")
+
         self.resize(1200, 800)
 
         # G1 阶段所有 DB 操作都在主线程（237 行毫秒级）；任务 4 起长操作才上 worker
@@ -68,11 +71,13 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget(central)
         # G2 起逐个替换：第 0 页最先换成 ModListPage
         self._pages = [
-            PlaceholderPage("mod 库", "G2 实现：列表 + 搜索 + 详情面板", self._stack),
-            PlaceholderPage("基础功能", "随 M1 任务 3~5 逐个点亮", self._stack),
-            PlaceholderPage("备份管理", "任务 6.5 完成后启用", self._stack),
-            PlaceholderPage("设置", "读写 config/GlobalSettings.json（G3）", self._stack),
+            ModListPage(self._repo, self._stack),
+            PlaceholderPage("基础功能", "网址批量导入、更新检测、下载命令生成\n将随对应功能模块完成逐个开放",
+                            self._stack),
+            PlaceholderPage("备份管理", "mod 备份与恢复功能开发中", self._stack),
+            PlaceholderPage("设置", "全局设置（目录路径、steamcmd 位置等）开发中", self._stack),
         ]
+
         for page in self._pages:
             self._stack.addWidget(page)
         self._nav.setCurrentRow(0)
@@ -81,12 +86,12 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
     def _build_terminal_dock(self) -> None:
-        self._terminal_dock = QDockWidget("steamcmd 终端（M3 接入）", self)
+        self._terminal_dock = QDockWidget("steamcmd 终端（开发中）", self)
         placeholder = QLabel(
-            "QProcess 交互式终端在 M3 接入。\n"
-            "可从【视图】菜单关闭 / 恢复本面板。",
+            "交互式终端将在后续版本接入。\n可从【视图】菜单关闭 / 恢复本面板。",
             self._terminal_dock,
         )
+
         placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         placeholder.setWordWrap(True)
         self._terminal_dock.setWidget(placeholder)
@@ -125,6 +130,9 @@ class MainWindow(QMainWindow):
             self._status_game.setText("当前游戏：（无）—— 请先添加档案")
         else:
             self._status_game.setText(f"当前游戏：{game.name}（{game.app_id}）")
+        first = self._pages[0]
+        if hasattr(first, "set_game"):
+            first.set_game(game)
 
     def closeEvent(self, event) -> None:
         self._repo.close()
