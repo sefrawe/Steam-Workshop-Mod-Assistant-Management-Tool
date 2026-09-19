@@ -1,4 +1,5 @@
 -- 建表语句
+
 -- ============================================================
 -- Steam Workshop Mod Assistant Management Tool
 -- core/schema.sql · v1.1 · 7 张表
