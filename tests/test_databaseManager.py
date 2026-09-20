@@ -1,7 +1,12 @@
+"""数据库仓库层测试
 """
-tests/test_databaseManager.py · M1 任务 2 验收
+"""
+覆盖 SQLiteRepository 的全部数据能力：建库幂等、games/mods 增删改查、
+快照滚动淘汰（条数可配）、备份、操作日志、失效归档复合方法、
+特殊 mod 提醒、事务语义（提交 / 回滚 / 禁止嵌套 / 复合方法并入外层）。
+
 运行：python -m pytest tests/ -v
-所有测试用 tmp_path 临时库——不碰你的 data/mods.db
+所有测试用 tmp_path 临时库——绝不碰你的 data/mods.db。
 """
 import sqlite3
 import time
@@ -39,8 +44,8 @@ def test_schema_auto_created(tmp_path):
     con = sqlite3.connect(db)
     names = {row[0] for row in con.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"games", "mods", "mod_snapshots", "backups",
-            "operations_log", "failed_mods", "special_mod_alerts"} <= names
+    assert {"games", "mods", "mod_snapshots", "backups", "operations_log",
+            "failed_mods", "special_mod_alerts"} <= names
     assert con.execute("PRAGMA user_version").fetchone()[0] == 1
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
@@ -51,7 +56,8 @@ def test_reopen_idempotent(tmp_path):
     r1 = SQLiteRepository(db)
     r1.add_game(1, "A", "d")
     r1.close()
-    r2 = SQLiteRepository(db)          # 重复打开：不重建表、不丢数据
+    r2 = SQLiteRepository(db)
+    # 重复打开：不重建表、不丢数据
     assert r2.get_game(1).name == "A"
     r2.close()
 
@@ -63,7 +69,7 @@ def test_game_crud(repo):
     g = repo.get_game(GID)
     assert g.name == "CK3" and g.created_at is not None
     with pytest.raises(sqlite3.IntegrityError):
-        repo.add_game(GID, "重复", "x")            # 主键冲突显式爆炸
+        repo.add_game(GID, "重复", "x")  # 主键冲突显式爆炸
     repo.update_game(GID, backup_dir=r"D:\backup\ck3")
     assert repo.get_game(GID).backup_dir == r"D:\backup\ck3"
     with pytest.raises(ValueError):
@@ -75,7 +81,8 @@ def test_delete_game_restricted(repo):
     make_game(repo, 1)
     make_game(repo, 2)
     make_mod(repo, 100, game_id=1)
-    with pytest.raises(sqlite3.IntegrityError):    # RESTRICT 拦下带 mod 的档案
+    with pytest.raises(sqlite3.IntegrityError):
+        # RESTRICT 拦下带 mod 的档案
         repo.delete_game(1)
     repo.delete_game(2)
     assert repo.get_game(2) is None
@@ -85,18 +92,18 @@ def test_delete_game_restricted(repo):
 
 def test_add_mod_roundtrip(repo):
     make_game(repo)
-    m = Mod(mod_id=3403925213, game_id=GID, title="地图", tags=["Map", "全景"],
-            is_special=True, note="n", time_updated=1788430663,
-            local_timeupdated=1788430663, manifest="5826407289947113109",
-            local_size=30934319)
+    m = Mod(mod_id=3403925213, game_id=GID, title="地图",
+            tags=["Map", "全景"], is_special=True, note="n",
+            time_updated=1788430663, local_timeupdated=1788430663,
+            manifest="5826407289947113109", local_size=30934319)
     repo.add_mod(m)
     got = repo.get_mod(3403925213)
     assert got.title == "地图" and got.tags == ["Map", "全景"]
     assert got.is_special is True and got.status == "tracked"
     assert got.manifest == "5826407289947113109" and got.local_size == 30934319
-    assert got.first_tracked_at is not None        # DB 的 DEFAULT 填的
+    assert got.first_tracked_at is not None  # DB 的 DEFAULT 填的
     with pytest.raises(sqlite3.IntegrityError):
-        make_mod(repo, 3403925213)                 # 重复 id
+        make_mod(repo, 3403925213)  # 重复 id
 
 
 def test_filter_existing_ids(repo):
@@ -109,7 +116,8 @@ def test_filter_existing_ids(repo):
 def test_list_mods_filters(repo):
     make_game(repo)
     make_mod(repo, 1, title="全景地图", note="每周更新", time_updated=300)
-    make_mod(repo, 2, title="小地图", is_special=True, color_tag="red", time_updated=200)
+    make_mod(repo, 2, title="小地图", is_special=True, color_tag="red",
+             time_updated=200)
     make_mod(repo, 3, title="装饰", time_updated=100)
     make_mod(repo, 4, title="旧", time_updated=50)
     assert len(repo.list_mods(GID)) == 4
@@ -119,7 +127,7 @@ def test_list_mods_filters(repo):
     assert [m.mod_id for m in repo.list_mods(GID, search="每周")] == [1]
     assert [m.mod_id for m in repo.list_mods(GID, status="downloaded")] == []
     assert repo.list_mods(GID, order_by="time_updated ASC")[0].mod_id == 4
-    assert repo.list_mods(GID)[0].mod_id == 1                   # DESC 默认
+    assert repo.list_mods(GID)[0].mod_id == 1  # DESC 默认
     assert len(repo.list_mods(GID, limit=2)) == 2
     with pytest.raises(ValueError):
         repo.list_mods(GID, order_by="mod_id; DROP TABLE mods")  # 白名单拦截
@@ -131,11 +139,26 @@ def test_update_api_metadata_partial(repo):
     repo.update_api_metadata(1, title="新标题", time_updated=42, subscriptions=7)
     m = repo.get_mod(1)
     assert m.title == "新标题" and m.time_updated == 42 and m.subscriptions == 7
-    assert m.note == "保留"                                     # 没传的没被动
+    assert m.note == "保留"  # 没传的没被动
     repo.update_api_metadata(1, tags=[])
-    assert repo.get_mod(1).tags == []                           # 空列表 = 清空
+    assert repo.get_mod(1).tags == []  # 空列表 = 清空
     with pytest.raises(ValueError):
         repo.update_api_metadata(999, title="x")
+
+
+def test_update_api_metadata_writes_last_time_updated(repo):
+    # 检测到远端版本变化时，把当次的远端值记进 last_time_updated，
+    # 作为下一轮检测的比较基准
+    make_game(repo)
+    make_mod(repo, 1)
+    repo.update_api_metadata(1, time_updated=1000, last_time_updated=1000)
+    m = repo.get_mod(1)
+    assert m.time_updated == 1000
+    assert m.last_time_updated == 1000
+
+    # None = 不修改：之后只补标题时，上一轮记下的远端值不能被抹掉
+    repo.update_api_metadata(1, title="示例标题")
+    assert repo.get_mod(1).last_time_updated == 1000
 
 
 def test_touch_checked(repo):
@@ -158,9 +181,9 @@ def test_update_local_state(repo):
     assert m.status == "downloaded" and m.local_timeupdated == 1779841231
     assert m.manifest == "1601231248691770967"
     with pytest.raises(ValueError):
-        repo.update_local_state(999, local_timeupdated=1)       # 不存在
+        repo.update_local_state(999, local_timeupdated=1)  # 不存在
     with pytest.raises(ValueError):
-        repo.update_local_state(1, local_timeupdated=None)      # 必填项
+        repo.update_local_state(1, local_timeupdated=None)  # 必填项
 
 
 def test_setters_and_clearing(repo):
@@ -171,7 +194,7 @@ def test_setters_and_clearing(repo):
     repo.set_special(1, True)
     m = repo.get_mod(1)
     assert (m.note, m.color_tag, m.is_special) == ("hello", "blue", True)
-    repo.set_color_tag(1, None)                                 # None = 清除
+    repo.set_color_tag(1, None)  # None = 清除
     assert repo.get_mod(1).color_tag is None
     with pytest.raises(ValueError):
         repo.set_note(999, "x")
@@ -188,14 +211,28 @@ def test_mark_deleted(repo):
 
 # ---------- 快照 ----------
 
-def test_snapshot_rolling_ten(repo):
+def test_snapshot_rolling_default_five(repo):
+    # 默认保留 5 条：插 7 条后只剩最新的 5 条，且顺序为新→旧
     make_game(repo)
     make_mod(repo, 1)
-    for i in range(1, 13):                                      # 插 12 条
+    for i in range(1, 8):  # 插 7 条
         repo.add_snapshot(1, time_updated=i * 100, snapshot_at=i)
     snaps = repo.list_snapshots(1)
-    assert len(snaps) == 10
-    assert snaps[0].snapshot_at == 12 and snaps[-1].snapshot_at == 3  # 新→旧
+    assert len(snaps) == 5
+    assert snaps[0].snapshot_at == 7 and snaps[-1].snapshot_at == 3  # 新→旧
+
+
+def test_snapshot_keep_is_configurable(tmp_path):
+    # 构造参数注入 2 条：验证滚动淘汰跟随配置走，而不是写死的数字
+    r = SQLiteRepository(tmp_path / "test.db", snapshot_keep=2)
+    make_game(r)
+    make_mod(r, 1)
+    for i in range(1, 6):  # 插 5 条
+        r.add_snapshot(1, time_updated=i * 100, snapshot_at=i)
+    snaps = r.list_snapshots(1)
+    assert len(snaps) == 2
+    assert snaps[0].snapshot_at == 5 and snaps[-1].snapshot_at == 4
+    r.close()
 
 
 # ---------- backups ----------
@@ -205,7 +242,8 @@ def test_backup_lifecycle(repo):
     make_mod(repo, 1001)
     b = repo.add_backup(1001, r"D:\bk\1001_v5", 100, 5)
     assert b.id is not None and b.created_at is not None and b.pinned is False
-    with pytest.raises(sqlite3.IntegrityError):                 # UNIQUE 路径
+    with pytest.raises(sqlite3.IntegrityError):
+        # UNIQUE 路径
         repo.add_backup(1001, r"D:\bk\1001_v5", 100, 5)
     repo.set_pinned(b.id, True)
     assert repo.get_backup(b.id).pinned is True
@@ -248,14 +286,14 @@ def test_replace_failed_mod(repo):
     repo.add_snapshot(1, time_updated=100, snapshot_at=1)
     repo.add_snapshot(1, time_updated=200, snapshot_at=2)
     repo.mark_failed(1, "result=9")
-    make_mod(repo, 2, title="旧mod重传")                        # 作者重传的新 id
+    make_mod(repo, 2, title="旧mod重传")  # 作者重传的新 id
     repo.replace_failed_mod(1, 2)
     new = repo.get_mod(2)
     assert new.note == "备注" and new.color_tag == "red" and new.is_special is True
-    assert len(repo.list_snapshots(2)) == 2                     # 快照改挂
+    assert len(repo.list_snapshots(2)) == 2  # 快照改挂
     assert repo.list_snapshots(1) == []
-    assert repo.list_failed(GID)[0].replaced_by == 2            # 证据链
-    assert repo.get_mod(1).status == "failed"                   # 旧记录保留
+    assert repo.list_failed(GID)[0].replaced_by == 2  # 证据链
+    assert repo.get_mod(1).status == "failed"  # 旧记录保留
 
 
 def test_replace_merge_semantics(repo):
@@ -265,8 +303,8 @@ def test_replace_merge_semantics(repo):
     make_mod(repo, 2, note="新备注", is_special=True)
     repo.replace_failed_mod(1, 2)
     new = repo.get_mod(2)
-    assert new.note == "新备注"        # 新值已有 → 不被旧值覆盖
-    assert new.color_tag == "red"      # 新值为空 → 迁移旧值
+    assert new.note == "新备注"  # 新值已有 → 不被旧值覆盖
+    assert new.color_tag == "red"  # 新值为空 → 迁移旧值
     assert new.is_special is True
 
 
@@ -298,7 +336,7 @@ def test_transaction_rollback(repo):
         with repo.transaction():
             make_mod(repo, 1)
             raise RuntimeError("boom")
-    assert repo.filter_existing_ids({1}) == set()               # 一片都没留下
+    assert repo.filter_existing_ids({1}) == set()  # 一片都没留下
 
 
 def test_transaction_nesting_forbidden(repo):
@@ -312,7 +350,7 @@ def test_composite_joins_outer_transaction(repo):
     make_game(repo)
     make_mod(repo, 1, title="T")
     with repo.transaction():
-        repo.mark_failed(1, "r9")                               # _atomic 并入外层
+        repo.mark_failed(1, "r9")  # _atomic 并入外层
         make_mod(repo, 2)
     assert repo.get_mod(1).status == "failed"
     assert repo.filter_existing_ids({2}) == {2}
@@ -325,5 +363,5 @@ def test_composite_rolled_back_with_outer(repo):
         with repo.transaction():
             repo.mark_failed(1, "r9")
             raise RuntimeError("boom")
-    assert repo.get_mod(1).status == "tracked"                  # 全部回滚
+    assert repo.get_mod(1).status == "tracked"  # 全部回滚
     assert repo.list_failed(GID) == []

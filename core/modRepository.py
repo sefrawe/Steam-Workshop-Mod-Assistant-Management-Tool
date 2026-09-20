@@ -1,41 +1,33 @@
-'''
-数据访问契约层（接口）
-'''
+"""数据访问契约层（接口）
+"""
 """
 core/modRepository.py · 数据访问契约层（接口）
 
 为什么先写接口再写实现：
-    上层（workflows / gui）只 import 本文件的类，永远不写 SQL；
-    sqliteRepository.py 负责把每个方法翻译成真正的 SQL。
-    好处：上层不关心存储细节（将来换存储引擎不动上层）；
-    写测试可以塞假实现；本文件本身就是"这个项目有哪些数据能力"的完整清单。
+上层（workflows / gui）只 import 本文件的类，永远不写 SQL；
+sqliteRepository.py 负责把每个方法翻译成真正的 SQL。
+好处：上层不关心存储细节（将来换存储引擎不动上层）；
+写测试可以塞假实现；本文件本身就是"这个项目有哪些数据能力"的完整清单。
 
 通用约定（调用方必读，共 6 条）：
-    1. 时间一律 Unix 时间戳（int，秒），与 Steam API / acf 原生格式一致
-    2. get_game / get_mod / get_backup / get_last_alert 查不到时返回 None，
-       不抛异常——"找不到怎么办"由调用方决定
-    3. 违反唯一约束 / 外键约束时抛 sqlite3.IntegrityError，本层绝不静默吞掉
-       （让错误显式爆炸，好过数据悄悄错下去）
-    4. 单个方法自带事务：成功自动 commit，异常自动回滚，调用方无感；
-       多个方法需要打包成"要么全成要么全败"时，用 with repo.transaction(): 包住
-    5. 可选参数中 None = "不修改该字段"；需要"清空"的场景用专门 setter
-       （如 set_color_tag(mod_id, None)）
-    6. 本文件不含一行 SQL，也不 import sqlite3——它只是契约
+1. 时间一律 Unix 时间戳（int，秒），与 Steam API / acf 原生格式一致
+2. get_game / get_mod / get_backup / get_last_alert 查不到时返回 None，
+   不抛异常——"找不到怎么办"由调用方决定
+3. 违反唯一约束 / 外键约束时抛 sqlite3.IntegrityError，本层绝不静默吞掉
+   （让错误显式爆炸，好过数据悄悄错下去）
+4. 单个方法自带事务：成功自动 commit，异常自动回滚，调用方无感；
+   多个方法需要打包成"要么全成要么全败"时，用 with repo.transaction(): 包住
+5. 可选参数中 None = "不修改该字段"；需要"清空"的场景用专门 setter
+   （如 set_color_tag(mod_id, None)）
+6. 本文件不含一行 SQL，也不 import sqlite3——它只是契约
 """
-
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
 from pathlib import Path
 
 from core.models import (
-    Alert,
-    Backup,
-    FailedMod,
-    Game,
-    Mod,
-    OperationLog,
-    Snapshot,
+    Alert, Backup, FailedMod, Game, Mod, OperationLog, Snapshot,
 )
 
 # list_mods 的排序白名单。为什么存在：ORDER BY 无法用 ? 参数绑定，只能拼进
@@ -55,17 +47,19 @@ class ModRepository(ABC):
     # ============ 基础设施（3） ============
 
     @abstractmethod
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, *, snapshot_keep: int = 5) -> None:
         """打开连接、设置 PRAGMA（foreign_keys=ON / WAL / busy_timeout）。
+        snapshot_keep：每个 mod 保留的快照条数，由主窗口从设置注入，
+        测试可以塞小数字快速验证滚动淘汰。
         若库为空（user_version==0）自动执行 core/schema.sql 建表——幂等，
         重复调用不报错，所以测试里可以随便 new 临时库。"""
 
     @abstractmethod
     def transaction(self) -> AbstractContextManager[None]:
         """事务上下文：
-            with repo.transaction():
-                repo.add_mod(a)
-                repo.add_snapshot(a.mod_id, ...)
+        with repo.transaction():
+            repo.add_mod(a)
+            repo.add_snapshot(a.mod_id, ...)
         块内任何异常 → 全部回滚；正常退出 → 统一 commit。
         不要嵌套使用。迁移脚本灌 237 个 mod、导入分享包都靠它保证原子性。"""
 
@@ -123,18 +117,19 @@ class ModRepository(ABC):
                   order_by: str = "time_updated DESC",
                   limit: int | None = None) -> list[Mod]:
         """mod 列表页的万能查询（GUI 与导出共用）。
-        status:       None=全部 / 'tracked' / 'downloaded' / 'deleted' / 'failed'
+        status: None=全部 / 'tracked' / 'downloaded' / 'deleted' / 'failed'
         special_only: True 时只返回 is_special=1
-        color_tag:    精确匹配
-        search:       对 title / note 做 LIKE %xx%（SQLite LIKE 对 ASCII 不分大小写）
-        order_by:     必须取自 ALLOWED_ORDERS，否则 ValueError
-        limit:        None=不限制"""
+        color_tag: 精确匹配
+        search: 对 title / note 做 LIKE %xx%（SQLite LIKE 对 ASCII 不分大小写）
+        order_by: 必须取自 ALLOWED_ORDERS，否则 ValueError
+        limit: None=不限制"""
 
     @abstractmethod
     def update_api_metadata(self, mod_id: int, *, title: str | None = None,
                             creator: str | None = None, url: str | None = None,
                             time_created: int | None = None,
                             time_updated: int | None = None,
+                            last_time_updated: int | None = None,
                             file_size: int | None = None,
                             subscriptions: int | None = None,
                             favorited: int | None = None,
@@ -144,7 +139,9 @@ class ModRepository(ABC):
                             last_checked_at: int | None = None) -> None:
         """Steam API 查询结果回写。None=不修改该字段。
         只动远端侧数据（time_updated 在这里更新）；local_* 三件套是 acf 的
-        地盘，本方法绝不触碰——两套事实源互不越界。"""
+        地盘，本方法绝不触碰——两套事实源互不越界。
+        last_time_updated：检测到远端版本变化时，把"当次的远端值"记下来，
+        作为下一轮检测的比较基准，也是"距上次更新多少天"的计算分母。"""
 
     @abstractmethod
     def touch_checked(self, mod_ids: Iterable[int],
@@ -191,8 +188,9 @@ class ModRepository(ABC):
                      manifest: str | None = None,
                      local_timeupdated: int | None = None,
                      snapshot_at: int | None = None) -> None:
-        """★复合方法，一个事务内：插入快照 + 滚动删除该 mod 超过 10 条的
-        更旧快照（业务规则在 repo 层实现，调用方永远不用关心保留条数）。
+        """★复合方法，一个事务内：插入快照 + 滚动删除该 mod 超过保留条数
+        （构造时注入的 snapshot_keep）的更旧快照。业务规则在 repo 层实现，
+        调用方永远不用关心保留条数。
         snapshot_at=None 表示取当前时刻；迁移脚本传原值保留历史。"""
 
     @abstractmethod
@@ -236,8 +234,8 @@ class ModRepository(ABC):
     # ============ operations_log（3） ============
 
     @abstractmethod
-    def add_operation(self, command: str,
-                      *, backup_id: int | None = None) -> int:
+    def add_operation(self, command: str, *,
+                      backup_id: int | None = None) -> int:
         """命令执行前先登记，返回 op_id。执行后必须配对调用 finish_operation。"""
 
     @abstractmethod

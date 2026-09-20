@@ -1,4 +1,5 @@
-"""主窗口骨架"""
+"""主窗口骨架
+"""
 """
 结构：左导航（游戏切换器 + 导航列表）+ 中央页面栈 + 底部终端 Dock 占位。
 中央页面从 mod 库页起逐个替换占位；终端的交互实现属于后续阶段。
@@ -8,9 +9,10 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QDockWidget, QHBoxLayout, QLabel, QMainWindow,
-    QStackedWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QDockWidget, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
+
 from core.appSettings import AppSettings
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
@@ -19,7 +21,7 @@ from gui.importPage import ImportPage
 from gui.modListPage import ModListPage
 from gui.placeholderPage import PlaceholderPage
 from gui.settingsPage import SettingsPage
-
+from gui.updateCheckPage import UpdateCheckPage
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "mods.db"
@@ -33,7 +35,7 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
     ("mod 库", 0),
     ("基础功能", [
         ("网址批量导入", 1),
-        ("更新检测", None),
+        ("更新检测", 4),
         ("下载命令生成", None),
     ]),
     ("备份管理", [
@@ -47,17 +49,20 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Steam创意工坊Mod辅助管理工具")
-
         self.resize(1200, 800)
-        # 数据库操作全在主线程（毫秒级）；联网/扫描等长操作后续再上工作线程
-        self._repo = SQLiteRepository(DEFAULT_DB_PATH)
+        # 设置必须先建：数据库构造时要从中读"快照保留条数"注入
         self._settings = AppSettings()
+        # 数据库操作全在主线程（毫秒级）；联网/扫描等长操作走各自页面的工作线程
+        self._repo = SQLiteRepository(
+            DEFAULT_DB_PATH,
+            snapshot_keep=self._settings.get_int("snapshot_keep", 5))
         self._current_game: Game | None = None
-
         self._build_central()
         self._build_terminal_dock()
         self._build_menus()
         self._build_status_bar()
+        # 构造期 switcher 已发射过信号（当时无人监听），补一次初始化状态栏
+        self._on_game_changed(self._switcher.current_game())
 
     # ---------- UI 构建 ----------
 
@@ -91,7 +96,8 @@ class MainWindow(QMainWindow):
             group = QTreeWidgetItem([name])
             group.setFlags(Qt.ItemFlag.ItemIsEnabled)  # 组节点不可选中，只负责折叠
             for label, index in spec:
-                child = QTreeWidgetItem([label if index is not None else f"{label}（开发中）"])
+                child = QTreeWidgetItem(
+                    [label if index is not None else f"{label}（开发中）"])
                 if index is None:
                     child.setDisabled(True)  # 灰色、点不动
                 else:
@@ -106,19 +112,22 @@ class MainWindow(QMainWindow):
 
         self._stack = QStackedWidget(central)
         self._pages = [
-            ModListPage(self._repo, self._stack),
-            ImportPage(self._repo, self._stack),
-            PlaceholderPage("备份管理", "mod 备份与恢复功能开发中", self._stack),
-            SettingsPage(self._settings, self._stack),
+            ModListPage(self._repo, self._stack),          # 0
+            ImportPage(self._repo, self._stack),           # 1
+            PlaceholderPage("备份管理", "mod 备份与恢复功能开发中",
+                            self._stack),                  # 2
+            SettingsPage(self._settings, self._stack),     # 3
+            UpdateCheckPage(self._repo, self._settings,
+                            self._stack),                  # 4
         ]
         for page in self._pages:
             self._stack.addWidget(page)
         self._pages[1].imported.connect(self._on_imported)
-
+        self._pages[4].checks_finished.connect(self._on_checks_finished)
         self._nav.setCurrentItem(self._nav_items[0])
+
         root.addWidget(side)
         root.addWidget(self._stack, 1)
-
         self.setCentralWidget(central)
 
     def _build_terminal_dock(self) -> None:
@@ -127,7 +136,6 @@ class MainWindow(QMainWindow):
             "交互式终端将在后续版本接入。\n可从【视图】菜单关闭 / 恢复本面板。",
             self._terminal_dock,
         )
-
         placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         placeholder.setWordWrap(True)
         self._terminal_dock.setWidget(placeholder)
@@ -152,8 +160,6 @@ class MainWindow(QMainWindow):
         self._status_db = QLabel(f"数据库：{DEFAULT_DB_PATH}", self)
         self.statusBar().addWidget(self._status_game)
         self.statusBar().addPermanentWidget(self._status_db)
-        # 构造期 switcher 已发射过信号（当时无人监听），补一次初始化状态栏
-        self._on_game_changed(self._switcher.current_game())
 
     # ---------- 槽 ----------
 
@@ -165,7 +171,8 @@ class MainWindow(QMainWindow):
             self._stack.setCurrentIndex(index)
 
     def _on_nav_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
-        if item.childCount():  # 点组名 = 折叠/展开，和点小箭头等效
+        if item.childCount():
+            # 点组名 = 折叠/展开，和点小箭头等效
             item.setExpanded(not item.isExpanded())
 
     def _on_game_changed(self, game: Game | None) -> None:
@@ -178,11 +185,20 @@ class MainWindow(QMainWindow):
             if hasattr(page, "set_game"):
                 page.set_game(game)
 
+    def _on_imported(self, count: int) -> None:
+        self._nav.setCurrentItem(self._nav_items[0])       # 跳到 mod 库页
+        self._pages[0].set_game(self._switcher.current_game())  # 触发重载
+        self.statusBar().showMessage(f"已导入 {count} 个 mod", 5000)
+
+    def _on_checks_finished(self, updates: int) -> None:
+        # 检测/合集登记改了库内数据，mod 库页必须重载才看得到新标题和红块
+        self._pages[0].set_game(self._switcher.current_game())
+        if updates:
+            self.statusBar().showMessage(
+                f"更新检测完成：发现 {updates} 个 mod 有新版本", 5000)
+        else:
+            self.statusBar().showMessage("更新检测完成", 5000)
+
     def closeEvent(self, event) -> None:
         self._repo.close()
         super().closeEvent(event)
-
-    def _on_imported(self, count: int) -> None:
-        self._nav.setCurrentItem(self._nav_items[0])  # 跳到 mod 库页
-        self._pages[0].set_game(self._switcher.current_game())  # 触发重载
-        self.statusBar().showMessage(f"已导入 {count} 个 mod", 5000)

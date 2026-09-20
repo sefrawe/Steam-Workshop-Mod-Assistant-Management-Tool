@@ -1,0 +1,218 @@
+"""Steam 网络客户端
+"""
+"""
+封装 Steam 官方的两个查询接口（都不需要 API Key，与旧脚本一致）：
+
+- GetPublishedFileDetails：一次最多查 100 个工坊条目的远端信息
+  （标题、作者、更新时间、大小、订阅数、收藏数、浏览数、标签、预览图）
+- GetCollectionDetails：查某个"合集"里包含哪些条目
+
+本文件只负责发请求和解析响应，不碰数据库，也不碰界面。
+
+三个决定解析代码写法的关键事实：
+1. Steam 返回的数字经常是字符串（如 "294100"），偶尔缺失——所以数值
+   一律走 _to_int()：能转就转，转不动/缺失给 None，绝不让一个奇怪
+   的字段炸掉整批结果
+2. 响应里每个条目自带 result 字段：1=查询成功，非 1=该条目有问题
+   （被删除/设为私有/查无此条）——这是"逐条判定"的依据，不是整体错误，
+   所以原样保留在 WorkshopItem 里，分类交给上层做
+3. 服务器可能限流（HTTP 429/503）——遇到就重试，每次等待时间翻倍
+   （指数退避），重试用完仍失败才抛异常。错误显式爆炸，绝不静默
+   返回空结果——静默的空结果会让"全部 mod 都是最新"变成一个谎言
+
+关于合集：远端响应没有一个官方写明的"这是合集"标记字段，所以本客户端
+不做合集判定，只提供查询手段：
+- 上层把 file_size 缺失/为 0 的条目归入"疑似合集/异常"，由用户裁决
+- 用户确认要展开时，调 query_collection_children() 拿成员编号列表
+
+关于证书校验：requests 默认用它自带的 certifi 证书名单，而浏览器和
+Python 标准库用的是 Windows 系统证书库。部分网络环境（代理/安全软件）
+会换发服务器证书——系统库认识、certifi 不认识，导致误报
+CERTIFICATE_VERIFY_FAILED。装了 truststore 就让 requests 也走系统
+证书库（行为与浏览器一致，校验本身没有被关闭）；没装则维持原样。
+"""
+import time
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+
+import requests
+
+# 可选增强：注入失败不应影响程序其余部分，所以吞掉一切异常并注明原因
+try:
+    import truststore
+    truststore.inject_into_ssl()  # 全进程生效：此后所有 HTTPS 都走系统证书库
+except Exception:  # 没安装 / 环境不支持 → 退回 certifi 默认行为
+    pass
+
+DETAILS_URL = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
+COLLECTION_URL = "https://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v1/"
+
+# 官方接口的单次查询上限：超过 100 个必须自己分批
+_BATCH = 100
+_TIMEOUT = 30  # 单次请求超时秒数
+# 遇到这两个状态码值得重试（典型限流）；其他非 200 直接报错，不多耗时间
+_RETRY_STATUSES = frozenset({429, 503})
+
+
+class SteamApiError(RuntimeError):
+    """Steam 接口请求层面的失败（连不上/限流耗尽/响应格式不对）。
+    注意与"单个条目 result 非 1"区分：后者是查询结果，不是请求失败。"""
+
+
+def _to_int(value) -> int | None:
+    """Steam 的数字字段经常以字符串形式出现，偶尔缺失。
+    能转就转，转不动/缺失返回 None——解析层绝不因此抛异常。"""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+@dataclass
+class WorkshopItem:
+    """一条工坊条目的远端信息（GetPublishedFileDetails 单条解析结果）。
+
+    任何字段都可能为 None——本类只忠实转存，不做任何"这像不像合集"
+    的判断。"正常条目 / 疑似合集 / 查询失败"的三桶分类在上层做，
+    依据：result 是否为 1、file_size 是否缺失或为 0。
+    """
+    mod_id: int | None
+    result: int | None        # 1=成功；非 1=该条目失效/私有/查无此条
+    title: str | None
+    creator: str | None
+    time_created: int | None
+    time_updated: int | None
+    file_size: int | None
+    subscriptions: int | None
+    favorited: int | None
+    views: int | None
+    tags: list[str]           # 无标签时为空列表（与库里"空列表=清空"语义对齐）
+    preview_url: str | None
+
+    @classmethod
+    def from_api(cls, d: dict) -> "WorkshopItem":
+        raw_tags = d.get("tags")
+        tags = [t["tag"] for t in raw_tags
+                if isinstance(t, dict) and t.get("tag")] \
+            if isinstance(raw_tags, list) else []
+        return cls(
+            mod_id=_to_int(d.get("publishedfileid")),
+            result=_to_int(d.get("result")),
+            title=str(d["title"]) if d.get("title") is not None else None,
+            creator=str(d["creator"]) if d.get("creator") is not None else None,
+            time_created=_to_int(d.get("time_created")),
+            time_updated=_to_int(d.get("time_updated")),
+            file_size=_to_int(d.get("file_size")),
+            subscriptions=_to_int(d.get("subscriptions")),
+            favorited=_to_int(d.get("favorited")),
+            views=_to_int(d.get("views")),
+            tags=tags,
+            preview_url=(str(d["preview_url"])
+                         if d.get("preview_url") is not None else None),
+        )
+
+
+class SteamApiClient:
+    """两个接口的统一入口。
+
+    请求间隔和重试次数由主窗口从设置读出后注入，本类不碰配置文件；
+    session 参数供测试注入假对象（不发真实网络请求），平时用默认值。
+    """
+
+    def __init__(self, session: requests.Session | None = None, *,
+                 interval_ms: int = 200, max_retries: int = 3,
+                 sleeper: Callable[[float], None] = time.sleep) -> None:
+        self._session = session if session is not None else requests.Session()
+        self._interval_ms = max(0, int(interval_ms))
+        self._max_retries = max(0, int(max_retries))
+        # 计时函数注入：生产环境是 time.sleep，测试换成"只记录不等待"
+        self._sleep = sleeper
+
+    # ---------- 对外：批量查条目详情 ----------
+
+    def query_details(self, mod_ids: Iterable[int]) -> list[WorkshopItem]:
+        """批量查询，自动去重（保持传入顺序）、自动按 100 个一批分批。
+        批与批之间等待请求间隔，礼貌节流，降低被限流的概率。"""
+        ids = list(dict.fromkeys(int(i) for i in mod_ids))  # 去重且保序
+        items: list[WorkshopItem] = []
+        for start in range(0, len(ids), _BATCH):
+            chunk = ids[start:start + _BATCH]
+            items.extend(self._query_details_chunk(chunk))
+            if start + _BATCH < len(ids):  # 还有下一批才等，最后一批不等
+                self._sleep(self._interval_ms / 1000)
+        return items
+
+    def _query_details_chunk(self, ids: list[int]) -> list[WorkshopItem]:
+        # 表单格式是官方要求的数组写法：publishedfileids[0]=xx&publishedfileids[1]=xx
+        form: dict[str, str] = {"itemcount": str(len(ids))}
+        for i, mid in enumerate(ids):
+            form[f"publishedfileids[{i}]"] = str(mid)
+        data = self._post_json(DETAILS_URL, form)
+        response = data.get("response") if isinstance(data, dict) else None
+        details = response.get("publishedfiledetails") \
+            if isinstance(response, dict) else None
+        if not isinstance(details, list):
+            raise SteamApiError(
+                "GetPublishedFileDetails 响应缺少 publishedfiledetails 列表")
+        return [WorkshopItem.from_api(d) for d in details
+                if isinstance(d, dict)]
+
+    # ---------- 对外：查合集成员 ----------
+
+    def query_collection_children(self, collection_id: int) -> list[int]:
+        """查询合集包含的条目编号列表。
+
+        返回空列表 = 该编号不是合集（或远端数据异常）。这不算错误——
+        是一次正常的查询结果，调用方据此向用户提示即可，不要抛异常。
+        """
+        form = {"collectioncount": "1",
+                "publishedfileids[0]": str(collection_id)}
+        data = self._post_json(COLLECTION_URL, form)
+        response = data.get("response") if isinstance(data, dict) else None
+        collections = response.get("collectiondetails") \
+            if isinstance(response, dict) else None
+        if not isinstance(collections, list) or not collections:
+            return []
+        children = collections[0].get("children") \
+            if isinstance(collections[0], dict) else None
+        if not isinstance(children, list):
+            return []
+        ids: list[int] = []
+        for child in children:
+            cid = _to_int(child.get("publishedfileid")) \
+                if isinstance(child, dict) else None
+            if cid is not None:
+                ids.append(cid)
+        return ids
+
+    # ---------- 内部：带重试的请求 ----------
+
+    def _post_json(self, url: str, form: dict) -> dict:
+        """POST 表单 → 解析 JSON。失败处理分三档：
+        - 429/503、网络异常、空响应体：值得重试，指数退避（等待翻倍）
+        - 其他非 200（如 404）：立刻报错，重试没有意义
+        - 重试用完仍失败：抛 SteamApiError，把最后一次的失败原因带出去"""
+        last_exc: Exception | None = None
+        for attempt in range(self._max_retries + 1):  # 首次 + N 次重试
+            try:
+                resp = self._session.post(url, data=form, timeout=_TIMEOUT)
+            except requests.RequestException as exc:
+                last_exc = exc  # 连不上/DNS 失败/超时/证书校验失败等，值得重试
+            else:
+                if resp.status_code in _RETRY_STATUSES:
+                    last_exc = SteamApiError(f"HTTP {resp.status_code}（疑似限流）")
+                elif resp.status_code != 200:
+                    raise SteamApiError(
+                        f"HTTP {resp.status_code}，接口：{url}")
+                else:
+                    try:
+                        return resp.json()
+                    except ValueError as exc:
+                        last_exc = exc  # 偶发空响应/坏 JSON，值得重试
+            if attempt < self._max_retries:
+                # 指数退避：第 1 次重试等 1 个间隔，第 2 次等 2 个，第 3 次等 4 个……
+                self._sleep(self._interval_ms / 1000 * (2 ** attempt))
+        raise SteamApiError(
+            f"请求多次失败（共 {self._max_retries + 1} 次）：{last_exc}")
