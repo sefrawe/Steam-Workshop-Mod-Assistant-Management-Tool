@@ -1,10 +1,12 @@
 """mod 库页 """
 """
 后端调试主战场。
-布局：顶部筛选条 + 水平分割（左表格 / 右详情）。
+布局：顶部筛选条（含"扫描本地"）+ 水平分割（左表格 / 右详情）。
 右键菜单：repo 已支持的直接可用；"手动备份"仍是置灰占位；
 "获取下载命令"已点亮——发信号给 MainWindow 跳到命令生成页并聚焦该 mod。
 """
+from core import localScanner
+from core.appSettings import AppSettings
 
 from PySide6.QtCore import QModelIndex, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices
@@ -25,7 +27,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
+from core import localScanner
 from core.models import Game
 from gui.modDetailPanel import ModDetailPanel
 from gui.modListModel import _SORT_MAP, ModListModel
@@ -39,9 +41,13 @@ class ModListPage(QWidget):
     # 右键"获取下载命令"时发出，参数 = 要聚焦的 mod id 列表；MainWindow 负责跳转
     command_gen_requested = Signal(list)
 
-    def __init__(self, repo, parent: QWidget | None = None) -> None:
+    def __init__(self, repo, settings: AppSettings, parent: QWidget | None = None,
+                 log=None) -> None:
         super().__init__(parent)
         self._repo = repo
+        self._settings = settings
+        self._log = log  # LogBus，可为 None（无监听时静默跳过）
+
         self._game: Game | None = None
         self._status: str | None = None
         self._search = ""
@@ -81,6 +87,11 @@ class ModListPage(QWidget):
         btn = QPushButton("刷新", row)
         btn.clicked.connect(self._reload)
         h.addWidget(btn)
+
+        scan_btn = QPushButton("扫描本地", row)
+        scan_btn.setToolTip("解析当前游戏的 appworkshop acf，回填本地版本三件套")
+        scan_btn.clicked.connect(self._on_scan_local)
+        h.addWidget(scan_btn)
 
         self._count_label = QLabel("", row)
         h.addWidget(self._count_label)
@@ -260,3 +271,56 @@ class ModListPage(QWidget):
                       "local_path": m.local_path}
         self._repo.mark_deleted(m.mod_id, last_state)
         self._reload()
+
+    def _steam_library_path(self) -> str:
+        return self._settings.get("steam_library_path").strip()
+
+    def _on_scan_local(self) -> None:
+        """扫描当前游戏的 acf，回填本地三件套（同步执行，本地 IO 毫秒级）。"""
+        if self._game is None:
+            QMessageBox.information(self, "扫描本地", "请先选择游戏档案。")
+            return
+        lib_path = self._steam_library_path()
+        if not lib_path:
+            QMessageBox.warning(
+                self, "扫描本地",
+                "尚未设置 Steam 库目录，请先到设置页填写。\n"
+                "（填 Steam 库根目录或其下 steamapps 目录均可）")
+            return
+        acf = localScanner.locate_acf(lib_path, self._game.app_id)
+        if acf is None:
+            QMessageBox.warning(
+                self, "扫描本地",
+                f"在「{lib_path}」下没找到 appworkshop_{self._game.app_id}.acf，"
+                "请检查路径或确认游戏装在此库。")
+            return
+        try:
+            result = localScanner.scan_acf(acf)
+        except ValueError as exc:
+            if self._log:
+                self._log.error(f"扫描本地失败：{exc}")
+            QMessageBox.critical(self, "扫描本地", str(exc))
+            return
+        if not result.items:
+            note = (f"（跳过 {len(result.skipped)} 条不完整条目）"
+                    if result.skipped else "")
+            if self._log:
+                self._log.warn(f"扫描本地：acf 中没有任何工坊条目{note}")
+            return
+        status_map = {m.mod_id: m.status
+                      for m in self._repo.list_mods(self._game.app_id)}
+        plan = localScanner.diff_plan(
+            result.items, status_map, game_id=self._game.app_id)
+        rep = localScanner.apply(self._repo, plan)
+        self._reload()
+        if self._log:
+            skipped = (f"，跳过 {len(result.skipped)} 条不完整条目"
+                       if result.skipped else "")
+            self._log.ok(
+                f"扫描本地完成（{self._game.name}）：共 {len(result.items)} 条，"
+                f"回填 {rep.updated}（首次确认下载 {rep.transitioned}），"
+                f"新入库 {rep.inserted}{skipped}")
+            if rep.inserted:
+                self._log.info(
+                    "新入库条目缺标题等远端信息，建议跑一次更新检测补齐")
+

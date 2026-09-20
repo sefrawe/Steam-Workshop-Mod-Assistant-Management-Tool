@@ -126,7 +126,7 @@ class MainWindow(QMainWindow):
 
         self._stack = QStackedWidget(central)
         self._pages = [
-            ModListPage(self._repo, self._stack),                                # 0
+            ModListPage(self._repo, self._settings, self._stack,log=self._log),  # 0
             ImportPage(self._repo, self._stack, log=self._log),                  # 1
             PlaceholderPage("备份管理", "mod 备份与恢复功能开发中", self._stack),  # 2
             SettingsPage(self._settings, self._stack),                           # 3

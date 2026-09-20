@@ -42,8 +42,8 @@ _FIELDS = [
      "账号必须拥有对应游戏，否则下载其创意工坊内容会报错；"
      "把密码写进命令会明文保存在本机设置文件里，请自行权衡", "text"),
     ("steam_library_path", "Steam 库目录",
-     "steamapps 所在目录，扫描本机已装 mod 时使用，"
-     "如 C:\\Program Files\\Steam\\steamapps", "dir"),
+     "Steam 库根目录（如 D:\\SteamLibrary）或其下 steamapps 目录均可，"
+     "扫描本机已装 mod 时使用", "dir"),
     ("default_download_dir", "默认下载目录",
      "新建游戏档案时自动预填的 mod 下载目录，"
      "如 C:\\Users\\YourName\\Documents\\SteamMods", "dir"),
