@@ -33,12 +33,18 @@ from core.models import (
 # list_mods 的排序白名单。为什么存在：ORDER BY 无法用 ? 参数绑定，只能拼进
 # SQL 字符串，所以用白名单杜绝注入；要新排序就在这里加、实现层同步支持
 ALLOWED_ORDERS: frozenset[str] = frozenset({
-    "time_updated DESC", "time_updated ASC",
-    "title ASC", "title DESC",
+    "time_updated DESC",
+    "time_updated ASC",
+    "title ASC",
+    "title DESC",
     "local_size DESC",
-    "first_tracked_at DESC", "first_tracked_at ASC",
+    "first_tracked_at DESC",
+    "first_tracked_at ASC",
     "last_checked_at DESC",
+    "mod_id ASC",
+    "mod_id DESC",
 })
+
 
 
 class ModRepository(ABC):

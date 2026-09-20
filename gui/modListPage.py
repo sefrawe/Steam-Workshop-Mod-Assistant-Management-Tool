@@ -1,17 +1,29 @@
-"""mod 库页
+"""mod 库页 """
 """
-"""
-（G2）——后端调试主战场
+后端调试主战场。
 布局：顶部筛选条 + 水平分割（左表格 / 右详情）。
-右键菜单分两档：repo 已支持的直接可用；依赖任务 3~7 的置灰占位，
-任务落地后把 setEnabled(True) 那行删掉即可。
+右键菜单：repo 已支持的直接可用；"手动备份"仍是置灰占位；
+"获取下载命令"已点亮——发信号给 MainWindow 跳到命令生成页并聚焦该 mod。
 """
-from PySide6.QtCore import QModelIndex, Qt, QTimer, QUrl
+
+from PySide6.QtCore import QModelIndex, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QHeaderView, QInputDialog,
-    QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
-    QSplitter, QTableView, QVBoxLayout, QWidget,
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QTableView,
+    QVBoxLayout,
+    QWidget,
 )
 
 from core.models import Game
@@ -19,11 +31,14 @@ from gui.modDetailPanel import ModDetailPanel
 from gui.modListModel import _SORT_MAP, ModListModel
 
 # 颜色标记的键值：库里存 hex（将来徽标着色直接可用），菜单里显示中文名
-_COLORS = {"红": "#e5484d", "橙": "#f76b15", "黄": "#f5d90a",
-           "绿": "#46a758", "蓝": "#0091ff", "紫": "#8e4ec6"}
+_COLORS = {"红": "#e5484d", "橙": "#f76b15", "黄": "#f5d90a", "绿": "#46a758",
+           "蓝": "#0091ff", "紫": "#8e4ec6"}
 
 
 class ModListPage(QWidget):
+    # 右键"获取下载命令"时发出，参数 = 要聚焦的 mod id 列表；MainWindow 负责跳转
+    command_gen_requested = Signal(list)
+
     def __init__(self, repo, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._repo = repo
@@ -34,7 +49,6 @@ class ModListPage(QWidget):
         self._order_by = "time_updated DESC"
         self._sort_col = 3
         self._selected_mod_id: int | None = None  # reload 后恢复选中
-
         self._build_ui()
 
     # ---------- UI 构建 ----------
@@ -47,7 +61,6 @@ class ModListPage(QWidget):
         bar_layout = QVBoxLayout(bar)
         bar_layout.setContentsMargins(0, 0, 0, 6)
         row = QWidget(bar)
-        from PySide6.QtWidgets import QHBoxLayout
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
 
@@ -62,8 +75,7 @@ class ModListPage(QWidget):
             self._status_combo.addItem(label, val)  # 显示中文，currentData 仍是库内值
         h.addWidget(self._status_combo)
 
-        self._special_check = QCheckBox("特别关注", row)  # 去掉 ★
-
+        self._special_check = QCheckBox("特别关注", row)
         h.addWidget(self._special_check)
 
         btn = QPushButton("刷新", row)
@@ -84,9 +96,11 @@ class ModListPage(QWidget):
         self._table.setAlternatingRowColors(True)
         self._table.setWordWrap(False)
         self._table.verticalHeader().setVisible(False)
+
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        for col, width in ((0, 90), (2, 96), (3, 92), (4, 92), (5, 72), (6, 88), (7, 170), (8, 32), (9, 160)):
+        for col, width in ((0, 90), (2, 96), (3, 92), (4, 92), (5, 72),
+                           (6, 88), (7, 170), (8, 32), (9, 160)):
             self._table.setColumnWidth(col, width)
         header.setSortIndicator(self._sort_col, Qt.SortOrder.DescendingOrder)
         header.setSortIndicatorShown(True)
@@ -179,31 +193,34 @@ class ModListPage(QWidget):
         act_open.triggered.connect(
             lambda: QDesktopServices.openUrl(QUrl(m.url)))
         menu.addAction(act_open)
-        menu.addSeparator()
 
+        menu.addSeparator()
         for text, cb in (
-            ("编辑备注…", lambda: self._edit_note(m)),
-            ("颜色标记…", lambda: self._pick_color(m)),
-            ("切换特别关注", lambda: self._toggle_special(m)),
+                ("编辑备注…", lambda: self._edit_note(m)),
+                ("颜色标记…", lambda: self._pick_color(m)),
+                ("切换特别关注", lambda: self._toggle_special(m)),
         ):
             act = QAction(text, menu)
             act.triggered.connect(cb)
             menu.addAction(act)
-        menu.addSeparator()
 
-        # ↓ 待后端任务点亮的占位（任务 5 / 6.5 落地后改为触发）
-        # 待后端点亮的占位：文案里的任务编号改成"开发中"
-        for text in ("获取下载命令（开发中）", "手动备份（开发中）"):
-            menu.addAction(QAction(text, menu)).setEnabled(False)
         menu.addSeparator()
+        # 跳到命令生成页，让它只勾选这个 mod（不带页面参数，交给 MainWindow 接线）
+        act_cmdgen = QAction("获取下载命令…", menu)
+        act_cmdgen.triggered.connect(
+            lambda: self.command_gen_requested.emit([mid]))
+        menu.addAction(act_cmdgen)
+        act_backup = QAction("手动备份（开发中）", menu)
+        act_backup.setEnabled(False)
+        menu.addAction(act_backup)
 
+        menu.addSeparator()
         act_del = QAction("软删除…", menu)
         act_del.setEnabled(m.status != "deleted")
         act_del.triggered.connect(lambda: self._soft_delete(m))
         menu.addAction(act_del)
 
         menu.exec(self._table.viewport().mapToGlobal(pos))
-        _ = mid  # 右键动作统一走 _reload 恢复选中，mid 留作未来细化定位
 
     # ---------- 动作 ----------
 
@@ -217,8 +234,8 @@ class ModListPage(QWidget):
     def _pick_color(self, m) -> None:
         names = [*_COLORS.keys(), "（清除标记）"]
         name, ok = QInputDialog.getItem(
-            self, "颜色标记", f"mod {m.mod_id}：", names,
-            current=0, editable=False)
+            self, "颜色标记", f"mod {m.mod_id}：",
+            names, current=0, editable=False)
         if ok:
             self._repo.set_color_tag(
                 m.mod_id, None if name.startswith("（") else _COLORS[name])
@@ -231,8 +248,8 @@ class ModListPage(QWidget):
     def _soft_delete(self, m) -> None:
         ret = QMessageBox.question(
             self, "软删除",
-            f"确定将「{m.title or m.mod_id}」标记为已删除？\n"  # 原来是"标记为 deleted"
-            "记录会保留在库中（含删除前快照），可随时恢复。")  # 字段名也从文案里拿掉
+            f"确定将「{m.title or m.mod_id}」标记为已删除？\n"
+            "记录会保留在库中（含删除前快照），可随时恢复。")
         if ret != QMessageBox.StandardButton.Yes:
             return
         # last_state 组装口径与 repo.mark_failed 保持一致（flow 层职责，暂由 GUI 代行）
