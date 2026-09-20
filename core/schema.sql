@@ -82,8 +82,8 @@ CREATE INDEX idx_mods_special     ON mods(is_special);
 CREATE INDEX idx_mods_time_update ON mods(time_updated);
 
 -- ------------------------------------------------------------
--- mod_snapshots  只读历史时间线
--- 每 mod 仅保留最近 10 条：插入新快照后由 sqliteRepository 删更旧的
+-- 每个 mod 滚动保留最近 N 条版本快照（N 由 snapshot_keep 配置，默认 5），
+-- 删除逻辑在仓库层，本文件不含
 -- ------------------------------------------------------------
 CREATE TABLE mod_snapshots (
                                id                INTEGER PRIMARY KEY,

@@ -1,7 +1,8 @@
 """主窗口骨架
 """
 """
-结构：左导航（游戏切换器 + 导航列表）+ 中央页面栈 + 底部终端 Dock 占位。
+结构：左导航（游戏切换器 + 导航列表）+ 中央页面栈 + 底部控制台 Dock。
+控制台含"运行日志 / steamcmd 终端"两个标签页，各页面通过 LogBus 打日志。
 中央页面从 mod 库页起逐个替换占位；终端的交互实现属于后续阶段。
 """
 from pathlib import Path
@@ -16,12 +17,14 @@ from PySide6.QtWidgets import (
 from core.appSettings import AppSettings
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
+from gui.consolePanel import ConsolePanel, LogBus
 from gui.gameSwitcher import GameSwitcher
 from gui.importPage import ImportPage
 from gui.modListPage import ModListPage
 from gui.placeholderPage import PlaceholderPage
 from gui.settingsPage import SettingsPage
 from gui.updateCheckPage import UpdateCheckPage
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "mods.db"
@@ -52,13 +55,15 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
         # 设置必须先建：数据库构造时要从中读"快照保留条数"注入
         self._settings = AppSettings()
+        # 日志总线先于页面建好，构造页面时注入
+        self._log = LogBus()
         # 数据库操作全在主线程（毫秒级）；联网/扫描等长操作走各自页面的工作线程
         self._repo = SQLiteRepository(
             DEFAULT_DB_PATH,
             snapshot_keep=self._settings.get_int("snapshot_keep", 5))
         self._current_game: Game | None = None
         self._build_central()
-        self._build_terminal_dock()
+        self._build_console_dock()
         self._build_menus()
         self._build_status_bar()
         # 构造期 switcher 已发射过信号（当时无人监听），补一次初始化状态栏
@@ -113,12 +118,12 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget(central)
         self._pages = [
             ModListPage(self._repo, self._stack),          # 0
-            ImportPage(self._repo, self._stack),           # 1
+            ImportPage(self._repo, self._stack, log=self._log),   # 1
             PlaceholderPage("备份管理", "mod 备份与恢复功能开发中",
                             self._stack),                  # 2
             SettingsPage(self._settings, self._stack),     # 3
-            UpdateCheckPage(self._repo, self._settings,
-                            self._stack),                  # 4
+            UpdateCheckPage(self._repo, self._settings, self._stack,
+                            log=self._log),                # 4
         ]
         for page in self._pages:
             self._stack.addWidget(page)
@@ -130,16 +135,12 @@ class MainWindow(QMainWindow):
         root.addWidget(self._stack, 1)
         self.setCentralWidget(central)
 
-    def _build_terminal_dock(self) -> None:
-        self._terminal_dock = QDockWidget("steamcmd 终端（开发中）", self)
-        placeholder = QLabel(
-            "交互式终端将在后续版本接入。\n可从【视图】菜单关闭 / 恢复本面板。",
-            self._terminal_dock,
-        )
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        placeholder.setWordWrap(True)
-        self._terminal_dock.setWidget(placeholder)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._terminal_dock)
+    def _build_console_dock(self) -> None:
+        self._console_dock = QDockWidget("控制台", self)
+        self._console_dock.setWidget(
+            ConsolePanel(self._log, self._console_dock))
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
+                           self._console_dock)
 
     def _build_menus(self) -> None:
         m_file = self.menuBar().addMenu("文件(&F)")
@@ -153,7 +154,7 @@ class MainWindow(QMainWindow):
         m_file.addAction(act_quit)
 
         m_view = self.menuBar().addMenu("视图(&V)")
-        m_view.addAction(self._terminal_dock.toggleViewAction())
+        m_view.addAction(self._console_dock.toggleViewAction())
 
     def _build_status_bar(self) -> None:
         self._status_game = QLabel(self)

@@ -1,8 +1,10 @@
-"""网址批量导入页"""
+"""网址批量导入页
 """
-基础功能页：工坊网址（或纯数字编号）粘贴 / 从文本文件读入 → 解析预览
-→ 批量登记为已收录，归属当前选中的游戏档案。只写编号与链接，标题等
-信息由更新检测补全。解析结果在切换游戏后作废，防止归错档案。
+"""
+基础功能页：工坊网址（或纯数字编号）粘贴 / 从文本文件读入 → 解析预览 →
+批量登记为已收录，归属当前选中的游戏档案。
+只写编号与链接，标题等信息由更新检测补全。
+解析结果在切换游戏后作废，防止归错档案。
 """
 import sqlite3
 import time
@@ -16,18 +18,20 @@ from PySide6.QtWidgets import (
 
 from core.models import Game, Mod
 from core.urlParser import parse_lines
+from gui.consolePanel import LogBus
 
 _URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
 
 
 class ImportPage(QWidget):
     """imported(int)：成功导入后发射，主窗口借此跳转 mod 库页并刷新。"""
-
     imported = Signal(int)
 
-    def __init__(self, repo, parent: QWidget | None = None) -> None:
+    def __init__(self, repo, parent: QWidget | None = None,
+                 *, log: LogBus | None = None) -> None:
         super().__init__(parent)
         self._repo = repo
+        self._log = log or LogBus()  # 没人接也照发（发进空气=无操作）
         self._game: Game | None = None
         self._new_ids: list[int] = []
         self._build_ui()
@@ -47,7 +51,8 @@ class ImportPage(QWidget):
 
         tip = QLabel(
             "把工坊网址粘贴到下面（每行一个，也接受纯数字编号，整段空格分隔亦可），"
-            "解析预览后批量登记。\n导入只登记编号与链接，标题等详细信息在更新检测时自动补全。")
+            "解析预览后批量登记。\n导入只登记编号与链接，"
+            "标题等详细信息在更新检测时自动补全。")
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
@@ -90,12 +95,14 @@ class ImportPage(QWidget):
                 and self._game.app_id != game.app_id and self._new_ids):
             self._report.setText("游戏已切换，请重新解析预览后再导入。")
             self._report.setStyleSheet("color: #f76b15;")
+            self._game = game
+            self._new_ids = []
+            self._import_btn.setEnabled(False)
+            self._import_btn.setText("导入（0 个）")
         self._game = game
-        self._new_ids = []
-        self._import_btn.setEnabled(False)
-        self._import_btn.setText("导入（0 个）")
         if game is None:
-            self._game_label.setText("当前游戏：（未选择）—— 请先在左上角添加或选择档案")
+            self._game_label.setText(
+                "当前游戏：（未选择）—— 请先在左上角添加或选择档案")
         else:
             self._game_label.setText(f"当前游戏：{game.name}（{game.app_id}）")
 
@@ -109,11 +116,13 @@ class ImportPage(QWidget):
         try:
             text = Path(path).read_text(encoding="utf-8-sig", errors="replace")
         except OSError as exc:
+            self._log.warn(f"读取文件失败：{path}")
             QMessageBox.warning(self, "读取失败", f"无法读取文件：{exc}")
             return
         current = self._input.toPlainText().rstrip()
-        self._input.setPlainText(f"{current}\n{text.strip()}" if current else text.strip())
-        self._on_parse()   # 读入后立即预览
+        self._input.setPlainText(
+            f"{current}\n{text.strip()}" if current else text.strip())
+        self._on_parse()  # 读入后立即预览
 
     def _on_clear(self) -> None:
         self._input.clear()
@@ -140,15 +149,20 @@ class ImportPage(QWidget):
                     if report.mod_ids else set())
         self._new_ids = [i for i in report.mod_ids if i not in existing]
         dup = len(report.mod_ids) - len(self._new_ids)
-
-        lines = [f"识别 {len(report.mod_ids)} 个编号：可导入 {len(self._new_ids)} 个，"
+        lines = [f"识别 {len(report.mod_ids)} 个编号："
+                 f"可导入 {len(self._new_ids)} 个，"
                  f"已在库中（跳过）{dup} 个。"]
         if report.invalid:
             shown = "；".join(report.invalid[:5])
             lines.append(f"无法识别 {len(report.invalid)} 片段：{shown}"
                          + ("…" if len(report.invalid) > 5 else ""))
+        self._log.info(
+            f"解析预览：识别 {len(report.mod_ids)} 个，"
+            f"可导入 {len(self._new_ids)} 个，跳过 {dup} 个"
+            + (f"，无法识别 {len(report.invalid)} 个" if report.invalid else ""))
         self._report.setText("\n".join(lines))
-        self._report.setStyleSheet("color: #46a758;" if self._new_ids else "color: gray;")
+        self._report.setStyleSheet(
+            "color: #46a758;" if self._new_ids else "color: gray;")
         if self._new_ids:
             self._import_btn.setEnabled(True)
             self._import_btn.setText(f"导入（{len(self._new_ids)} 个）")
@@ -159,22 +173,24 @@ class ImportPage(QWidget):
             return
         now = int(time.time())
         try:
-            with self._repo.transaction():   # 整批一个事务，中途失败全部回滚
+            with self._repo.transaction():
+                # 整批一个事务，中途失败全部回滚
                 for mid in self._new_ids:
                     self._repo.add_mod(Mod(
-                        mod_id=mid,
-                        game_id=game.app_id,
+                        mod_id=mid, game_id=game.app_id,
                         url=_URL_TEMPLATE.format(mid),
-                        status="tracked",
-                        first_tracked_at=now,
+                        status="tracked", first_tracked_at=now,
                     ))
         except sqlite3.IntegrityError as exc:
-            QMessageBox.warning(self, "导入失败", f"写入数据库时冲突：{exc}\n请重新解析后再试。")
+            self._log.error(f"导入失败（数据库冲突）：{exc}")
+            QMessageBox.warning(self, "导入失败",
+                                f"写入数据库时冲突：{exc}\n请重新解析后再试。")
             return
         count = len(self._new_ids)
+        self._log.ok(f"已为「{game.name}」导入 {count} 个 mod")
         QMessageBox.information(
             self, "导入完成",
             f"已为「{game.name}」登记 {count} 个 mod（状态：已收录）。\n"
-            "标题等信息将在更新检测功能完成后自动补全。")
+            "点【更新检测】即可补全标题等信息。")
         self._on_clear()
         self.imported.emit(count)

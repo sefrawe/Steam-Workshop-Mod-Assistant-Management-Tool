@@ -33,6 +33,9 @@ from core.steamApiClient import SteamApiError, SteamApiClient, WorkshopItem
 from gui.formatters import fmt_size, relative_time
 from gui.modListModel import ModListModel
 
+from gui.consolePanel import LogBus
+
+
 # 与导入页保持一致（双方都用官方网页里的标准链接格式）
 _URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
 
@@ -112,10 +115,12 @@ class UpdateCheckPage(QWidget):
     有新版本的 mod 数（合集展开登记后发射 0），主窗口借此刷新 mod 库页。"""
     checks_finished = Signal(int)
 
-    def __init__(self, repo, settings, parent: QWidget | None = None) -> None:
+    def __init__(self, repo, settings, parent: QWidget | None = None,
+                 *, log: LogBus | None = None) -> None:
         super().__init__(parent)
         self._repo = repo
         self._settings = settings
+        self._log = log or LogBus()  # 没人接也照发（发进空气=无操作）
         self._game: Game | None = None
         self._worker: _CheckWorker | None = None
         self._col_worker: _CollectionWorker | None = None
@@ -222,6 +227,8 @@ class UpdateCheckPage(QWidget):
         self._worker.failed.connect(self._on_check_failed)
         self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
+        self._log.info(f"开始检测 {len(ids)} 个 mod…")
+
 
     def _stop_check(self) -> None:
         if self._worker is not None:
@@ -387,6 +394,7 @@ class UpdateCheckPage(QWidget):
         try:
             updates_found = self._apply_results(ok_items, suspected_ids, failed)
         except Exception as exc:  # 写库失败：明确告诉用户，不让程序无声崩溃
+            self._log.error(f"检测结果写入失败，已整体回滚：{exc}")
             QMessageBox.critical(
                 self, "写入失败",
                 f"查询成功，但写入数据库时出错：{exc}\n"
@@ -394,12 +402,15 @@ class UpdateCheckPage(QWidget):
             return
         self._show_results(suspected_ids, failed)
         self.checks_finished.emit(updates_found)
+        self._log.ok(f"检测完成：需更新 {updates_found}，"
+                     f"疑似合集 {len(suspected_ids)}，查询失败 {len(failed)}")
 
     def _on_check_failed(self, message: str) -> None:
         self._worker = None
         self._set_running(False)
         self._summary.setText(message)
         self._summary.setStyleSheet("color: #e5484d;")
+        self._log.error(message)
         QMessageBox.warning(self, "检测失败", message)
 
     # ---------- 展开合集 ----------
@@ -423,6 +434,7 @@ class UpdateCheckPage(QWidget):
                                 children: list[int]) -> None:
         self._col_worker = None
         if not children:
+            self._log.warn(f"编号 {collection_id} 不是合集（查不到成员）")
             QMessageBox.information(
                 self, "不是合集",
                 f"编号 {collection_id} 查不到任何成员——它不是合集，"
@@ -450,6 +462,7 @@ class UpdateCheckPage(QWidget):
                     mod_id=mid, game_id=game.app_id,
                     url=_URL_TEMPLATE.format(mid),
                     status="tracked", first_tracked_at=now))
+        self._log.ok(f"合集 {collection_id} 展开：新登记 {len(new_ids)} 个条目")
         QMessageBox.information(
             self, "已登记",
             f"已登记 {len(new_ids)} 个新条目（状态：已收录）。\n"
