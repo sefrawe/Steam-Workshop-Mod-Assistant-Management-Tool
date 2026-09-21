@@ -29,9 +29,10 @@ from gui.consolePanel import ConsolePanel, LogBus
 from gui.gameSwitcher import GameSwitcher
 from gui.importPage import ImportPage
 from gui.modListPage import ModListPage
-from gui.placeholderPage import PlaceholderPage
+
 from gui.settingsPage import SettingsPage
 from gui.updateCheckPage import UpdateCheckPage
+from gui.backupPage import BackupPage
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "mods.db"
@@ -48,7 +49,7 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
         ("下载命令生成", 5),
     ]),
     ("备份管理", [
-        ("备份与恢复", None),
+        ("备份与恢复", 2),
     ]),
     ("设置", 3),
 ]
@@ -128,7 +129,7 @@ class MainWindow(QMainWindow):
         self._pages = [
             ModListPage(self._repo, self._settings, self._stack,log=self._log),  # 0
             ImportPage(self._repo, self._stack, log=self._log),                  # 1
-            PlaceholderPage("备份管理", "mod 备份与恢复功能开发中", self._stack),  # 2
+            BackupPage(self._repo, self._settings, self._stack, log=self._log),  # 2
             SettingsPage(self._settings, self._stack),                           # 3
             UpdateCheckPage(self._repo, self._settings, self._stack, log=self._log),  # 4
             CommandGenPage(self._repo, self._settings, self._stack, log=self._log),   # 5

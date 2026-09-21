@@ -1,4 +1,5 @@
-"""本地扫描器"""
+"""本地扫描器
+"""
 """
 core/localScanner.py · 解析 appworkshop_<appid>.acf，把本地版本三件套灌进数据库。
 
@@ -11,16 +12,16 @@ core/localScanner.py · 解析 appworkshop_<appid>.acf，把本地版本三件�
 - manifest 保持字符串：无符号 64 位逼近 SQLite INTEGER 上限（schema 约定）
 
 管线（前三个纯函数可直接单测，apply 是唯一写库点）：
-  locate_acf(库路径, app_id)  → 定位 acf；找不到返回 None（不是错误，
-                               可能路径没配或游戏没装，由调用方提示）
-  scan_acf(path)             → 解析出条目清单 + 跳过清单
-  diff_plan(items, 库中状态)  → 生成回填 / 新入库计划，不碰任何 IO
-  apply(repo, plan)          → 整个计划包进一个事务，要么全成要么全败
+  locate_acf(steamcmd 布局基路径, app_id) → 定位 acf；找不到返回 None
+      （不是错误，可能 steamcmd 路径没配或该游戏没下载过，由调用方提示）
+  scan_acf(path) → 解析出条目清单 + 跳过清单
+  diff_plan(items, 库中状态) → 生成回填 / 新入库计划，不碰任何 IO
+  apply(repo, plan) → 整个计划包进一个事务，要么全成要么全败
 
 状态规则：
 - 对库中已有 id：三件套全量回填；状态只允许 tracked → downloaded 这一个
   跃迁方向；deleted / failed 只补本地证据，状态不动
-- 库中没有的 id（Steam 客户端自己下载的）：acf 有记录 = 文件在盘上，
+- 库中没有的 id（steamcmd 之外途径出现的条目）：acf 有记录 = 文件在盘上，
   直接以 downloaded 入库，url 现拼（不联网），标题等远端字段留 NULL，
   由下一轮更新检测的 API 查询顺带补全
 
@@ -36,7 +37,6 @@ core/localScanner.py · 解析 appworkshop_<appid>.acf，把本地版本三件�
 
 依赖 vdf 库（Valve KV 格式解析）；同步执行，百条级毫秒完成，不需要线程。
 """
-
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -90,20 +90,32 @@ class ScanPlan:
 @dataclass
 class ScanApplyReport:
     """落库计数。只描述"计划执行了什么"，不代表"数据有没有变化"。"""
-    updated: int       # 回填条数（含跃迁）
-    transitioned: int  # 其中 tracked → downloaded
-    inserted: int      # 新入库条数
+    updated: int      # 回填条数（含跃迁）
+    transitioned: int # 其中 tracked → downloaded
+    inserted: int     # 新入库条数
 
 
-def locate_acf(steam_library_path: str | Path | None, app_id: int) -> Path | None:
-    """按两种填写口径定位 acf：库根（…\\SteamLibrary）或 steamapps 层都认。
-    找不到返回 None——不是错误，由调用方决定怎么提示。"""
-    raw = str(steam_library_path or "").strip().strip('"').strip()
+def locate_acf(base_path: str | Path | None, app_id: int) -> Path | None:
+    """按 steamcmd 目录布局定位工坊账本文件（决策 21⑤ 的口径）。
+
+    base_path 认三种填写口径（程序内部自动推导时传的总是 steamcmd 根，
+    后两种是兼容手工填写的容错）：
+      填 steamcmd 根   → <根>\\steamapps\\workshop\\appworkshop_<appid>.acf
+      填 steamapps 层  → <层>\\workshop\\appworkshop_<appid>.acf
+      填 workshop 层   → <层>\\appworkshop_<appid>.acf
+
+    找不到返回 None——不是错误，由调用方决定怎么提示。
+    """
+    raw = str(base_path or "").strip().strip('"').strip()
     if not raw:
         return None
     base = Path(raw).expanduser()
     name = f"appworkshop_{app_id}.acf"
-    for candidate in (base / "steamapps" / name, base / name):
+    for candidate in (
+        base / "steamapps" / "workshop" / name,  # 填了 steamcmd 根
+        base / "workshop" / name,                # 填了 steamapps 层
+        base / name,                             # 填了 workshop 层
+    ):
         if candidate.is_file():
             return candidate
     return None

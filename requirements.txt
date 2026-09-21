@@ -6,7 +6,7 @@ pyinstaller>=6.0
 vdf>=4.0
 pytest>=8.0
 truststore
-
+psutil
 
 #说明：M1 是纯后端，PySide6/pyqtdarktheme 本阶段用不到，但现在装好省事；
 #若日后 pyqtdarktheme 与新版 PySide6 冲突，换 pyqtdarktheme-fork 或手写 QSS。

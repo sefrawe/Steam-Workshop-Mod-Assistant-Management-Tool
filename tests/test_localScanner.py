@@ -1,7 +1,9 @@
-"""localScanner 测试"""
+"""localScanner 测试
+"""
 """
 三层覆盖：路径定位（tmp_path 假文件）→ acf 解析（仓库内合成样本 +
 本机真实 fixtures）→ 计划与落库（临时 SQLite 库全链路 + 原子性）。
+
 真实 acf 不入库（gitignore），缺失时相关用例自动 skip，合成样本兜底。
 """
 from pathlib import Path
@@ -20,15 +22,27 @@ OTHER = FIXTURES / "appworkshop_3117820.acf"
 
 
 # ---------- locate_acf ----------
+# 决策 21⑤：acf 定位绑定 steamcmd 目录布局，三种填写口径都认：
+#   填 steamcmd 根   → <根>\steamapps\workshop\appworkshop_<appid>.acf
+#   填 steamapps 层  → <层>\workshop\appworkshop_<appid>.acf
+#   填 workshop 层   → <层>\appworkshop_<appid>.acf
+# （程序内部自动推导传的总是 steamcmd 根，后两种是手工填写时的容错。）
 
-def test_locate_library_root(tmp_path):
-    (tmp_path / "steamapps").mkdir()
-    f = tmp_path / "steamapps" / "appworkshop_1158310.acf"
+def test_locate_from_steamcmd_root(tmp_path):
+    f = tmp_path / "steamapps" / "workshop" / "appworkshop_1158310.acf"
+    f.parent.mkdir(parents=True)
     f.write_text('"AppWorkshop" {}', encoding="utf-8")
     assert ls.locate_acf(str(tmp_path), 1158310) == f
 
 
-def test_locate_steamapps_dir(tmp_path):
+def test_locate_from_steamapps_dir(tmp_path):
+    f = tmp_path / "workshop" / "appworkshop_294100.acf"
+    f.parent.mkdir(parents=True)
+    f.write_text('"AppWorkshop" {}', encoding="utf-8")
+    assert ls.locate_acf(str(tmp_path), 294100) == f
+
+
+def test_locate_from_workshop_dir(tmp_path):
     f = tmp_path / "appworkshop_294100.acf"
     f.write_text('"AppWorkshop" {}', encoding="utf-8")
     assert ls.locate_acf(str(tmp_path), 294100) == f
@@ -40,7 +54,7 @@ def test_locate_missing_returns_none(tmp_path):
 
 def test_locate_empty_or_quoted_returns_none():
     assert ls.locate_acf("", 1158310) is None
-    assert ls.locate_acf('  ""  ', 1158310) is None
+    assert ls.locate_acf(' "" ', 1158310) is None
 
 
 # ---------- scan_acf（合成样本）----------
@@ -54,6 +68,7 @@ def test_scan_mini_items():
     assert r.items[1].size is None and r.items[1].manifest is None
     assert r.items[2].manifest is None  # 空串 manifest 视为没有
 
+
 def test_scan_mini_skipped():
     r = ls.scan_acf(MINI)
     # 跳过顺序与清单（id 保持 acf 出现顺序）
@@ -64,7 +79,6 @@ def test_scan_mini_skipped():
     assert reasons["1000000003"].startswith("缺")
     assert reasons["not_a_number"].startswith("编号")
     assert reasons["1000000006"].startswith("条目")
-
 
 
 def test_scan_mini_details_section_ignored():
@@ -219,8 +233,8 @@ def test_apply_idempotent(repo):
     first = repo.get_mod(100)
     ls.apply(repo, plan)  # 同一计划重放，库中数据必须纹丝不动
     again = repo.get_mod(100)
-    assert (again.status, again.local_timeupdated,
-            again.local_size, again.manifest) == (
+    assert (again.status, again.local_timeupdated, again.local_size,
+            again.manifest) == (
         first.status, first.local_timeupdated, first.local_size, first.manifest)
     # 重新对表：已 downloaded，不再出现跃迁
     plan2 = ls.diff_plan([item],

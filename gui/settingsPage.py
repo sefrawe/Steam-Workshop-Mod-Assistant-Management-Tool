@@ -1,4 +1,5 @@
-"""设置页 """
+"""设置页
+"""
 """
 config/GlobalSettings.json 的读写界面。
 
@@ -12,50 +13,64 @@ config/GlobalSettings.json 的读写界面。
   目前只有 steamcmd 登录命令一项：它是"整行原样发给 steamcmd"的命令，
   内容对不对只有 steamcmd 自己知道，软件校验没有意义；
   空着也允许——用到它的功能自己会提示去填
-"""
 
+T10 之后不再有"Steam 库目录"和"默认下载目录"两项：
+本地扫描和建档的目录都从 steamcmd 程序路径推导（决策 21），
+推导逻辑在 core/steamPaths.py，界面上只保留这一把钥匙。
+
+布局注意（踩坑 ⑨）：长文字的 QLabel 必须开 setWordWrap(True)。
+不开换行的标签会把整行文字宽度当作"最小宽度"上报给窗口，
+一条一百多字的提示就能把整个主窗口撑到一千三百像素以上、
+缩不回去。凡是可能变长的文字（灰字提示、保存结果行）一律换行。
+"""
 import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFileDialog,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
+    QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QVBoxLayout, QWidget,
 )
 
 from core.appSettings import DEFAULTS, AppSettings
 
 # key / 中文标签 / 空值时的灰色提示 / 字段类型
 # （"file"=文件 / "dir"=目录 / "number"=正整数 / "text"=普通文本不校验）
+# 注意：这里的键集必须与 appSettings.DEFAULTS 完全一致（决策 12）
 _FIELDS = [
     ("steamcmd_path", "steamcmd 程序",
-     "steamcmd.exe 完整路径，命令生成与终端功能使用（请先自行安装）"
-     "如 C:\\Program Files\\SteamCMD\\steamcmd.exe", "file"),
+     "steamcmd.exe 完整路径（请先自行安装），如 C:\\Program Files\\SteamCMD\\steamcmd.exe。"
+     "命令生成、本地扫描、新建档案时的下载目录推导，都按它定位",
+     "file"),
+    # hint = 决策 12 v1.6 原文；末句"账号必须拥有对应游戏"来自决策 19，
+    # 属原文之外补充，要严格照原文可删
     ("steamcmd_login_cmd", "steamcmd 登录命令",
-     "整行原样发给 steamcmd，不做任何拆解，例：login 你的账号（或 login 账号 密码）。"
-     "账号必须拥有对应游戏，否则下载其创意工坊内容会报错；"
-     "把密码写进命令会明文保存在本机设置文件里，请自行权衡", "text"),
-    ("steam_library_path", "Steam 库目录",
-     "Steam 库根目录（如 D:\\SteamLibrary）或其下 steamapps 目录均可，"
-     "扫描本机已装 mod 时使用", "dir"),
-    ("default_download_dir", "默认下载目录",
-     "新建游戏档案时自动预填的 mod 下载目录，"
-     "如 C:\\Users\\YourName\\Documents\\SteamMods", "dir"),
+     "整行原样发给 steamcmd，例：login 你的用户名。"
+     "首次登录需在 steamcmd 内输入密码与邮箱验证码，成功一次后本机缓存，"
+     "之后只需此命令等待验证即可；把密码写进命令不推荐"
+     "（会明文保存在本机设置文件里）。"
+     "账号必须拥有对应游戏，否则下载其创意工坊内容会报错",
+     "text"),
     ("api_request_interval_ms", "API 请求间隔（毫秒）",
-     "批量查询 Steam 工坊接口时，两次请求之间的等待时间；太小可能被服务器限流", "number"),
+     "批量查询 Steam 工坊接口时，两次请求之间的等待时间；太小可能被服务器限流",
+     "number"),
     ("api_max_retries", "API 重试次数",
-     "请求被服务器限流（429/503）时的自动重试上限，每次重试间隔会逐渐拉长", "number"),
+     "请求被服务器限流（429/503）时的自动重试上限，每次重试间隔会逐渐拉长",
+     "number"),
     ("slow_update_days", "慢更新提醒阈值（天）",
      "距上次已知更新超过这个天数的 mod，在更新检测结果里标红提示"
-     "（作者更新节奏慢，值得留意）", "number"),
+     "（作者更新节奏慢，值得留意）",
+     "number"),
     ("snapshot_keep", "快照保留条数",
-     "每个 mod 保留的历史版本记录条数；检测到新版本时自动淘汰更旧的记录", "number"),
+     "每个 mod 保留的历史版本记录条数；检测到新版本时自动淘汰更旧的记录",
+     "number"),
+    # ↓ 两条 hint 为拟稿（记事本无原文），措辞可后调
+    ("backup_keep_per_mod", "备份每 mod 保留份数",
+     "每个 mod 保留的备份份数；超出后自动淘汰最旧的备份（钉住的除外）",
+     "number"),
+    ("backup_total_quota_gb", "备份总配额（GB）",
+     "全部备份合计的容量上限；超出后从最旧的备份开始清腾（钉住的除外）",
+     "number"),
 ]
 
 
@@ -91,29 +106,28 @@ class SettingsPage(QWidget):
             edit.textChanged.connect(self._refresh_states)
             self._edits[key] = edit
             self._kinds[key] = kind
-
             if kind == "number":
                 # 数字不用那么宽的输入框，视觉上和路径行区分开
                 edit.setMaximumWidth(160)
                 form.addRow(label, edit)
-            elif kind == "text":
-                # 普通文本：不需要浏览按钮，给足宽度即可
-                edit.setMinimumWidth(420)
-                form.addRow(label, edit)
             else:
-                # file / dir：路径行，输入框 + 浏览按钮并排
-                edit.setMinimumWidth(420)
-                browse = QPushButton("浏览…")
-                browse.clicked.connect(
-                    lambda _=False, e=edit, f=(kind == "file"): self._browse(e, f))
-                row = QWidget()
-                h = QHBoxLayout(row)
-                h.setContentsMargins(0, 0, 0, 0)
-                h.addWidget(edit, 1)
-                h.addWidget(browse)
-                form.addRow(label, row)
-
+                # 路径行 = 输入框 + 浏览按钮并排；文本项直接放输入框。
+                # 不设最小宽度：QLineEdit 横向本来就是扩张策略，
+                # 会自动填满页面剩余宽度，设了反而把窗口顶宽（踩坑 ⑨）
+                if kind in ("file", "dir"):
+                    browse = QPushButton("浏览…")
+                    browse.clicked.connect(
+                        lambda _=False, e=edit, f=(kind == "file"): self._browse(e, f))
+                    row = QWidget()
+                    h = QHBoxLayout(row)
+                    h.setContentsMargins(0, 0, 0, 0)
+                    h.addWidget(edit, 1)
+                    h.addWidget(browse)
+                    form.addRow(label, row)
+                else:
+                    form.addRow(label, edit)
             status = QLabel(hint)
+            status.setWordWrap(True)  # 必须换行，否则整句长度变成窗口最小宽度
             status.setStyleSheet("color: gray;")
             self._statuses[key] = status
             self._hints[key] = hint
@@ -132,6 +146,8 @@ class SettingsPage(QWidget):
         root.addWidget(btn_row)
 
         self._saved_label = QLabel("")
+        # 保存提示里带完整配置文件路径，同样可能很长——换行防顶宽
+        self._saved_label.setWordWrap(True)
         root.addWidget(self._saved_label)
 
         note = QLabel(
@@ -140,7 +156,6 @@ class SettingsPage(QWidget):
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")
         root.addWidget(note)
-
         root.addStretch(1)
 
     def _browse(self, edit: QLineEdit, is_file: bool) -> None:
@@ -149,7 +164,8 @@ class SettingsPage(QWidget):
                 self, "选择程序", edit.text() or "",
                 "可执行文件 (*.exe);;所有文件 (*)")
         else:
-            path = QFileDialog.getExistingDirectory(self, "选择目录", edit.text() or "")
+            path = QFileDialog.getExistingDirectory(
+                self, "选择目录", edit.text() or "")
         if path:
             edit.setText(Path(path).__str__())
 
@@ -194,14 +210,17 @@ class SettingsPage(QWidget):
                 ok_text = "数值有效"
                 bad_text = "需要正整数，保存前请修正"
             status.setText(ok_text if valid else bad_text)
-            status.setStyleSheet("color: #46a758;" if valid else "color: #e5484d;")
+            status.setStyleSheet(
+                "color: #46a758;" if valid else "color: #e5484d;")
 
     def _save(self) -> None:
         # 数字项先整体过一遍：任何一项不合法就整批不落盘（理由见文件头）
         bad_keys = [key for key, kind in self._kinds.items()
-                    if kind == "number" and not self._number_ok(self._edits[key].text().strip())]
+                    if kind == "number"
+                    and not self._number_ok(self._edits[key].text().strip())]
         if bad_keys:
-            labels = "、".join(label for key, label, _hint, _kind in _FIELDS if key in bad_keys)
+            labels = "、".join(label for key, label, _hint, _kind in _FIELDS
+                              if key in bad_keys)
             self._saved_label.setText(f"以下设置需要正整数，未保存：{labels}")
             self._saved_label.setStyleSheet("color: #e5484d;")
             return

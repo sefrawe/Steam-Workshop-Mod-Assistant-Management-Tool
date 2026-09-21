@@ -1,4 +1,5 @@
-"""命令生成页"""
+"""命令生成页
+"""
 """
 把当前游戏勾选的 mod 拼成 steamcmd 下载命令，交给用户手动粘贴执行。
 
@@ -16,29 +17,23 @@
      前一条下载完才开始下一条，所以 mod 数量多少都没有限制。
 
 分工与边界（记事本架构约定）：
-  - 分组、拼命令全在 core/commandBuilder.py（纯函数、可单测），本页只管界面和落盘；
-  - 只读 ModRepository（list_mods），GUI 层零 SQL；
-  - 不联网、不修改 mods 表；
-  - 每次复制 / 另存向 operations_log 记一笔，result="generated"
-    （意思是"命令已交到用户手里"，与将来真正执行的 success/error 区分开）；
-  - 另存的 txt 用 utf-8：内容纯 ASCII（数字和英文），steamcmd 读没有任何编码问题。
+- 分组、拼命令全在 core/commandBuilder.py（纯函数、可单测），本页只管界面和落盘；
+- 只读 ModRepository（list_mods），GUI 层零 SQL；
+- 不联网、不修改 mods 表；
+- 每次复制 / 另存向 operations_log 记一笔"完整命令原文"，
+  result="generated"（意思是"命令已交到用户手里"，与将来真正执行的
+  success/error 区分开）。记原文不记统计数：将来想核对
+  "这个 mod 当时为什么被下载"，翻记录能直接看到给出去的每一行命令；
+- 另存的 txt 用 utf-8：内容纯 ASCII（数字和英文），steamcmd 读没有编码问题；
+  默认存到系统"文档"目录而不是下载目录，原因见 _on_save 里的注释。
 """
-
 from datetime import date
 from pathlib import Path
 
+from PySide6.QtCore import QStandardPaths
 from PySide6.QtWidgets import (
-    QApplication,
-    QCheckBox,
-    QFileDialog,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QPlainTextEdit,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
+    QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel,
+    QPlainTextEdit, QMessageBox, QPushButton, QScrollArea, QVBoxLayout,
     QWidget,
 )
 
@@ -67,15 +62,15 @@ class CommandGenPage(QWidget):
 
     def __init__(self, repo, settings, parent=None, *, log=None):
         super().__init__(parent)
-        self._repo = repo          # ModRepository：读 mod 清单、写 operations_log
+        self._repo = repo        # ModRepository：读 mod 清单、写 operations_log
         self._settings = settings  # AppSettings：读登录命令
-        # 日志总线：MainWindow 注入；单独调试本页时兜底建一个（消息没人显示但不崩）
+        # 日志总线：MainWindow 注入；单独调试本页时兜底建一个
+        #（消息没人显示但不崩，"发进空气 = 无操作"）
         self._log = log if log is not None else LogBus()
-        self._game = None          # 当前游戏档案（切游戏时由 MainWindow 调 set_game 换进来）
+        self._game = None  # 当前游戏档案（切游戏时由 MainWindow 调 set_game 换进来）
         # 勾选登记表：{组名: [(mod_id, 勾选框), ...]}，生成时按这里收答案
         self._checks = {key: [] for key, _ in _GROUP_ORDER}
-        self._count_labels = {}    # 组名 → "已勾选 x / 共 n 个" 标签
-
+        self._count_labels = {}  # 组名 → "已勾选 x / 共 n 个" 标签
         self._init_ui()
 
     # ---------------- 搭骨架 ----------------
@@ -87,7 +82,9 @@ class CommandGenPage(QWidget):
         top = QHBoxLayout()
         self._lbl_game = QLabel("（还没有选择游戏）")
         btn_reload = QPushButton("重新载入")
-        btn_reload.setToolTip("从数据库重新读取当前游戏的 mod 清单")
+        btn_reload.setToolTip(
+            "从数据库重新读取当前游戏的 mod 清单并重建勾选状态"
+            "（别的页面改过备注/状态后，点这里同步最新数据）")
         btn_reload.clicked.connect(self._reload)
         top.addWidget(self._lbl_game, 1)
         top.addWidget(btn_reload)
@@ -124,7 +121,9 @@ class CommandGenPage(QWidget):
         bottom = QHBoxLayout()
         self._lbl_summary = QLabel("已勾选 0 个")
         btn_save = QPushButton("另存为 txt")
+        btn_save.setToolTip("把当前勾选对应的命令存成 txt 文件，内容与复制的完全一致")
         btn_copy = QPushButton("复制命令")
+        btn_copy.setToolTip("把当前勾选对应的命令复制进剪贴板，去 steamcmd 窗口粘贴回车即可")
         btn_copy.setDefault(True)
         btn_save.clicked.connect(self._on_save)
         btn_copy.clicked.connect(self._on_copy)
@@ -165,11 +164,12 @@ class CommandGenPage(QWidget):
     def _reload(self):
         """从数据库重读当前游戏的 mod，按三组重建勾选框。"""
         if self._game is None:
+            # 重新载入按钮在没有档案时可点但无事可做——给句反馈，别让按钮"哑"掉
+            self._log.warn("还没有选择游戏，无法载入清单：请先在左上角添加或选择档案")
             return
         # 游戏主键就是 app_id（与 mod 库页同款调用）
         mods = self._repo.list_mods(self._game.app_id)
         groups = group_mods(mods)
-
         self._clear_body()
         for key, title in _GROUP_ORDER:
             box = self._make_group_box(key, title)
@@ -177,14 +177,13 @@ class CommandGenPage(QWidget):
             if not rows:
                 box.layout().addWidget(QLabel("（无）"))
             for m in rows:
-                cb = QCheckBox(f"{m.mod_id}  {m.title}")
+                cb = QCheckBox(f"{m.mod_id} {m.title}")
                 # 推荐勾选：需要更新 + 未下载 默认勾上；已最新默认不勾
                 cb.setChecked(key in ("needs_update", "not_downloaded"))
                 cb.toggled.connect(self._refresh_stats)
                 box.layout().addWidget(cb)
                 self._checks[key].append((m.mod_id, cb))
             self._body_layout.addWidget(box)
-
         self._refresh_stats()
 
     # ---------------- 勾选与统计 ----------------
@@ -196,7 +195,9 @@ class CommandGenPage(QWidget):
         head = QHBoxLayout()
         lbl = QLabel("共 0 个")
         btn_all = QPushButton("全选")
+        btn_all.setToolTip("勾选本组里的全部 mod")
         btn_none = QPushButton("清空")
+        btn_none.setToolTip("取消本组里的全部勾选")
         # 用 k=key 把"当前组名"固定住，避免按钮触发时读到循环变量的最后值
         btn_all.clicked.connect(lambda _=False, k=key: self._set_group(k, True))
         btn_none.clicked.connect(lambda _=False, k=key: self._set_group(k, False))
@@ -271,12 +272,13 @@ class CommandGenPage(QWidget):
         if not ids:
             QMessageBox.information(self, "提示", "还没勾选任何 mod。")
             return
-        QApplication.clipboard().setText(self._current_text())
+        text = self._current_text()  # 上面已挡掉无游戏的情况，这里必非 None
+        QApplication.clipboard().setText(text)
         self._log.ok(f"已复制 {len(ids)} 条下载命令，去 steamcmd 窗口粘贴回车即可")
-        self._log_generated(ids, "复制到剪贴板")
+        self._log_generated(text)
 
     def _on_save(self):
-        """把勾选的下载命令另存为 txt（对齐旧脚本 1.7 的落盘习惯）。"""
+        """把勾选的下载命令另存为 txt 文件，内容与复制到剪贴板的完全一致。"""
         if self._game is None:
             self._log.warn("还没有选择游戏，无法生成命令")
             return
@@ -285,32 +287,52 @@ class CommandGenPage(QWidget):
             QMessageBox.information(self, "提示", "还没勾选任何 mod。")
             return
         default_name = f"下载命令_{date.today():%Y%m%d}.txt"
-        start_dir = self._game.download_dir or ""
+        # 默认存到系统"文档"目录，而不是游戏的下载目录（download_dir）。
+        # 原因（两条，本质都是"别把命令文件混进 mod 内容"）：
+        #   1) download_dir 指向 steamcmd 的 content\<appid>\，这棵目录树
+        #      有一条硬规矩：里面只放以 mod 编号命名的文件夹。将来核验页
+        #      做账实对比时，编号之外的文件会被当成异常内容报出来——
+        #      自己生成的 txt 自己触发警报，纯添乱；
+        #   2) 游戏侧的 mod 目录通过链接指到这里，放进去的 txt 会跟着
+        #      出现在游戏目录里，可能被游戏或启动器扫到。
+        docs = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
+        start_dir = docs if docs else str(Path.home())  # 文档目录拿不到就退回主目录
         path, _ = QFileDialog.getSaveFileName(
             self, "另存为下载命令", str(Path(start_dir) / default_name),
             "文本文件 (*.txt)",
         )
         if not path:
             return
-        Path(path).write_text(self._current_text(), encoding="utf-8")
+        text = self._current_text()
+        Path(path).write_text(text, encoding="utf-8")
         self._log.ok(f"已保存 {len(ids)} 条下载命令：{path}")
-        self._log_generated(ids, f"另存到 {path}")
+        self._log_generated(text)
 
     # ---------------- 记账 ----------------
 
-    def _log_generated(self, ids, action_detail):
-        """往 operations_log 记一笔"已生成"。
+    def _log_generated(self, command_text):
+        """往 operations_log 记一笔"已生成"，记完整命令原文（记账粒度）。
+
+        为什么记原文不记"N 条"统计：
+        - 审计可回溯：将来想知道"某个 mod 为什么被下载过"，
+          翻这条记录能直接看到当时给出的每一行命令；
+        - 可以重放：记下来的就是能直接粘进 steamcmd 的命令本身，
+          纯 workshop_download_item 行。登录命令绝不进这张表（红线），
+          所以这里天生安全。
 
         repo 约定：add_operation(命令文本) 先登记拿 op_id，
         finish_operation(op_id, result=...) 事后回填——
-        这里没有真正的执行环节，所以登记和回填连着做，
+        本页没有真正的执行环节，登记和回填连着做，
         result 用 "generated" 标记"已生成、未执行"。
-        写失败不影响已完成的复制/另存，但必须在控制台喊出来（不静默吞错误）。
+
+        "这次是复制还是另存、另存到了哪"属于写给人的过程叙述，
+        控制台日志里已经说过（数据库存结构化事实、控制台说人话，
+        两层不混），数据库不再重复记。
+
+        记账失败不影响已完成的复制/另存，但必须在控制台喊出来（不静默吞错误）。
         """
         try:
-            summary = (f"# 生成下载命令：{len(ids)} 条 "
-                       f"workshop_download_item（{action_detail}）")
-            op_id = self._repo.add_operation(summary)
+            op_id = self._repo.add_operation(command_text)
             self._repo.finish_operation(op_id, result="generated")
-        except Exception as e:
-            self._log.error(f"写 operations_log 失败：{e}")
+        except Exception as exc:
+            self._log.error(f"写 operations_log 失败（复制/另存本身不受影响）：{exc}")

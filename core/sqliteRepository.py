@@ -10,6 +10,8 @@
 3. 让错误显式爆炸：UPDATE 影响 0 行 = 目标不存在 = ValueError，
    约束冲突 = sqlite3.IntegrityError，本层绝不静默吞掉
 """
+import re
+
 import json
 import sqlite3
 import time
@@ -26,6 +28,10 @@ _VALID_STATUSES = frozenset({"tracked", "downloaded", "deleted", "failed"})
 # 每 mod 保留的快照条数：这里只是默认值，实际值由主窗口从设置读出后
 # 通过构造参数注入（设置页可改，默认 5 条）
 _DEFAULT_SNAPSHOT_KEEP = 5
+# 数据库自身备份的滚动保留份数（R16）：backup_to() 每次落盘后清旧，只留最新 N 份。
+# 与 snapshot_keep 同理只是默认值，可由构造参数注入覆盖
+_DEFAULT_DB_BACKUP_KEEP = 3
+
 # IN (...) 分片大小；SQL 变量占位符有上限，分片永不出错
 _CHUNK = 500
 
@@ -43,10 +49,14 @@ class SQLiteRepository(ModRepository):
 
     # ---------- 基础设施 ----------
 
-    def __init__(self, db_path: str | Path,
-                 *, snapshot_keep: int = _DEFAULT_SNAPSHOT_KEEP) -> None:
+    def __init__(self, db_path: str | Path, *,
+                 snapshot_keep: int = _DEFAULT_SNAPSHOT_KEEP,
+                 db_backup_keep: int = _DEFAULT_DB_BACKUP_KEEP) -> None:
         # snapshot_keep 至少为 1：0 或负数会让快照功能整个失效，直接拦在门口
         self._snapshot_keep = max(1, int(snapshot_keep))
+        # 数据库备份同理：留 0 份的"滚动备份"等于没备份
+        self._db_backup_keep = max(1, int(db_backup_keep))
+
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self._path, isolation_level=None)
@@ -527,6 +537,63 @@ class SQLiteRepository(ModRepository):
             "SELECT COALESCE(SUM(size_bytes), 0) FROM backups"
         ).fetchone()[0]
 
+    def backup_to(self, dest_dir: str | Path, *, keep: int | None = None) -> Path:
+        """把整个数据库在线备份到 dest_dir，返回备份文件路径（R16）。
+
+        - 用 SQLite 在线备份 API（conn.backup）复制数据页：无需关库，
+          拿到的始终是完整一致的整库，不是"拷文件碰运气"
+        - 备份文件名 <库名>_<时间戳>.db（如 mods_20260921_181216.db），
+          同一秒内重复备份追加 _2、_3 防覆盖
+        - 落盘后立即滚动清理：目录里"本工具命名模式"的备份只留最新
+          keep 份（默认 = 构造参数 db_backup_keep），从最旧删起；
+          命名模式之外的文件一律不碰——用户放在同目录的东西
+          没有资格被我们删
+        - user_version 随数据页一起复制：备份文件直接用
+          SQLiteRepository 打开就是完整可用的库
+
+        事务中调用 → RuntimeError：备份到未提交状态没有意义，
+        与 transaction() 不支持嵌套同一哲学——显式爆炸，绝不静默。
+        本方法是 SQLite 实现的特有能力，刻意不进 ModRepository 契约：
+        换别的存储后端就没有"在线备份"这个概念，进契约反而逼所有
+        实现假装自己会。
+        """
+        if self._in_transaction:
+            raise RuntimeError("数据库备份不允许在事务中进行（先提交或回滚）")
+        keep_total = self._db_backup_keep if keep is None else max(1, int(keep))
+        dest = Path(dest_dir)
+        dest.mkdir(parents=True, exist_ok=True)
+        stem = self._path.stem  # 如 mods.db → "mods"
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        target_path, n = dest / f"{stem}_{stamp}.db", 2
+        while target_path.exists():
+            target_path = dest / f"{stem}_{stamp}_{n}.db"
+            n += 1
+        target = sqlite3.connect(target_path)
+        try:
+            self._conn.backup(target)
+        except BaseException:
+            # 失败不留半成品（Windows 下删打开中的文件会失败，先关再删）
+            target.close()
+            target_path.unlink(missing_ok=True)
+            raise
+        target.close()
+        self._prune_db_backups(dest, keep_total)
+        return target_path
+
+    def _prune_db_backups(self, dest: Path, keep: int) -> list[Path]:
+        """数据库备份的滚动清理，返回被清掉的文件。
+        只认本工具的命名模式 <库名>_<8位日期>_<6位时间>[_序号].db；
+        时间戳命名的字典序 = 时间序，从最旧删起。"""
+        pattern = re.compile(
+            rf"^{re.escape(self._path.stem)}_\d{{8}}_\d{{6}}(?:_\d+)?\.db$")
+        mine = sorted(p for p in dest.iterdir()
+                      if p.is_file() and pattern.match(p.name))
+        victims = mine[:-keep] if len(mine) > keep else []
+        for victim in victims:
+            victim.unlink()
+        return victims
+
+
     # ---------- operations_log ----------
 
     def add_operation(self, command: str, *,
@@ -649,3 +716,5 @@ class SQLiteRepository(ModRepository):
             "ORDER BY alert_at DESC, id DESC",
             (mod_id,)).fetchall()
         return [self._alert(r) for r in rows]
+
+
