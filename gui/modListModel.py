@@ -72,7 +72,7 @@ class ModListModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.BackgroundRole and col == 5:
             if self._update_state(m) == "需更新":
                 return QColor(220, 60, 60, 46)  # 半透明红，深浅主题下都不刺眼
-        if role == Qt.ItemDataRole.ForegroundRole and col == 4 and m.local_timeupdated is None:
+        if role == Qt.ItemDataRole.ForegroundRole and col == 4 and m.version_unknown:
             return QColor(128, 128, 128)
         return None
 
@@ -82,10 +82,14 @@ class ModListModel(QAbstractTableModel):
     def _update_state(m: Mod) -> str:
         if m.status == "deleted":
             return "已删除"
-        if m.local_timeupdated is None:
-            return "未下载"
+        if m.version_unknown:
+            # 版本未知（T18）：downloaded 但没有 acf 本地版本
+            # = 手动确认入账；tracked 没版本 = 还没下载
+            return "版本未知" if m.status == "downloaded" else "未下载"
         if m.time_updated is None:
-            return "未知"
+            # 本地已下载、远端从没查过——改名"远端未知"，
+            # 与更新检测页汇总行的既有用词对齐，并和"版本未知"区分开
+            return "远端未知"
         return "需更新" if m.time_updated > m.local_timeupdated else "最新"
 
     def _display(self, m: Mod, col: int) -> str:
@@ -99,7 +103,12 @@ class ModListModel(QAbstractTableModel):
             case 3:
                 return relative_time(m.time_updated)
             case 4:
-                return relative_time(m.local_timeupdated) if m.local_timeupdated else "未下载"
+                if m.local_timeupdated:
+                    return relative_time(m.local_timeupdated)
+                # 没有本地版本时按状态区分说法（T18）：手动确认的显示
+                # "版本未知"，没下载的显示"未下载"，不再混为一谈
+                return "版本未知" if m.status == "downloaded" else "未下载"
+
             case 5:
                 return self._update_state(m)
             case 6:

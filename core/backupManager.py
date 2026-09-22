@@ -214,7 +214,6 @@ class BackupManager:
         self._run = runner if runner is not None else self._run_robocopy
 
     # ---------- 对外：备份 ----------
-
     def backup_mod(self, mod_id: int, *, note: str | None = None) -> BackupReport:
         """备份一个 mod 的下载内容 → 登记 → 执行保留策略。
 
@@ -231,11 +230,20 @@ class BackupManager:
             raise ValueError(f"游戏档案 {mod.game_id} 不存在（数据不一致）")
 
         # ---- 前提一：本地版本必须已知（backups.version_timeupdated 非空）----
-        if not mod.local_timeupdated:
-            return BackupReport(
-                ok=False,
-                error="本地版本未知（尚未扫描本地或该 mod 未下载）。"
-                      "请先在 mod 库页点【扫描本地】再备份。")
+        # T18（决策 24）：downloaded 却没有本地版本，只可能是手动确认入账
+        # 的 mod——扫描器写入的 downloaded 必带三件套（决策 20/23）。对这类
+        # mod，"去扫描本地"是一条走不通的路：它不在 acf 里，扫一万次也扫
+        # 不到。诚实的报错必须指向可行的那条：重新下载回填版本。
+        # 判定取 Mod.version_unknown 单源（与更新检测分桶、库页显示同尺）。
+        if mod.version_unknown:
+            if mod.status == "downloaded":
+                error = ("本地版本未知（可能为手动确认入账）：无法确定备份版本。\n"
+                         "如需备份，请用 steamcmd 重新下载该 mod，"
+                         "并点【扫描本地】回填版本后再试。")
+            else:
+                error = ("本地版本未知（尚未扫描本地或该 mod 未下载）。"
+                         "请先在 mod 库页点【扫描本地】再备份。")
+            return BackupReport(ok=False, error=error)
 
         # ---- 前提二：确定备份根目录（档案值优先，缺省推导并回写）----
         root, derived = self._resolve_root(game)
@@ -249,7 +257,9 @@ class BackupManager:
             # 与 T10e 同款"推导 + 回写 + 告知"模式：档案当时没存备份目录，
             # 现在补上，下次不再推导
             self._repo.update_game(game.app_id, backup_dir=root)
-            warnings.append(f"备份目录未设置，已按 steamcmd 位置推导并写入档案：{root}")
+            warnings.append(
+                f"备份目录未设置，已按 steamcmd 位置推导并写入档案：{root}")
+
         Path(root).mkdir(parents=True, exist_ok=True)
 
         # ---- 前提三：本地内容真实存在 ----
@@ -270,6 +280,7 @@ class BackupManager:
                 warnings.append(
                     f"路径过长（R6，{len(str(p))} 字符）：{p}\n"
                     "robocopy 可处理，但游戏侧工具可能读不到。")
+
         if mod.local_size is not None:
             free = shutil.disk_usage(root).free
             if free < mod.local_size:
@@ -315,8 +326,8 @@ class BackupManager:
                 "备份总量超出配额，但可清理的备份都已钉住或只剩本次备份——"
                 "请到备份管理页手动处理。")
 
-        return BackupReport(ok=True, backup=record,
-                            warnings=warnings, cleaned=cleaned)
+        return BackupReport(ok=True, backup=record, warnings=warnings,
+                            cleaned=cleaned)
 
     # ---------- 对外：恢复 ----------
 

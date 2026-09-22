@@ -240,3 +240,31 @@ def test_delete_refuses_junction(env):
         assert repo.get_backup(bak.id) is not None
     finally:
         os.rmdir(target)  # 只摘 junction 本体（rmtree 会穿进实体，踩坑 ⑩ 邻居）
+# ---------- T18 回归钉子：版本未知必须被拒 ----------
+@pytest.mark.parametrize("no_version", [None, 0])
+def test_backup_rejects_version_unknown_downloaded(env, no_version):
+    """T18/决策 24：手动确认入账的 mod（downloaded + 无本地版本）
+    必须被备份引擎拒绝，且绝不碰 robocopy、绝不入库。
+
+    世界状态：账里 100 号有版本（fixture 建的）；另建一个 downloaded
+    但无版本的 mod（None = 手动确认的实况，0 = 同样不合格）。
+    盘上没有它的内容目录也无所谓——版本守卫在内容守卫之前
+    （test_backup_requires_known_version 已实证此顺序）。
+    """
+    repo, tmp = env
+    repo.add_mod(Mod(mod_id=300, game_id=294100,
+                     status="downloaded", local_timeupdated=no_version))
+    calls: list[tuple[str, str]] = []
+
+    def counting_runner(src, dst):  # 记账版假 robocopy
+        calls.append((str(src), str(dst)))
+        return _ok_runner(src, dst)
+
+    rep = BackupManager(repo, runner=counting_runner,
+                        steamcmd_path=str(tmp / "sc")).backup_mod(300)
+    assert not rep.ok and rep.backup is None
+    assert "版本未知" in rep.error
+    # 文案必须指路"重下回填"，不许指"去扫描"死路（T18：它不在 acf 里）
+    assert "重新下载" in rep.error
+    assert calls == []  # 引擎层面直接拒绝，robocopy 一次都没被调
+    assert repo.list_backups(oldest_first=True) == []  # 账上无记录

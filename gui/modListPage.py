@@ -43,6 +43,7 @@ from gui.consolePanel import LogBus
 from gui.formatters import fmt_size
 from gui.modDetailPanel import ModDetailPanel
 from gui.modListModel import _SORT_MAP, ModListModel
+from gui.manualConfirm import confirm_one
 
 # 颜色标记：库里存 hex（将来徽标着色直接可用），右键菜单里显示中文名
 _COLORS = {
@@ -256,6 +257,17 @@ class ModListPage(QWidget):
 
         menu.addSeparator()
         # 跳到命令生成页，让它只勾选这个 mod（不带页面参数，交给 MainWindow 接线）
+        # 手动确认入账（T18）：只对 tracked 开放——downloaded 已确认过，
+        # deleted/failed 不许走此门（状态机单向，决策 20）
+        act_confirm = QAction("确认已下载（手动）…", menu)
+        act_confirm.setEnabled(m.status == "tracked")
+        act_confirm.setToolTip(
+            "不经 steamcmd 的手动下载（acf 永远无记录，扫描本地无法确认）："
+            "确认后记为「已下载」，版本留空——备份将拒、更新检测列"
+            "「版本未知」；重下并扫描本地可恢复")
+        act_confirm.triggered.connect(lambda: self._manual_confirm(m))
+        menu.addAction(act_confirm)
+
         act_cmdgen = QAction("获取下载命令…", menu)
         act_cmdgen.triggered.connect(
             lambda: self.command_gen_requested.emit([mid]))
@@ -317,6 +329,13 @@ class ModListPage(QWidget):
                       "is_special": m.is_special, "local_path": m.local_path}
         self._repo.mark_deleted(m.mod_id, last_state)
         self._reload()
+
+    def _manual_confirm(self, m) -> None:
+        """右键「确认已下载（手动）」（T18）：弹窗和写库都在共享
+        helper 里，确认成功后刷新列表（恢复选中逻辑 _reload 已有）。"""
+        if confirm_one(self, self._repo, self._log, m.mod_id):
+            self._reload()
+
 
     def _steamcmd_root(self) -> Path | None:
         """设置页的 steamcmd 程序路径 → steamcmd 根目录（core/steamPaths 推导）。

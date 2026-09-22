@@ -59,6 +59,18 @@ class Mod:
     deleted_last_state: dict | None = None  # 软删除前末态；库中存 JSON 文本
     first_tracked_at: int | None = None
 
+    @property
+    def version_unknown(self) -> bool:
+        """本地版本未知（T18）：没有有效的 acf 本地版本。
+
+        手动确认入账的 mod（downloaded 但从未进过 acf）命中此判定；
+        口径与决策 23 的质量谓词一致——不 > 0 一律算没有（None / 0）。
+        单源约定：备份引擎报错文案、更新检测分桶、mod 库页"版本未知"
+        显示，三处都从这里取，不许各自手写一遍。
+        """
+        return not self.local_timeupdated
+
+
 
 @dataclass
 class Snapshot:

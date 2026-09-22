@@ -38,8 +38,10 @@ from core import modVerifier, steamPaths
 from core.appSettings import AppSettings
 from core.models import Game
 from gui.consolePanel import LogBus
+from gui.manualConfirm import confirm_batch, confirm_one
 
-_COLUMNS = ["编号", "账本状态", "盘上情况", "建议"]
+_COLUMNS = ["编号", "账本状态", "盘上情况", "建议", "操作"]
+
 
 # 账本状态 → 界面中文（None = 盘上有、库里没有的编号）
 _STATUS_LABELS = {
@@ -63,6 +65,8 @@ class VerifyPage(QWidget):
         self._settings = settings
         self._log = log or LogBus()  # 没人接也照发（发进空气=无操作）
         self._game: Game | None = None
+        self._pending_confirm_ids: list[int] = []  # 本次核验发现的待确认编号
+
         self._build_ui()
 
     # ---------- UI 构建 ----------
@@ -104,6 +108,13 @@ class VerifyPage(QWidget):
         self._verify_btn = QPushButton("开始核验", btn_row)
         self._verify_btn.clicked.connect(self._start_verify)
         h.addWidget(self._verify_btn)
+        # 桶级批量确认（T18）：核验发现"tracked + 盘上有内容"的行后
+        # 才出现，一次把整桶确认掉，不用一行行点
+        self._confirm_all_btn = QPushButton("全部确认已下载", btn_row)
+        self._confirm_all_btn.setVisible(False)
+        self._confirm_all_btn.clicked.connect(self._confirm_all_tracked)
+        h.addWidget(self._confirm_all_btn)
+
         h.addStretch(1)
         root.addWidget(btn_row)
 
@@ -121,7 +132,7 @@ class VerifyPage(QWidget):
             QAbstractItemView.SelectionBehavior.SelectRows)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        for col, width in ((0, 110), (1, 90), (2, 150)):
+        for col, width in ((0, 110), (1, 90), (2, 150), (4, 120)):
             self._table.setColumnWidth(col, width)
         self._table.cellDoubleClicked.connect(self._on_row_double_clicked)
         root.addWidget(self._table, 1)
@@ -153,6 +164,9 @@ class VerifyPage(QWidget):
         self._junc_list.clear()
         self._junc_label.setText("")
         self._summary.setText("")
+        self._confirm_all_btn.setVisible(False)
+        self._pending_confirm_ids = []
+
         if game is None:
             self._game_label.setText(
                 "当前游戏：（未选择）—— 请先在左上角添加或选择档案")
@@ -194,10 +208,10 @@ class VerifyPage(QWidget):
         self._log.info(f"游戏侧 mods 目录已设置：{path}")
 
     # ---------- 核验流程 ----------
-
     def _start_verify(self) -> None:
         if self._game is None:
             return
+
         # 第一步：下载目录死路径重推导（决策 21）——与扫描本地完全同款
         # 的核对，modListPage 里预告的"核验页复用点"就在这里
         effective_dir, changed = steamPaths.refresh_download_dir(
@@ -216,6 +230,7 @@ class VerifyPage(QWidget):
 
         # 第二步：账本 ↔ 磁盘（纯读盘对账，不写库、不动文件）
         result = modVerifier.verify(self._game.download_dir, status_by_id)
+
         if result.dead_root:
             # 短路口径与 core 一致：逐条对账全是误报，不如说清原因
             self._table.setRowCount(0)
@@ -223,6 +238,10 @@ class VerifyPage(QWidget):
             self._nn_label.setText("")
             self._junc_list.clear()
             self._junc_label.setText("")
+            # T18：上一轮核验可能把批量确认按钮点亮了，死根时收起来，
+            # 待确认清单一并清空（防止按钮藏了但旧数据还挂着）
+            self._confirm_all_btn.setVisible(False)
+            self._pending_confirm_ids = []
             self._summary.setStyleSheet("color: #e5484d;")
             self._summary.setText(
                 "下载目录不存在，逐条对账没有意义（会满屏误报）。\n"
@@ -231,8 +250,13 @@ class VerifyPage(QWidget):
             self._log.warn("账实核验：下载目录不存在，未做逐条对账")
             return
 
+        # T18：账未记桶里 tracked + 盘上有内容的行可手动确认，
+        # 先收齐编号给桶级按钮用
+        self._pending_confirm_ids = [
+            mid for mid, st in result.untracked_content if st == "tracked"]
         self._fill_table(result)
         self._fill_non_numeric(result)
+
         n_bad = len(result.missing) + len(result.empty)
         self._summary.setStyleSheet(
             "color: #46a758;" if n_bad == 0 else "color: #f76b15;")
@@ -241,6 +265,20 @@ class VerifyPage(QWidget):
             f"｜盘上缺失 {len(result.missing)}｜空目录 {len(result.empty)}"
             f"｜盘上有而账未记 {len(result.untracked_content)}"
             f"｜非数字内容 {len(result.non_numeric)}")
+
+        # T18：有可确认条目才点亮批量按钮（文案带数量，tooltip 讲清
+        # 后果——决策 22：按钮必须自解释）；没有就收起来
+        if self._pending_confirm_ids:
+            self._confirm_all_btn.setText(
+                f"全部确认已下载（{len(self._pending_confirm_ids)} 个）…")
+            self._confirm_all_btn.setToolTip(
+                "把本桶全部「已收录」条目一次性手动确认入账"
+                "（早期手动下载，acf 永无记录，扫描无法确认）；"
+                "确认后版本留空——备份将拒、更新检测列「版本未知」")
+            self._confirm_all_btn.setVisible(True)
+        else:
+            self._confirm_all_btn.setVisible(False)
+
         self._log.ok(
             f"账实核验完成（{self._game.name}）：相符 {result.healthy}，"
             f"缺失 {len(result.missing)}，空目录 {len(result.empty)}，"
@@ -252,30 +290,40 @@ class VerifyPage(QWidget):
 
     def _fill_table(self, result: modVerifier.VerifyResult) -> None:
         """把三桶发现翻成人话行。双击动作只给"缺失/空目录"开——
-        它们的修法是重下，其他桶的修法都不在命令生成页。"""
-        rows: list[tuple[int, str, str, str, bool]] = []
+        它们的修法是重下，其他桶的修法都不在命令生成页。
+        T18：tracked 且盘上有内容的行，在「操作」列给确认按钮。
+        """
+        rows: list[tuple[int, str, str, str, bool, bool]] = []
         for mid in result.missing:
             rows.append((mid, "已下载", "目录不存在",
-                         "重新下载（双击本行生成命令）", True))
+                         "重新下载（双击本行生成命令）", True, False))
         for mid in result.empty:
             rows.append((mid, "已下载", "目录存在但为空",
-                         "疑似中断残留：重下（双击）或手动删除空目录", True))
+                         "疑似中断残留：重下（双击）或手动删除空目录",
+                         True, False))
         for mid, st in result.untracked_content:
             label = _STATUS_LABELS.get(st, "未入账")
             if st is None:
                 rows.append((mid, label, "盘上有目录",
-                             "本工具之外的内容：点【扫描本地】尝试入账", False))
+                             "本工具之外的内容：点【扫描本地】尝试入账",
+                             False, False))
             elif st == "tracked":
+                # 库里 tracked、盘上有内容，两种来路：
+                # a) 刚用 steamcmd 下过还没扫描 → 扫描能自动确认（更好，
+                #    版本三件套齐全）；b) 早期手动下载，acf 永远不会有
+                #    记录 → 扫描永远无效，只能手动确认。
+                # 文案两条路都摆出来，先推荐代价小的那条
                 rows.append((mid, label, "盘上已有内容",
-                             "点【扫描本地】即可确认下载", False))
+                             "先试【扫描本地】自动确认；不行（acf 无记录）"
+                             "再点右侧【确认已下载】", False, True))
             else:
                 # deleted / failed：软删除和失败记录本来就保留文件，正常
                 rows.append((mid, label, "盘上仍有内容",
                              "保留文件属正常（软删除/失败记录）；"
-                             "不需要可手动清理", False))
-
+                             "不需要可手动清理", False, False))
         self._table.setRowCount(len(rows))
-        for r, (mid, status, disk, advice, actionable) in enumerate(rows):
+        for r, (mid, status, disk, advice, actionable,
+                need_confirm) in enumerate(rows):
             mid_item = QTableWidgetItem(str(mid))
             # 编号塞进 UserRole 供双击取用；可行动标记放 UserRole+1
             mid_item.setData(Qt.ItemDataRole.UserRole, mid)
@@ -284,6 +332,31 @@ class VerifyPage(QWidget):
             self._table.setItem(r, 1, QTableWidgetItem(status))
             self._table.setItem(r, 2, QTableWidgetItem(disk))
             self._table.setItem(r, 3, QTableWidgetItem(advice))
+            if need_confirm:
+                btn = QPushButton("确认已下载…", self._table)
+                btn.setToolTip(
+                    "手动确认入账（早期手动下载，acf 永无记录，扫描无法"
+                    "确认）：确认后记为「已下载」，版本留空——备份将拒、"
+                    "更新检测列「版本未知」；重下并扫描可恢复")
+                btn.clicked.connect(
+                    lambda _=False, mid=mid: self._confirm_row(mid))
+                self._table.setCellWidget(r, 4, btn)
+            else:
+                self._table.setItem(r, 4, QTableWidgetItem(""))
+
+    def _confirm_row(self, mod_id: int) -> None:
+        """单行确认（T18）：弹窗与写库在共享 helper；
+        确认成功后重跑一次核验刷新全部数字（核验是只读的，毫秒级）。"""
+        if confirm_one(self, self._repo, self._log, mod_id):
+            self._start_verify()
+
+    def _confirm_all_tracked(self) -> None:
+        """桶级批量确认（T18）：把本桶 tracked 条目一次确认完。"""
+        if not self._pending_confirm_ids:
+            return
+        if confirm_batch(self, self._repo, self._log,
+                         list(self._pending_confirm_ids)):
+            self._start_verify()
 
     def _fill_non_numeric(self, result: modVerifier.VerifyResult) -> None:
         self._nn_list.clear()

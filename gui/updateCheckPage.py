@@ -7,9 +7,12 @@
 分工约定：联网查询放在后台线程（界面不卡、可中途停止）；
 数据库写入全部留在主线程（SQLite 毫秒级，无需进线程）。
 后台线程只发网络请求，绝不碰数据库。
+ 结果分五类展示：
+ - 需更新 / 已最新 / 未下载：与 mod 库页同一套判定逻辑（直接复用）
+ - 版本未知：手动确认入账的 mod（已下载但无 acf 版本，T18/决策 24）——
+   照常查询并补全标题等字段，但新旧无从判定，结果里单独列为
+   「版本未知」，绝不混入需更新/已最新
 
-结果分四类展示：
-- 需更新 / 已最新 / 未下载：与 mod 库页同一套判定逻辑（直接复用）
 - 疑似合集/异常：Steam 返回"查询成功"但文件大小缺失或为 0——真实 mod 不可能是 0 字节，大概率是合集。这类条目不做任何写入（防止把合集的
   标题误填进 mod），等用户点"展开合集"确认后再处理
 - 查询失败：接口对单个条目返回 result 非 1（被删除/设为私有/查无此条），
@@ -176,7 +179,9 @@ class UpdateCheckPage(QWidget):
             "点【开始检测】查询当前档案全部 mod 的远端信息：自动补全标题等字段、"
             "判定需不需要更新；特别关注的 mod 出新版本时会记一条提醒。\n"
             "文件大小缺失的条目会列为「疑似合集」，确认后可展开入库；"
-            "已删除的 mod 不会查询。")
+            "已删除的 mod 不会查询；手动确认入账（版本未知）的 mod "
+            "照常查询，但无法判定新旧，结果里单独列为「版本未知」。")
+
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
@@ -402,7 +407,8 @@ class UpdateCheckPage(QWidget):
         visible = [m for m in self._mods_at_start if m.status != "deleted"]
         self._table.setRowCount(len(visible))
         red = QColor("#e5484d")
-        counts = {"需更新": 0, "疑似": len(suspected_ids), "失败": len(failed)}
+        counts = {"需更新": 0, "版本未知": 0,
+                  "疑似": len(suspected_ids), "失败": len(failed)}
         for r, m in enumerate(visible):
             fresh = self._repo.get_mod(m.mod_id)
             title = (fresh.title if fresh is not None else None) or m.title \
@@ -419,6 +425,7 @@ class UpdateCheckPage(QWidget):
             else:
                 kind = ModListModel._update_state(fresh)
                 counts["需更新"] += kind == "需更新"
+                counts["版本未知"] += kind == "版本未知"
                 self._set_cell(r, 2, kind)
                 self._set_cell(r, 3, relative_time(fresh.time_updated))
                 # 更新间隔 = 本次版本距上一版过了多少天（作者的更新节奏）。
@@ -447,8 +454,10 @@ class UpdateCheckPage(QWidget):
                 self._table.setCellWidget(r, 6, btn)
         self._summary.setText(
             f"检测完成：共 {len(visible)} 个｜需更新 {counts['需更新']}"
+            f"｜版本未知 {counts['版本未知']}"
             f"｜疑似合集 {counts['疑似']}｜查询失败 {counts['失败']}"
             f"（其余为已最新 / 未下载 / 远端未知）")
+
         self._summary.setStyleSheet("color: #46a758;")
 
     def _set_cell(self, row: int, col: int, text: str) -> QTableWidgetItem:
