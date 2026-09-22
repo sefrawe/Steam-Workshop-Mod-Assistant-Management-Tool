@@ -167,8 +167,7 @@ class SettingsPage(QWidget):
             path = QFileDialog.getExistingDirectory(
                 self, "选择目录", edit.text() or "")
         if path:
-            edit.setText(Path(path).__str__())
-
+            edit.setText(str(path))  # Path 的字符串形式，跟原写法等价但更直白
     # ---------- 数据 ----------
 
     def _load_to_ui(self) -> None:

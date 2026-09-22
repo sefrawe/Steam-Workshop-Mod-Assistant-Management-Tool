@@ -452,6 +452,19 @@ class ModListPage(QWidget):
             f"扫描本地完成（{self._game.name}）：共 {len(result.items)} 条，"
             f"回填 {rep.updated}（首次确认下载 {rep.transitioned}），"
             f"新入库 {rep.inserted}{skipped}")
+        # 决策 23 质量谓词的产出：疑似下载中断的条目没有入账，单独提醒
+        # （与上面"不完整条目"分开说——格式类要排查工具/文件，
+        # 中断类的修复动作就是重新下载）
+        n_interrupted = len(result.interrupted)
+        if n_interrupted:
+            ids_text = "、".join(result.interrupted[:10]) + \
+                       ("…" if n_interrupted > 10 else "")
+            self._log.warn(
+                f"发现 {n_interrupted} 条疑似下载中断的条目，未入账："
+                f"{ids_text}；如需修复请重新下载（命令生成页勾选对应编号）")
+        # size 类异常不拦入账，扫描器聚合好的警告原样转述
+        for w in result.warnings:
+            self._log.warn(f"扫描本地：{w}")
         if rep.inserted:
             self._log.info(
                 "新入库条目缺标题等远端信息，建议跑一次更新检测补齐")

@@ -177,7 +177,9 @@ class CommandGenPage(QWidget):
             if not rows:
                 box.layout().addWidget(QLabel("（无）"))
             for m in rows:
-                cb = QCheckBox(f"{m.mod_id} {m.title}")
+                # 标题还没补全（没跑过更新检测）时显示"（无标题）"而不是
+                # "None"——和 mod 库页列表的兜底口径保持一致
+                cb = QCheckBox(f"{m.mod_id} {m.title or '（无标题）'}")
                 # 推荐勾选：需要更新 + 未下载 默认勾上；已最新默认不勾
                 cb.setChecked(key in ("needs_update", "not_downloaded"))
                 cb.toggled.connect(self._refresh_stats)

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 class Game:
     app_id: int                      # Steam AppID（CK3=1158310 / RimWorld=294100）
     name: str
-    download_dir: str                # steamcmd force_install_dir 指向的目录
+    download_dir: str  # steamcmd 工坊内容目录（…/workshop/content/<appid>，junction 实体侧），建档时按 steamcmd 位置自动推导
     game_mod_dir: str | None = None  # 游戏本体 mod 目录，可空
     backup_dir: str | None = None    # None = 取默认值（下载目录同级 mod_backups/<appid>/）
     created_at: int | None = None

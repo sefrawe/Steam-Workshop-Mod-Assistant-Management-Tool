@@ -119,6 +119,12 @@ class GameSwitcher(QWidget):
             QMessageBox.warning(self, "添加失败", f"档案 {app_id} 已存在。")
             return
         self.reload()
+        # 新建的档案直接设为当前：刚加完大概率马上要导 mod，
+        # 停在旧档案上会让人以为"没加上"。
+        # setCurrentIndex 会触发下拉框信号 → 正常广播新档案给所有页面
+        idx = self._combo.findData(app_id)
+        if idx >= 0:
+            self._combo.setCurrentIndex(idx)
         if derived is not None:
             # 建档成功后才告知推导结果：用户应当知道档案用到了哪个目录，
             # 也顺手把"content 树只放编号文件夹"的规矩带一句

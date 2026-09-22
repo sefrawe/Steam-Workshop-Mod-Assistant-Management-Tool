@@ -375,14 +375,19 @@ class BackupManager:
         else:
             warnings.append("当前没有本地内容，跳过恢复前备份。")
 
-        # ---- ② 当前文件夹改名挪走（同盘改名 = 原子，失败即中止，毫发无伤）----
-        aside = dest.parent / f"{mod.mod_id}_restore_old_{time.strftime('%Y%m%d_%H%M%S')}"
-        try:
-            dest.rename(aside)
-        except OSError as exc:
-            return RestoreReport(
-                ok=False, warnings=warnings,
-                error=f"无法挪动当前版本（未做任何改动）：{exc}")
+        # ---- ② 当前文件夹改名挪走（仅当当前版本真实存在；同盘改名 = 原子）----
+        # 无现状时 aside 保持 None：没有东西可挪，"原状"就是没有这个目录。
+        # 此前的 bug：无内容路径按 R8 契约跳过了恢复前备份，这里却无条件
+        # rename → WinError 2。内容丢失后恢复是备份的核心场景，必须畅通
+        aside: Path | None = None
+        if dest.is_dir():
+            aside = dest.parent / f"{mod.mod_id}_restore_old_{time.strftime('%Y%m%d_%H%M%S')}"
+            try:
+                dest.rename(aside)
+            except OSError as exc:
+                return RestoreReport(
+                    ok=False, warnings=warnings,
+                    error=f"无法挪动当前版本（未做任何改动）：{exc}")
 
         # ---- ③ 复制备份回原位 ----
         rc, out = self._run(str(src), str(dest))
@@ -393,24 +398,59 @@ class BackupManager:
                     _safe_rmtree(dest, dest.parent)
                 except (RuntimeError, OSError):
                     pass
-            try:
-                aside.rename(dest)
-            except OSError:
-                warnings.append(
-                    f"回退时改回原名失败，旧内容仍在：{aside}\n请手动改回"
-                    f" {dest.name}")
+            if aside is not None:
+                try:
+                    aside.rename(dest)
+                except OSError:
+                    warnings.append(
+                        f"回退时改回原名失败，旧内容仍在：{aside}\n请手动改回"
+                        f" {dest.name}")
+
             return RestoreReport(
                 ok=False, pre_backup=pre, warnings=warnings,
                 error=f"恢复复制失败（robocopy 退出码 {rc}），已回退原状：\n"
                       f"{out[-800:]}")
 
-        # ---- ⑤ 成功：删掉挪走的旧目录 ----
-        try:
-            _safe_rmtree(aside, dest.parent)
-        except (RuntimeError, OSError) as exc:
-            warnings.append(f"旧版本目录删除失败（恢复本身已成功）：{aside}\n{exc}")
-
+        # ---- ⑤ 成功：删掉挪走的旧目录（无现状路径没有可删的东西）----
+        if aside is not None:
+            try:
+                _safe_rmtree(aside, dest.parent)
+            except (RuntimeError, OSError) as exc:
+                warnings.append(
+                    f"旧版本目录删除失败（恢复本身已成功）：{aside}\n{exc}")
         return RestoreReport(ok=True, pre_backup=pre, warnings=warnings)
+
+    # ---------- 对外：删除 ----------
+
+    def delete_backup(self, backup_id: int) -> tuple[bool, str | None]:
+        """手动删除一份备份：磁盘目录 + 数据库记录（先盘后账）。
+
+        与保留策略清腾（_remove）的差异：手动删除要把结果讲清楚，
+        不静默。磁盘目录已不在（用户手动删过）→ 只删记录并说明；
+        R4 保险丝拦下 → 账不动并说明（残留交核验页非数字内容桶暴露）。
+        返回 (是否成功, 附带说明)。id 不存在按 bug 抛 ValueError。
+        """
+        record = self._repo.get_backup(backup_id)
+        if record is None:
+            raise ValueError(f"备份记录 {backup_id} 不存在")
+        mod = self._repo.get_mod(record.mod_id)
+        game = self._repo.get_game(mod.game_id) if mod else None
+        if game is None or not (game.backup_dir or "").strip():
+            self._repo.delete_backup_record(record.id)
+            return True, ("无法解析备份位置（mod 或档案的备份目录缺失），"
+                          "仅删除了记录")
+        target = Path(game.backup_dir) / record.backup_path
+        if not target.is_dir():
+            self._repo.delete_backup_record(record.id)
+            return True, (f"盘上本已不存在（可能已被手动删除）：{target}\n"
+                          "仅删除了记录")
+        try:
+            _safe_rmtree(target, Path(game.backup_dir))
+        except (RuntimeError, OSError) as exc:
+            return False, f"磁盘目录删除失败，记录保留（R4 保险丝或权限问题）：{exc}"
+        self._repo.delete_backup_record(record.id)
+        return True, None
+
 
     # ---------- 内部 ----------
 

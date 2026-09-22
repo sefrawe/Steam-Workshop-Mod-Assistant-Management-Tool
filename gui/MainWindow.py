@@ -1,4 +1,5 @@
-"""主窗口骨架 """
+"""主窗口骨架
+"""
 """
 结构：左导航（游戏切换器 + 导航列表）+ 中央页面栈 + 底部控制台 Dock。
 控制台含"运行日志 / steamcmd 终端"两个标签页，各页面通过 LogBus 打日志。
@@ -24,18 +25,19 @@ from PySide6.QtWidgets import (
 from core.appSettings import AppSettings
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
+from gui.backupPage import BackupPage
 from gui.commandGenPage import CommandGenPage
 from gui.consolePanel import ConsolePanel, LogBus
 from gui.gameSwitcher import GameSwitcher
 from gui.importPage import ImportPage
 from gui.modListPage import ModListPage
-
 from gui.settingsPage import SettingsPage
 from gui.updateCheckPage import UpdateCheckPage
-from gui.backupPage import BackupPage
+from gui.verifyPage import VerifyPage
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "mods.db"
+
 _NAV_WIDTH = 210
 
 # 左导航树：整数 = 页面栈下标（真实页面）；None = 未完成模块，灰色"开发中"。
@@ -47,6 +49,7 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
         ("网址批量导入", 1),
         ("更新检测", 4),
         ("下载命令生成", 5),
+        ("账实核验", 6),
     ]),
     ("备份管理", [
         ("备份与恢复", 2),
@@ -67,7 +70,8 @@ class MainWindow(QMainWindow):
         self._log = LogBus()
         # 数据库操作全在主线程（毫秒级）；联网/扫描等长操作走各自页面的工作线程
         self._repo = SQLiteRepository(
-            DEFAULT_DB_PATH, snapshot_keep=self._settings.get_int("snapshot_keep", 5))
+            DEFAULT_DB_PATH,
+            snapshot_keep=self._settings.get_int("snapshot_keep", 5))
         self._current_game: Game | None = None
 
         self._build_central()
@@ -99,7 +103,6 @@ class MainWindow(QMainWindow):
         self._nav.setHeaderHidden(True)
         self._nav.setIndentation(14)
         self._nav_items: dict[int, QTreeWidgetItem] = {}  # 页面下标 → 树条目
-
         for name, spec in _NAV_SCHEMA:
             if isinstance(spec, int):
                 item = QTreeWidgetItem([name])
@@ -116,30 +119,33 @@ class MainWindow(QMainWindow):
                     child.setDisabled(True)  # 灰色、点不动
                 else:
                     child.setData(0, Qt.ItemDataRole.UserRole, index)
-                self._nav_items[index] = child
+                    self._nav_items[index] = child
                 group.addChild(child)
             group.setExpanded(True)
             self._nav.addTopLevelItem(group)
-
         self._nav.currentItemChanged.connect(self._on_nav_changed)
         self._nav.itemClicked.connect(self._on_nav_clicked)
         side_layout.addWidget(self._nav, 1)
 
         self._stack = QStackedWidget(central)
         self._pages = [
-            ModListPage(self._repo, self._settings, self._stack,log=self._log),  # 0
-            ImportPage(self._repo, self._stack, log=self._log),                  # 1
-            BackupPage(self._repo, self._settings, self._stack, log=self._log),  # 2
-            SettingsPage(self._settings, self._stack),                           # 3
+            ModListPage(self._repo, self._settings, self._stack, log=self._log),  # 0
+            ImportPage(self._repo, self._stack, log=self._log),                   # 1
+            BackupPage(self._repo, self._settings, self._stack, log=self._log),   # 2
+            SettingsPage(self._settings, self._stack),                            # 3
             UpdateCheckPage(self._repo, self._settings, self._stack, log=self._log),  # 4
             CommandGenPage(self._repo, self._settings, self._stack, log=self._log),   # 5
+            VerifyPage(self._repo, self._settings, self._stack, log=self._log),   # 6
         ]
         for page in self._pages:
             self._stack.addWidget(page)
 
         self._pages[1].imported.connect(self._on_imported)
         self._pages[4].checks_finished.connect(self._on_checks_finished)
+        # mod 库页与账实核验页共用同一份跳转契约：
+        # 发出 mod id 列表 → 切到命令生成页并只勾选这些 mod
         self._pages[0].command_gen_requested.connect(self._on_command_gen_requested)
+        self._pages[6].command_gen_requested.connect(self._on_command_gen_requested)
 
         self._nav.setCurrentItem(self._nav_items[0])
 
@@ -151,7 +157,8 @@ class MainWindow(QMainWindow):
         self._console_dock = QDockWidget("控制台", self)
         self._console_dock.setWidget(
             ConsolePanel(self._log, self._console_dock))
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._console_dock)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
+                           self._console_dock)
 
     def _build_menus(self) -> None:
         m_file = self.menuBar().addMenu("文件(&F)")
@@ -212,9 +219,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("更新检测完成", 5000)
 
     def _on_command_gen_requested(self, mod_ids: list) -> None:
-        # mod 库页右键"获取下载命令"跳过来：
+        # mod 库页右键"获取下载命令"（或核验页双击缺失行）跳过来：
         # 先切导航，再让命令页按当前档案强制重读一遍（防止清单还是旧数据），
-        # 最后只勾选用户右键的那些 mod
+        # 最后只勾选用户指定的那些 mod
         self._nav.setCurrentItem(self._nav_items[5])
         page = self._pages[5]
         page.set_game(self._switcher.current_game())
@@ -222,5 +229,11 @@ class MainWindow(QMainWindow):
             page.focus_ids(mod_ids)
 
     def closeEvent(self, event) -> None:
+        # 页面里若有后台线程还在跑（如更新检测），先请它们停下并等
+        # 彻底退出，再关数据库——否则退出销毁线程对象时可能闪退
+        for page in self._pages:
+            shutdown = getattr(page, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
         self._repo.close()
         super().closeEvent(event)

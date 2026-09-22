@@ -2,10 +2,13 @@
 """
 """
 三层覆盖：路径定位（tmp_path 假文件）→ acf 解析（仓库内合成样本 +
-本机真实 fixtures）→ 计划与落库（临时 SQLite 库全链路 + 原子性）。
+本机真实 fixtures + 质量谓词合成样本）→ 计划与落库（临时 SQLite 库
+全链路 + 原子性）。
 
+质量谓词（决策 23）的用例全部用 tmp_path 现场合成的 acf，不依赖样本文件。
 真实 acf 不入库（gitignore），缺失时相关用例自动 skip，合成样本兜底。
 """
+
 from pathlib import Path
 
 import pytest
@@ -20,12 +23,11 @@ MINI = SAMPLES / "appworkshop_mini.acf"
 CK3 = FIXTURES / "appworkshop_1158310.acf"
 OTHER = FIXTURES / "appworkshop_3117820.acf"
 
-
 # ---------- locate_acf ----------
 # 决策 21⑤：acf 定位绑定 steamcmd 目录布局，三种填写口径都认：
-#   填 steamcmd 根   → <根>\steamapps\workshop\appworkshop_<appid>.acf
-#   填 steamapps 层  → <层>\workshop\appworkshop_<appid>.acf
-#   填 workshop 层   → <层>\appworkshop_<appid>.acf
+#   填 steamcmd 根 → <根>\steamapps\workshop\appworkshop_<appid>.acf
+#   填 steamapps 层 → <层>\workshop\appworkshop_<appid>.acf
+#   填 workshop 层 → <层>\appworkshop_<appid>.acf
 # （程序内部自动推导传的总是 steamcmd 根，后两种是手工填写时的容错。）
 
 def test_locate_from_steamcmd_root(tmp_path):
@@ -61,30 +63,126 @@ def test_locate_empty_or_quoted_returns_none():
 
 def test_scan_mini_items():
     r = ls.scan_acf(MINI)
-    assert [i.mod_id for i in r.items] == [1000000001, 1000000002, 1000000004]
+    # 质量谓词（决策 23）落地后：manifest 缺失/空串的条目按"疑似下载
+    # 中断"拦下不再入账——样本里三件套齐全的只剩 1000000001
+    assert [i.mod_id for i in r.items] == [1000000001]
     a = r.items[0]
     assert (a.timeupdated, a.size, a.manifest) == (
         1700000100, 4096, "8715384612056780827")
-    assert r.items[1].size is None and r.items[1].manifest is None
-    assert r.items[2].manifest is None  # 空串 manifest 视为没有
 
 
 def test_scan_mini_skipped():
     r = ls.scan_acf(MINI)
-    # 跳过顺序与清单（id 保持 acf 出现顺序）
-    assert [k for k, _ in r.skipped] == [
-        "1000000003", "not_a_number", "1000000006"]
+    # 2/3/4 = 疑似下载中断（manifest 缺失 / 缺 timeupdated / manifest 空串），
+    # not_a_number 与 6 仍是格式类跳过。断言不锁顺序——谓词改变了
+    # "谁会被跳过"，不再和样本里条目的排布顺序耦合
+    assert sorted(k for k, _ in r.skipped) == [
+        "1000000002", "1000000003", "1000000004", "1000000006", "not_a_number"]
     # 原因按前缀断言：不锁全文措辞，只锁语义类别
     reasons = dict(r.skipped)
-    assert reasons["1000000003"].startswith("缺")
+    assert reasons["1000000002"].startswith("疑似下载中断")
+    assert reasons["1000000003"].startswith("疑似下载中断")
+    assert reasons["1000000004"].startswith("疑似下载中断")
     assert reasons["not_a_number"].startswith("编号")
     assert reasons["1000000006"].startswith("条目")
+
+
+def test_scan_mini_interrupted_vs_warnings():
+    r = ls.scan_acf(MINI)
+    # interrupted 只收集"疑似下载中断"类，格式类跳过不算进去
+    assert sorted(r.interrupted) == ["1000000002", "1000000003", "1000000004"]
+    # 唯一入账条目（1000000001）三件套齐全 → 没有任何 size 警告
+    assert r.warnings == []
 
 
 def test_scan_mini_details_section_ignored():
     r = ls.scan_acf(MINI)
     # WorkshopItemDetails 里的 latest_* 缓存不得泄漏成条目数据
     assert all(i.manifest != "9999999999999999999" for i in r.items)
+
+
+# ---------- 质量谓词（决策 23：账本只记确信下载成功的条目）----------
+
+def _entry(mid: str, *, tu="1700000100", size="4096",
+           manifest="8715384612056780827") -> str:
+    """合成一个 WorkshopItemsInstalled 条目；任一字段传 None = 整行省略
+    （模拟缺失）。"""
+    lines = [f'"{mid}"', "{"]
+    if tu is not None:
+        lines.append(f'"timeupdated" "{tu}"')
+    if size is not None:
+        lines.append(f'"size" "{size}"')
+    if manifest is not None:
+        lines.append(f'"manifest" "{manifest}"')
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def _write_acf(tmp_path, *entries: str) -> Path:
+    """合成一个只带 WorkshopItemsInstalled 区块的 acf，专供谓词用例。"""
+    f = tmp_path / "appworkshop_1158310.acf"
+    f.write_text(
+        '"AppWorkshop"\n{\n"WorkshopItemsInstalled"\n{\n'
+        + "\n".join(entries) + "\n}\n}",
+        encoding="utf-8")
+    return f
+
+
+def test_predicate_timeupdated_zero(tmp_path):
+    # steamcmd 中断会把 0 留在账本里：0 不是有效版本时间 → 不入账
+    f = _write_acf(tmp_path, _entry("1001", tu="0"))
+    r = ls.scan_acf(f)
+    assert r.items == []
+    assert r.interrupted == ["1001"]
+    assert "timeupdated" in dict(r.skipped)["1001"]
+
+
+def test_predicate_timeupdated_missing(tmp_path):
+    f = _write_acf(tmp_path, _entry("1002", tu=None))
+    r = ls.scan_acf(f)
+    assert r.items == []
+    assert r.interrupted == ["1002"]
+
+
+def test_predicate_manifest_minus_one(tmp_path):
+    # "-1" 是 steamcmd 下载中断的标志值：内容没落地完整
+    f = _write_acf(tmp_path, _entry("1003", manifest="-1"))
+    r = ls.scan_acf(f)
+    assert r.items == []
+    assert r.interrupted == ["1003"]
+
+
+def test_predicate_manifest_empty(tmp_path):
+    f = _write_acf(tmp_path, _entry("1004", manifest=""))
+    r = ls.scan_acf(f)
+    assert r.items == []
+    assert r.interrupted == ["1004"]
+
+
+def test_predicate_size_zero_only_warns(tmp_path):
+    # 决策 23：size 仅警告不拦——"文件在盘上"是事实，size 缺失只影响
+    # 大小展示与备份预检，不构成"下载没成功"的证据
+    f = _write_acf(tmp_path, _entry("1005", size="0"))
+    r = ls.scan_acf(f)
+    assert [i.mod_id for i in r.items] == [1005]
+    assert r.items[0].size == 0
+    assert r.interrupted == []
+    assert len(r.warnings) == 1 and "1005" in r.warnings[0]
+
+
+def test_predicate_size_missing_only_warns(tmp_path):
+    f = _write_acf(tmp_path, _entry("1006", size=None))
+    r = ls.scan_acf(f)
+    assert [i.mod_id for i in r.items] == [1006]
+    assert r.items[0].size is None
+    assert len(r.warnings) == 1 and "1006" in r.warnings[0]
+
+
+def test_predicate_clean_entry_no_warning(tmp_path):
+    f = _write_acf(tmp_path, _entry("1007"))
+    r = ls.scan_acf(f)
+    assert [i.mod_id for i in r.items] == [1007]
+    assert r.warnings == [] and r.interrupted == []
 
 
 # ---------- scan_acf（错误路径）----------
@@ -155,8 +253,8 @@ def test_plan_downloaded_no_transition():
 
 
 def test_plan_deleted_failed_backfill_only():
-    plan = ls.diff_plan([_item(1), _item(2)],
-                        {1: "deleted", 2: "failed"}, game_id=99)
+    plan = ls.diff_plan([_item(1), _item(2)], {1: "deleted", 2: "failed"},
+                        game_id=99)
     assert all(not u.to_downloaded for u in plan.updates)
     assert plan.inserts == []
 
@@ -235,7 +333,8 @@ def test_apply_idempotent(repo):
     again = repo.get_mod(100)
     assert (again.status, again.local_timeupdated, again.local_size,
             again.manifest) == (
-        first.status, first.local_timeupdated, first.local_size, first.manifest)
+               first.status, first.local_timeupdated, first.local_size,
+               first.manifest)
     # 重新对表：已 downloaded，不再出现跃迁
     plan2 = ls.diff_plan([item],
                          {m.mod_id: m.status for m in repo.list_mods(1158310)},

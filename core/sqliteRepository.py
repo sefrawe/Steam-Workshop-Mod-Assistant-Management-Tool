@@ -59,7 +59,7 @@ class SQLiteRepository(ModRepository):
 
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self._path, isolation_level=None)
+        self._conn = sqlite3.connect(self._path, isolation_level=None,check_same_thread=False)
         self._conn.row_factory = sqlite3.Row  # 让查询结果支持按列名取值
         # foreign_keys 是连接级属性，每个连接都必须重新打开
         # （schema 文件里的那条只管建表期）
@@ -531,6 +531,8 @@ class SQLiteRepository(ModRepository):
         self._require(self._conn.execute(
             "DELETE FROM backups WHERE id = ?",
             (backup_id,)).rowcount, f"备份记录 {backup_id} 不存在")
+
+
 
     def sum_backup_bytes(self) -> int:
         return self._conn.execute(

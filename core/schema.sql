@@ -27,7 +27,7 @@ PRAGMA user_version = 1;   -- schema 版本号，将来表结构变更时 +1，�
 CREATE TABLE games (
                        app_id       INTEGER PRIMARY KEY,              -- Steam AppID（CK3=1158310 / RimWorld=294100）
                        name         TEXT    NOT NULL,                 -- 游戏名（向导中由 API 自动获取）
-                       download_dir TEXT    NOT NULL,                 -- steamcmd force_install_dir 指向的目录
+                       download_dir TEXT NOT NULL, -- steamcmd 工坊内容目录（workshop/content/<appid>，junction 实体侧），建档时按 steamcmd 位置自动推导
                        game_mod_dir TEXT,                             -- 游戏本体 mod 目录（如 CK3 的 Documents 路径），可空
                        backup_dir   TEXT,                             -- mod 备份根目录；NULL = 代码取默认值
     --   （下载目录同级 mod_backups/<appid>/，见 T6）
