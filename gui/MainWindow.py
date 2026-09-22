@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
-    QWidget,
+    QWidget, QMessageBox,
 )
 
 from core.appSettings import AppSettings
@@ -28,6 +28,8 @@ from core.sqliteRepository import SQLiteRepository
 from gui.backupPage import BackupPage
 from gui.commandGenPage import CommandGenPage
 from gui.consolePanel import ConsolePanel, LogBus
+from gui.batchDownloadController import BatchDownloadController
+
 from gui.gameSwitcher import GameSwitcher
 from gui.importPage import ImportPage
 from gui.modListPage import ModListPage
@@ -146,6 +148,10 @@ class MainWindow(QMainWindow):
         # 发出 mod id 列表 → 切到命令生成页并只勾选这些 mod
         self._pages[0].command_gen_requested.connect(self._on_command_gen_requested)
         self._pages[6].command_gen_requested.connect(self._on_command_gen_requested)
+        self._pages[0].download_requested.connect(self._start_batch)  # 前缀照抄上一行
+        self._pages[0].backup_requested.connect(self._backup_checked)  # 前缀照抄上一行
+
+
 
         self._nav.setCurrentItem(self._nav_items[0])
 
@@ -155,8 +161,18 @@ class MainWindow(QMainWindow):
 
     def _build_console_dock(self) -> None:
         self._console_dock = QDockWidget("控制台", self)
-        self._console_dock.setWidget(
-            ConsolePanel(self._log, self._console_dock))
+        console_panel = ConsolePanel(self._log, self._console_dock,
+                                     settings=self._settings)
+        self._console_dock.setWidget(console_panel)
+        # 新消息自动弹出：面板发现控制台被关着又有新日志时发信号，
+        # 这里负责把停靠窗拉回屏幕（开关在运行日志页的勾选框）
+        console_panel.show_requested.connect(self._pop_console)
+        # 批量下载控制器：整软件一个实例（steamcmd 单实例 → 单批次），
+        # 把终端信号、批次卡片和流程状态机缝在一起
+        self._batch_controller = BatchDownloadController(
+            console_panel.terminal, console_panel.step_list,
+            self._log, self._settings, self)
+
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
                            self._console_dock)
 
@@ -228,9 +244,42 @@ class MainWindow(QMainWindow):
         if mod_ids:
             page.focus_ids(mod_ids)
 
+    def _pop_console(self) -> None:
+        """把已关闭的控制台停靠窗拉出来并置前（新消息自动弹出）。"""
+        if self.isMinimized():
+            self.showNormal()  # 程序最小化时先还原，否则弹了也看不见
+        self._console_dock.show()
+        self._console_dock.raise_()
+
+
+    def _start_batch(self, app_id: int, mod_ids: list) -> None:
+        """mod 库页【下载选中项】→ 开批量下载批次。
+
+        无论成败先弹出控制台并切到「下载批次」标签：失败原因写在
+        运行日志里，不能让用户对着没反应的按钮猜。
+        """
+        self._pop_console()
+        self._console_dock.widget().show_batch_tab()
+        self._batch_controller.start_batch(app_id, mod_ids)
+
+    def _backup_checked(self, app_id: int, mod_ids: list) -> None:
+        """mod 库页【备份选中项】→ 备份页切档案并开批次。"""
+        self._nav.setCurrentItem(self._nav_items[2])  # 跳到备份页看进度条
+        self._pages[2].backup_ids_for(app_id, mod_ids)
+
     def closeEvent(self, event) -> None:
         # 页面里若有后台线程还在跑（如更新检测），先请它们停下并等
         # 彻底退出，再关数据库——否则退出销毁线程对象时可能闪退
+        if (getattr(self, "_batch_controller", None) is not None
+                and self._batch_controller.is_active()):
+            ret = QMessageBox.question(
+                self, "批量下载进行中",
+                "批量下载尚未完成。退出会中止剩余条目，"
+                "正在下载的那条也会随 steamcmd 退出而中断。\n\n仍要退出吗？")
+            if ret != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+
         for page in self._pages:
             shutdown = getattr(page, "shutdown", None)
             if callable(shutdown):

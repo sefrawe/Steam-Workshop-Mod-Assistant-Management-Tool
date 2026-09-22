@@ -333,6 +333,15 @@ class BackupManager:
 
     def restore_backup(self, backup_id: int) -> RestoreReport:
         """把一份备份恢复回下载目录。流程见文件头"恢复流程"（R8 原案）。"""
+        # 恢复是覆盖性操作：steamcmd 在跑时直接拒绝。与备份只警告
+        # （R7）不对称是故意的——备份顶多拿到不完整副本，恢复却会
+        # 把写了一半的下载目录整个覆盖掉，两边一起坏
+        if steamcmd_running():
+            return RestoreReport(
+                ok=False,
+                error="检测到 steamcmd 正在运行：恢复会与下载争用同一目录，"
+                      "请先退出 steamcmd 再恢复。")
+
         warnings: list[str] = []
         record = self._repo.get_backup(backup_id)
         if record is None:

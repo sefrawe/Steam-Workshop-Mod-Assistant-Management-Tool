@@ -55,7 +55,8 @@ from PySide6.QtWidgets import (
 from core.backupManager import BackupManager
 from core.models import Game
 from gui.consolePanel import LogBus
-from gui.formatters import abs_time, fmt_size
+from gui.formatters import abs_time, fmt_size, status_zh
+
 
 # 与设置页 _FIELDS 核对过的真键名（settingsPage.py）。注意配额在设置页
 # 以 GB 计（人好填），引擎以字节计（好比较），换算只在 _make_manager 做一次
@@ -283,6 +284,42 @@ class BackupPage(QWidget):
         if self._job_worker is not None:
             self._job_worker.wait()
 
+    def backup_ids_for(self, app_id: int, mod_ids: list[int]) -> None:
+        """mod 库页【备份选中项】的落点：切到对应档案，过滤出可备份
+        （已下载）的 mod 后进批次。
+
+        档案切换在这里做——用户可能在 A 游戏的库页勾选，而备份页
+        正停在 B 游戏；不切的话批次会备错档案。
+        """
+        game = self._repo.get_game(app_id)
+        if game is None:
+            self._log.warn(f"备份取消：找不到游戏档案 {app_id}")
+            return
+        self.set_game(game)
+        downloadable = {m.mod_id for m in self._repo.list_mods(app_id)
+                        if m.status == "downloaded"}
+        ids = [i for i in mod_ids if i in downloadable]
+        if not ids:
+            QMessageBox.information(
+                self, "备份选中项", "勾选的 mod 里没有已下载的，无内容可备份。")
+            return
+        skipped = [i for i in mod_ids if i not in downloadable]
+        if skipped:
+            # 被跳过的按实际状态报（status_zh 原话）——库里无内容的状态
+            # 不止一种，手写"未下载"会和列表里看到的词对不上号
+            by_status: dict[str, int] = {}
+            for i in skipped:
+                m = self._repo.get_mod(i)
+                name = status_zh(m.status) if m is not None else "记录缺失"
+                by_status[name] = by_status.get(name, 0) + 1
+            detail = "、".join(f"{k} {v} 个" for k, v in by_status.items())
+            self._log.info(
+                f"备份批次：跳过 {len(skipped)} 个无本地内容的 mod（{detail}）")
+        self._run_backup(ids)
+
+        self._run_backup(ids)
+
+
     # ---------- 内部：公共小件 ----------
 
     def _make_manager(self) -> BackupManager:
@@ -357,8 +394,9 @@ class BackupPage(QWidget):
             self._cell(r, 4, on_disk)
             self._cell(r, 5, "是" if b.pinned else "")
             self._cell(r, 6, b.note or "")
-        keep = self._settings.get_int(_KEY_KEEP_PER_MOD, 3)
-        quota_gb = self._settings.get_int(_KEY_QUOTA_GB, 0)
+        keep = self._settings.get_int(_KEY_KEEP_PER_MOD, 1)
+        quota_gb = self._settings.get_int(_KEY_QUOTA_GB, 100)
+
         policy = (f"每个 mod 保留最新 {keep} 份"
                   + (f"，总量上限 {quota_gb} GB" if quota_gb else "，总量不限")
                   + "（设置页修改）")
@@ -369,10 +407,9 @@ class BackupPage(QWidget):
         self._refresh_op_buttons()
 
     # ---------- 备份 ----------
-
     def _start_backup(self) -> None:
         if self._busy or self._game is None:
-            return  # 单飞：备份/恢复/删除同一时刻只跑一个
+            return
         mods = [m for m in self._repo.list_mods(self._game.app_id)
                 if m.status == "downloaded"]
         if not mods:
@@ -381,8 +418,18 @@ class BackupPage(QWidget):
         dlg = _PickModsDialog(mods, self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        ids = dlg.selected_ids()
-        if not ids:
+        self._run_backup(dlg.selected_ids())
+
+    def _run_backup(self, ids: list[int]) -> None:
+        """备份批次执行核心：勾选对话框与 mod 库页【备份选中项】共用。
+
+        单飞互斥在这里统一把关——不管入口来自哪个按钮，同一时刻
+        只允许一个备份/恢复任务。
+        """
+        if self._busy:
+            self._log.warn("已有备份/恢复任务在进行：请等它结束再试")
+            return
+        if self._game is None or not ids:
             return
         self._progress.setRange(0, len(ids))
         self._progress.setValue(0)
@@ -392,7 +439,6 @@ class BackupPage(QWidget):
         self._backup_worker.one_done.connect(self._on_one_backed)
         self._backup_worker.all_done.connect(self._on_backup_all_done)
         self._backup_worker.crashed.connect(self._on_worker_crashed)
-        # 线程引用的释放统一在 finished 收尾（踩坑 ⑫），处理函数里不碰
         self._backup_worker.finished.connect(self._on_backup_thread_finished)
         self._backup_worker.start()
         self._stop_btn.setEnabled(True)

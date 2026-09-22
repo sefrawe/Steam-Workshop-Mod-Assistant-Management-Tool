@@ -34,10 +34,12 @@ DEFAULTS: dict[str, str] = {
     "steamcmd_login_cmd": "",      # steamcmd 登录命令，整行原样使用（如 login 你的账号）
     "api_request_interval_ms": "200",  # 批量查 Steam 接口时，两次请求的间隔毫秒数
     "api_max_retries": "3",        # 被限流（429/503）时的自动重试上限
-    "slow_update_days": "30",      # 距上次已知更新超过 N 天，检测结果里标红提醒
+    "slow_update_days": "180",      # 距上次已知更新超过 N 天，检测结果里标红提醒
     "snapshot_keep": "5",          # 每个 mod 保留的历史快照条数（滚动淘汰）
     "backup_keep_per_mod": "1",    # 每个 mod 保留的备份份数（超出淘汰最旧，钉住豁免）
     "backup_total_quota_gb": "100",  # 全部备份合计的容量上限 GB（超出从最旧清腾）
+    "console_auto_show": "1",  # 控制台被关闭时来了新日志要不要自动弹出
+
 }
 
 

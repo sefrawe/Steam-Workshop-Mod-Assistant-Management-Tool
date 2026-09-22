@@ -59,6 +59,14 @@ _COLORS = {
 class ModListPage(QWidget):
     # 右键"获取下载命令"时发出，参数 = 要聚焦的 mod id 列表；MainWindow 负责跳转
     command_gen_requested = Signal(list)
+    # 【下载选中项】（T20b）：参数 = (当前游戏 app_id, 勾选的 mod_id 列表)。
+    # MainWindow 接线到批量下载控制器；本页不认识控制器，只发信号
+    download_requested = Signal(int, list)
+
+    # 【备份选中项】：参数 = (当前游戏 app_id, 勾选的 mod_id 列表)。
+    # MainWindow 接线到备份页的 backup_ids_for——与 download_requested
+    # 同一套信号模式，勾选列一处投入、下载/备份两处收益
+    backup_requested = Signal(int, list)
 
     def __init__(self, repo, settings: AppSettings, parent: QWidget | None = None,
                  log: LogBus | None = None) -> None:
@@ -71,7 +79,7 @@ class ModListPage(QWidget):
         self._game: Game | None = None
         self._search = ""                      # 当前生效的搜索词（防抖后更新）
         self._order_by = "time_updated DESC"   # 默认按远端版本新 → 旧
-        self._sort_col = 3                     # 表头箭头停在"远端版本"列
+        self._sort_col = 4                     # 表头箭头停在"远端版本"列
         self._selected_mod_id: int | None = None  # 重新载入后恢复选中用
         self._build_ui()
 
@@ -115,9 +123,25 @@ class ModListPage(QWidget):
         scan_btn.setToolTip("解析当前游戏的 appworkshop acf，回填本地版本三件套")
         scan_btn.clicked.connect(self._on_scan_local)
         h.addWidget(scan_btn)
+        self._btn_download = QPushButton("下载选中项", row)
+        self._btn_download.setToolTip(
+            "把勾选的 mod 交给 控制台 → 下载批次 逐条下载"
+            "（顺序 = 列表当前排序）：\n需要 steamcmd 已在终端里启动并登录，"
+            "未启动时会提示")
+        self._btn_download.clicked.connect(self._on_download_checked)
+        h.addWidget(self._btn_download)
+
+        self._btn_backup = QPushButton("备份选中项", row)
+        self._btn_backup.setToolTip(
+            "把勾选的 mod 内容复制进备份区（未下载的自动跳过）；\n"
+            "保留份数与配额按设置页执行")
+        self._btn_backup.clicked.connect(self._on_backup_checked)
+        h.addWidget(self._btn_backup)
 
         self._count_label = QLabel("", row)
         h.addWidget(self._count_label)
+        self._checked_label = QLabel("", row)
+        h.addWidget(self._checked_label)
 
         bar_layout.addWidget(row)
         root.addWidget(bar)
@@ -134,9 +158,10 @@ class ModListPage(QWidget):
         self._table.verticalHeader().setVisible(False)
 
         header = self._table.horizontalHeader()
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # 标题列占满剩余宽度
-        for col, width in ((0, 90), (2, 96), (3, 92), (4, 92),
-                           (5, 72), (6, 88), (7, 170), (8, 32), (9, 160)):
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # 标题列占满剩余宽度
+        self._table.setColumnWidth(0, 34)  # 勾选列：只放一个复选框
+        for col, width in ((1, 90), (3, 96), (4, 92), (5, 92), (6, 72),
+                           (7, 88), (8, 170), (9, 32), (10, 160)):
             self._table.setColumnWidth(col, width)
         header.setSortIndicator(self._sort_col, Qt.SortOrder.DescendingOrder)
         header.setSortIndicatorShown(True)
@@ -159,8 +184,13 @@ class ModListPage(QWidget):
         self._special_check.toggled.connect(self._reload)
         header.sectionClicked.connect(self._on_header_clicked)
         self._table.selectionModel().currentRowChanged.connect(self._on_current_row)
-        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_context_menu)
+
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
+        # 勾选数变化 → "已勾选 N" 标签（模型发信号，本页只更新文字）
+        self._model.checks_changed.connect(self._update_checked_label)
+
 
     # ---------- 对外（MainWindow 调用） ----------
 
@@ -335,6 +365,41 @@ class ModListPage(QWidget):
         helper 里，确认成功后刷新列表（恢复选中逻辑 _reload 已有）。"""
         if confirm_one(self, self._repo, self._log, m.mod_id):
             self._reload()
+
+    def _update_checked_label(self) -> None:
+        """勾选数变化时更新"已勾选 N"（没有勾选就不显示）。"""
+        n = self._model.checked_count_in_rows()
+        self._checked_label.setText(f"已勾选 {n}" if n else "")
+
+    def _on_download_checked(self) -> None:
+        """【下载选中项】：收集勾选的 mod，发信号让 MainWindow 开批次。
+
+        只收集当前清单里仍显示的勾选——被筛选条件藏起来的不算数，
+        点按钮的人看得见要下的是什么，不会发生"隐形下载"。
+        """
+        if self._game is None:
+            return
+        ids = self._model.checked_ids_in_rows()
+        if not ids:
+            QMessageBox.information(
+                self, "下载选中项", "先在表格第一列勾选要下载的 mod。")
+            return
+        self.download_requested.emit(self._game.app_id, ids)
+
+    def _on_backup_checked(self) -> None:
+        """【备份选中项】：勾选的 mod 交给备份页开批次。
+
+        与下载同一个纪律：只收当前清单里显示的勾选，不隐形备份。
+        """
+        if self._game is None:
+            return
+        ids = self._model.checked_ids_in_rows()
+        if not ids:
+            QMessageBox.information(
+                self, "备份选中项", "先在表格第一列勾选要备份的 mod。")
+            return
+        self.backup_requested.emit(self._game.app_id, ids)
+
 
 
     def _steamcmd_root(self) -> Path | None:
