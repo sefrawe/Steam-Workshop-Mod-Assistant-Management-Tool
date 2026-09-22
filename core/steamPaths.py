@@ -105,3 +105,29 @@ def refresh_download_dir(
     if fresh is None:
         return stored, False
     return fresh, fresh != stored
+
+def ensure_steamcmd_exe(path: str) -> str:
+    """T21①：把"文件夹"形态的 steamcmd 路径补全成完整 exe 路径。
+    """
+    """设置页允许直接填"包含 steamcmd.exe 的文件夹"（用户已拍板），
+    本函数是唯一补全规则落点，三条规则：
+
+    - 传入的是存在的文件 → 原样返回（正常情况，设置页一直这么存）
+    - 传入的是存在的文件夹且里面有 steamcmd.exe → 返回 <文件夹>/steamcmd.exe
+    - 其余（空串、不存在的路径、没有 exe 的文件夹）→ 原样返回——
+      让上游的存在性检查报出真实情况（"文件夹里没有 steamcmd.exe"），
+      好过悄悄拼出一个不存在的路径把问题藏起来
+
+    Windows 文件名不区分大小写，steamcmd.EXE / SteamCmd.exe 同样能认出。
+    """
+    text = str(path or "").strip()
+    if not text:
+        return ""
+    p = Path(text)
+    if p.is_file():
+        return str(p)
+    if p.is_dir():
+        candidate = p / "steamcmd.exe"
+        if candidate.is_file():
+            return str(candidate)
+    return text

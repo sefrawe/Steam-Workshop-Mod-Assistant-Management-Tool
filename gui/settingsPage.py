@@ -33,15 +33,16 @@ from PySide6.QtWidgets import (
 )
 
 from core.appSettings import DEFAULTS, AppSettings
+from core.steamPaths import ensure_steamcmd_exe
 
 # key / 中文标签 / 空值时的灰色提示 / 字段类型
 # （"file"=文件 / "dir"=目录 / "number"=正整数 / "text"=普通文本不校验）
 # 注意：这里的键集必须与 appSettings.DEFAULTS 完全一致（决策 12）
 _FIELDS = [
     ("steamcmd_path", "steamcmd 程序",
-     "steamcmd.exe 完整路径（请先自行安装），如 C:\\Program Files\\SteamCMD\\steamcmd.exe。"
-     "命令生成、本地扫描、新建档案时的下载目录推导，都按它定位",
-     "file"),
+     "steamcmd.exe 完整路径（请先自行安装），如 C:\\Program Files\\SteamCMD\\steamcmd.exe；"
+     "也可以直接填包含 steamcmd.exe 的文件夹——保存时自动补全 exe 文件名。"
+     "命令生成、本地扫描、新建档案时的下载目录推导，都按它定位", "file"),
     # hint = 决策 12 v1.6 原文；末句"账号必须拥有对应游戏"来自决策 19，
     # 属原文之外补充，要严格照原文可删
     ("steamcmd_login_cmd", "steamcmd 登录命令",
@@ -62,7 +63,7 @@ _FIELDS = [
      "（作者更新节奏慢，值得留意）",
      "number"),
     ("snapshot_keep", "快照保留条数",
-     "每个 mod 保留的历史版本记录条数；检测到新版本时自动淘汰更旧的记录",
+     "每个 mod 保留的历史版本记录条数；检测到新版本时自动淘汰更旧的记录。修改后重启程序才生效（条数在启动时读入一次）",
      "number"),
     # ↓ 两条 hint 为拟稿（记事本无原文），措辞可后调
     ("backup_keep_per_mod", "备份每 mod 保留份数",
@@ -191,9 +192,18 @@ class SettingsPage(QWidget):
                 status.setStyleSheet("color: gray;")
                 continue
             if kind == "file":
-                valid = Path(text).is_file()
-                ok_text = "路径有效"
-                bad_text = "路径不存在（可先保存，使用相关功能前修正即可）"
+                p = Path(text)
+                if p.is_dir():
+                    # T21①：文件夹输入——里面有没有 steamcmd.exe 决定
+                    # 是"可识别"还是"缺东西"，两种状态分开说清楚
+                    has_exe = (p / "steamcmd.exe").is_file()
+                    valid = has_exe
+                    ok_text = "已识别文件夹：保存时自动补全为其中的 steamcmd.exe"
+                    bad_text = "文件夹里没有找到 steamcmd.exe（可先保存，使用相关功能前修正即可）"
+                else:
+                    valid = p.is_file()
+                    ok_text = "路径有效"
+                    bad_text = "路径不存在（可先保存，使用相关功能前修正即可）"
             elif kind == "dir":
                 valid = Path(text).is_dir()
                 ok_text = "路径有效"
@@ -224,7 +234,15 @@ class SettingsPage(QWidget):
             self._saved_label.setStyleSheet("color: #e5484d;")
             return
         for key, edit in self._edits.items():
-            self._settings.set(key, edit.text().strip())
+            value = edit.text().strip()
+            if key == "steamcmd_path":
+                # T21①：文件夹 → 自动补全为完整 exe 路径再入库。
+                # 从此下游（终端启动 / steamPaths 推导 / 备份引擎）
+                # 拿到的恒为完整 exe 路径
+                value = ensure_steamcmd_exe(value)
+                edit.setText(value)  # 界面同步显示保存后的真实值
+            self._settings.set(key, value)
+
         self._settings.save()
         self._saved_label.setText(
             f"已保存 {time.strftime('%H:%M:%S')} → {self._settings.path}")

@@ -24,8 +24,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "GlobalSettings.json"
 
 # 默认值：数字也写成字符串（理由见文件头），使用处一律 get_int() 转换。
-# 设置页（_FIELDS）加行/删行时，这里必须同步——两处的键集必须一致
-# （决策 12），不一致的后果：_reset 直接取 DEFAULTS[key]，缺键当场崩。
+# 键集口径（决策 12）：设置页 _FIELDS 的键必须全部在这里有默认值
+# （_reset 直接取 DEFAULTS[key]，缺键当场崩）；反过来不要求——
+# 界面就地开关（console_auto_show、下面两个 auto_* 键）只住在这里，
+# 不进设置页 _FIELDS。
+
 DEFAULTS: dict[str, str] = {
     # steamcmd 程序路径是整个工具的定位钥匙：命令生成用它、
     # 本地扫描按它找工坊账本（acf）、新建档案按它推导下载目录、
@@ -39,6 +42,9 @@ DEFAULTS: dict[str, str] = {
     "backup_keep_per_mod": "1",    # 每个 mod 保留的备份份数（超出淘汰最旧，钉住豁免）
     "backup_total_quota_gb": "100",  # 全部备份合计的容量上限 GB（超出从最旧清腾）
     "console_auto_show": "1",  # 控制台被关闭时来了新日志要不要自动弹出
+    # ↓ 两个"日常更新一条龙"开关（决策 26）：界面就地开关，不进设置页
+    "auto_rescan_after_batch": "1",  # 批次下载结束后自动扫描本地入账（下载成功的判定时刻，决策 23⑤）
+    "auto_download_after_check": "0",  # 检测到新版本后跳过询问直接下载（默认关=每次弹窗确认；勾选框在更新检测页）
 
 }
 

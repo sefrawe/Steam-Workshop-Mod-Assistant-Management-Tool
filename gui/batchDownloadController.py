@@ -21,7 +21,7 @@ start_batch 返回 False 时只说明"没启动起来"（steamcmd 没跑、
 没勾选、已在批次里），错误详情一律以 batch_done 事件为准——
 事件是唯一事实来源，调用方不要在返回 False 时再补一条日志。
 """
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 
 from core import batchDownloadFlow
 
@@ -31,6 +31,8 @@ _LOGIN_CMD_KEY = "steamcmd_login_cmd"
 
 class BatchDownloadController(QObject):
     """一个软件实例一个：管理当前批次的接线与生命周期。"""
+    batch_done = Signal(dict)  # 批次收尾（含汇总 dict）；主窗口接它做自动复扫（决策 26）
+
 
     def __init__(self, terminal, step_list, log, settings,
                  parent: QObject | None = None) -> None:
@@ -133,6 +135,9 @@ class BatchDownloadController(QObject):
             flow = self._flow
             if flow is not None:
                 self._detach(flow)
+                # 拆线完成后再广播：订阅方（主窗口自动复扫）同步执行，
+                # 不能让它在旧批次还挂着接线时看到事件
+                self.batch_done.emit(s)
 
     # ---------------- 内部：卡片按钮 ----------------
 

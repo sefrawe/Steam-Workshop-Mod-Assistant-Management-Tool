@@ -468,74 +468,115 @@ class ModListPage(QWidget):
         else:
             self._log.error(f"备份失败：{rep.error}")
             QMessageBox.warning(self, "备份失败", rep.error)
-
     def _on_scan_local(self) -> None:
-        """扫描当前游戏的 acf，回填本地三件套（同步执行，本地 IO 毫秒级）。
+        """按钮【扫描本地】：交互入口。
 
-        流程：核对下载目录（死路径重推导）→ 定位 acf → 解析条目
-        → 与库内状态做差 → 按计划写库 → 刷新界面。
-        中间任何一步不成立都以弹窗说明原因，不让用户猜。
+        缺前提（没选档案 / 没配 steamcmd 路径）时弹窗说明，其余交给
+        _scan_local_run。批次结束后的自动复扫走 scan_local_quiet，
+        不经过这里。
         """
         if self._game is None:
             QMessageBox.information(self, "扫描本地", "请先选择游戏档案。")
             return
-        root = self._steamcmd_root()
-        if root is None:
+        if self._steamcmd_root() is None:
             QMessageBox.warning(
                 self, "扫描本地",
                 "尚未设置 steamcmd 程序路径，无法定位工坊账本文件。\n"
                 "请先到设置页填写 steamcmd 程序（steamcmd.exe）的完整路径。")
             return
+        self._scan_local_run(self._game, quiet=False)
+
+    def scan_local_quiet(self, game: Game) -> None:
+        """对外入口（主窗口在批次结束后自动调用，决策 26）。
+
+        与按钮入口同一条扫描链，差别只有两点：
+        - 全程只写日志、不弹任何窗——自动化链路里弹窗会把
+          无人值守的流程卡死；
+        - 扫哪个档案由调用方指定（这一批为谁下载的就复扫谁），
+          与界面当前选中的档案无关。
+        """
+        if game is None:
+            return
+        if self._steamcmd_root() is None:
+            self._log.warn(
+                f"自动复扫跳过（{game.name}）：未设置 steamcmd 程序路径")
+            return
+        self._scan_local_run(game, quiet=True)
+
+    def _scan_local_run(self, game: Game, quiet: bool) -> None:
+        """扫描五步链（决策 23⑤）：核对下载目录 → 定位 acf → 解析条目
+        → 与库内状态做差 → 按计划写库。
+
+        quiet=False：各失败点弹窗说明（交互式，行为与旧版一致）；
+        quiet=True：同样的信息只走 LogBus。
+        steamcmd 此刻多半还在跑（批次刚结束、进程未退）——扫描只读
+        acf 无害（R7），质量谓词会拦下不完整条目。
+        """
+
+        def complain(title: str, text: str) -> None:
+            """失败提示的双通道出口：日志必写；交互模式再弹窗。"""
+            self._log.warn(text)
+            if not quiet:
+                QMessageBox.warning(self, title, text)
+
+        root = self._steamcmd_root()
+
         # 顺手核对档案的下载目录（决策 21：它永远可由 steamcmd 位置推导）。
-        # 档案建好后 steamcmd 若挪了位置，旧目录就成了死路径——
-        # 现值在盘上不存在时按当前位置重新推导，推出不同值就写回档案，
-        # 不让死路径长期潜伏（核验页/备份引擎落地后同款核对在那里复用）。
+        # 档案建好后 steamcmd 若挪了位置，旧目录就成了死路径——现值在盘上
+        # 不存在时按当前位置重新推导，推出不同值就写回档案。
+        # 注意：扫描的不是界面当前档案时（自动复扫场景），只写数据库、
+        # 不动 self._game，避免悄悄换掉用户正在看的界面。
         effective_dir, changed = steamPaths.refresh_download_dir(
-            self._game.download_dir,
-            self._settings.get("steamcmd_path"),
-            self._game.app_id)
+            game.download_dir, self._settings.get("steamcmd_path"),
+            game.app_id)
         if changed:
-            self._repo.update_game(self._game.app_id,
-                                   download_dir=effective_dir)
-            self._game = self._repo.get_game(self._game.app_id)  # 内存同步
+            self._repo.update_game(game.app_id, download_dir=effective_dir)
+            if self._game is not None and game.app_id == self._game.app_id:
+                self._game = self._repo.get_game(game.app_id)  # 内存同步
             self._log.info(
                 f"下载目录已按当前 steamcmd 位置重新推导：{effective_dir}")
-        acf = localScanner.locate_acf(root, self._game.app_id)
+
+        acf = localScanner.locate_acf(root, game.app_id)
         if acf is None:
-            QMessageBox.warning(
-                self, "扫描本地",
+            complain(
+                "扫描本地",
                 f"在 steamcmd 的工坊目录（{root}\\steamapps\\workshop）下，"
-                f"没有找到 appworkshop_{self._game.app_id}.acf。\n"
+                f"没有找到 appworkshop_{game.app_id}.acf。\n"
                 "请检查：① 设置页的 steamcmd 程序路径是否填对；"
                 "② 该游戏的 mod 是否用这台 steamcmd 下载过"
                 "（Steam 客户端订阅下载的内容不在这个目录树里）。")
             return
+
         try:
             result = localScanner.scan_acf(acf)
         except ValueError as exc:
             # acf 内容结构性损坏（解析器约定用 ValueError 表达）
             self._log.error(f"扫描本地失败：{exc}")
-            QMessageBox.critical(self, "扫描本地", str(exc))
+            if not quiet:
+                QMessageBox.critical(self, "扫描本地", str(exc))
             return
+
         if not result.items:
             note = (f"（跳过 {len(result.skipped)} 条不完整条目）"
                     if result.skipped else "")
             self._log.warn(f"扫描本地：acf 中没有任何工坊条目{note}")
             return
+
         # 先取库内状态做差，再统一写库——扫描器自己不碰数据库
         status_map = {m.mod_id: m.status
-                      for m in self._repo.list_mods(self._game.app_id)}
+                      for m in self._repo.list_mods(game.app_id)}
         plan = localScanner.diff_plan(
-            result.items, status_map, game_id=self._game.app_id)
+            result.items, status_map, game_id=game.app_id)
         rep = localScanner.apply(self._repo, plan)
         self._reload()
 
         skipped = (f"，跳过 {len(result.skipped)} 条不完整条目"
                    if result.skipped else "")
         self._log.ok(
-            f"扫描本地完成（{self._game.name}）：共 {len(result.items)} 条，"
+            f"扫描本地完成（{game.name}）：共 {len(result.items)} 条，"
             f"回填 {rep.updated}（首次确认下载 {rep.transitioned}），"
             f"新入库 {rep.inserted}{skipped}")
+
         # 决策 23 质量谓词的产出：疑似下载中断的条目没有入账，单独提醒
         # （与上面"不完整条目"分开说——格式类要排查工具/文件，
         # 中断类的修复动作就是重新下载）
@@ -546,9 +587,11 @@ class ModListPage(QWidget):
             self._log.warn(
                 f"发现 {n_interrupted} 条疑似下载中断的条目，未入账："
                 f"{ids_text}；如需修复请重新下载（命令生成页勾选对应编号）")
+
         # size 类异常不拦入账，扫描器聚合好的警告原样转述
         for w in result.warnings:
             self._log.warn(f"扫描本地：{w}")
+
         if rep.inserted:
             self._log.info(
                 "新入库条目缺标题等远端信息，建议跑一次更新检测补齐")

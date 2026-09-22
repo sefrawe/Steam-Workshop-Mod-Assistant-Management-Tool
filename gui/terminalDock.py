@@ -26,7 +26,7 @@ steamcmd 的行为与手动双击完全一致：逐行吐输出、自己回显�
   成功/失败、登录完成、断线等）走 LogBus 送到"运行日志"标签页，
   按级别着色说人话——结论归结论、原文归原文。
 
-为批量下载预留的接口（下一步接线，现在"发进空气"无害）：
+ 为批量下载提供的接口（已由 gui/batchDownloadController.py 接线）：
 - verdict_emitted 信号：每得到一条结论就发出，批量编排靠它
   判断"当前这条命令出结果了没有"；
 - idle_prompt_seen 信号：单独一行 Steam> = steamcmd 空闲，
@@ -69,6 +69,7 @@ from PySide6.QtWidgets import (
 from core import outputAnalyzer
 from core.backupManager import steamcmd_running
 from gui.logBus import LogBus
+from core.steamPaths import ensure_steamcmd_exe
 
 try:
     from winpty import PtyProcess
@@ -270,6 +271,10 @@ class TerminalDock(QWidget):
             return
         exe = (str(self._settings.get("steamcmd_path") or "").strip()
                if self._settings is not None else "")
+        # T21①：设置页保存时已把文件夹补全成完整 exe 路径；这里再兜一层，
+        # 手改 JSON 直接填文件夹也能启动
+        exe = ensure_steamcmd_exe(exe)
+
         if not exe:
             QMessageBox.information(
                 self, "无法启动",
@@ -364,7 +369,7 @@ class TerminalDock(QWidget):
         self._view.appendPlainText(line)
         verdict = outputAnalyzer.classify_line(line)
         if verdict is not None:
-            # 结论发给批量编排；现在还没接线，信号"发进空气"无副作用
+            # 结论发给批量编排（controller 已接线）；没有订阅者时发进空气，无副作用
             self.verdict_emitted.emit(verdict)
             level = _VERDICT_LEVELS.get(verdict.kind, "info")
             getattr(self._log, level)(outputAnalyzer.describe(verdict))

@@ -19,7 +19,7 @@ gui/backupPage.py · mod 内容备份的交互层。
 - 备份 mod…（勾选对话框）→ backup_mod 逐个执行
 - 恢复所选 → restore_backup：确认框明示 R8（恢复前自动备份当前版本）
   与失败自动回退
-- 钉住/取消钉住 → repo.set_backup_pinned（纯账目，毫秒级，不进线程）
+- 钉住/取消钉住 → repo.set_pinned（纯账目，毫秒级，不进线程）
 - 删除所选 → delete_backup（先盘后账）
 - 备份数据库… → repo.backup_to（R16）——数据库快照与 mod 内容备份
   是两回事，文案与提示分开
@@ -315,8 +315,6 @@ class BackupPage(QWidget):
             detail = "、".join(f"{k} {v} 个" for k, v in by_status.items())
             self._log.info(
                 f"备份批次：跳过 {len(skipped)} 个无本地内容的 mod（{detail}）")
-        self._run_backup(ids)
-
         self._run_backup(ids)
 
 

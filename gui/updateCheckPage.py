@@ -7,16 +7,25 @@
 分工约定：联网查询放在后台线程（界面不卡、可中途停止）；
 数据库写入全部留在主线程（SQLite 毫秒级，无需进线程）。
 后台线程只发网络请求，绝不碰数据库。
- 结果分五类展示：
- - 需更新 / 已最新 / 未下载：与 mod 库页同一套判定逻辑（直接复用）
- - 版本未知：手动确认入账的 mod（已下载但无 acf 版本，T18/决策 24）——
-   照常查询并补全标题等字段，但新旧无从判定，结果里单独列为
-   「版本未知」，绝不混入需更新/已最新
 
-- 疑似合集/异常：Steam 返回"查询成功"但文件大小缺失或为 0——真实 mod 不可能是 0 字节，大概率是合集。这类条目不做任何写入（防止把合集的
+结果分五类展示：
+- 需更新 / 已最新 / 未下载：与 mod 库页同一套判定逻辑（直接复用）
+- 版本未知：手动确认入账的 mod（已下载但无 acf 版本，T18/决策 24）——
+  照常查询并补全标题等字段，但新旧无从判定，结果里单独列为
+  「版本未知」，绝不混入需更新/已最新
+- 疑似合集/异常：Steam 返回"查询成功"但文件大小缺失或为 0——真实 mod
+  不可能是 0 字节，大概率是合集。这类条目不做任何写入（防止把合集的
   标题误填进 mod），等用户点"展开合集"确认后再处理
 - 查询失败：接口对单个条目返回 result 非 1（被删除/设为私有/查无此条），
   原样展示给用户，不做任何写入
+
+日常更新一条龙（决策 26）：检测落库完成后，把"确有新版本"的 mod id
+清单经 updates_found 信号交给主窗口——由它弹窗询问（或按勾选自动）
+开批量下载，批次结束再自动复扫。判定口径：只有远端版本真变了
+（changed）才算"有新版本"；第一次补全远端信息（first_fill）、
+版本未知（决策 24）都不进清单。页面上的「发现更新后自动开始下载」
+勾选框控制是否跳过询问（勾选即时保存，与运行日志页"自动弹出"同款）。
+
 已删除的 mod 不查询（都不用了没必要查）；已失败的照查（就是它失效才要盯）。
 
 停止与归属约定（代码行为与这里严格一致）：
@@ -26,23 +35,14 @@
   一律归属"开始检测那一刻"选中的档案——检测进行中允许切换档案，
   但旧结果仍归旧档案，防止把 mod 记错家
 """
-
 import time
 
 from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
+    QAbstractItemView, QCheckBox, QHBoxLayout, QHeaderView, QLabel,
+    QMessageBox, QProgressBar, QPushButton, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 from core.models import Game, Mod
@@ -54,6 +54,10 @@ from gui.consolePanel import LogBus
 # 与导入页保持一致（双方都用官方网页里的标准链接格式）
 _URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
 
+# 「发现更新后自动开始下载」在设置里的键名（与 appSettings.DEFAULTS 同名，
+# 决策 12）。界面就地开关，不进设置页 _FIELDS（console_auto_show 同款）
+_KEY_AUTO_DOWNLOAD = "auto_download_after_check"
+
 # 每批查询的条目数：Steam 官方接口单次上限就是 100
 _BATCH = 100
 
@@ -62,14 +66,12 @@ _RESULT_COLUMNS = ["编号", "标题", "结果", "远端更新", "更新间隔",
 
 class _CheckWorker(QThread):
     """后台检测线程：分批查询全部条目，每查完一批就报告一次进度。
-
     只发网络请求，绝不碰数据库（数据库操作全在主线程）。
     """
-
-    batch_done = Signal(int)  # 已完成查询的条目数（驱动进度条）
-    succeeded = Signal(list)  # 全部查完，携带 WorkshopItem 列表
-    failed = Signal(str)      # 请求层面失败，携带给用户看的原因
-    stopped = Signal()        # 用户点了"停止"：正常收场，不算失败
+    batch_done = Signal(int)    # 已完成查询的条目数（驱动进度条）
+    succeeded = Signal(list)    # 全部查完，携带 WorkshopItem 列表
+    failed = Signal(str)        # 请求层面失败，携带给用户看的原因
+    stopped = Signal()          # 用户点了"停止"：正常收场，不算失败
 
     def __init__(self, mod_ids: list[int], *, interval_ms: int, max_retries: int) -> None:
         super().__init__()
@@ -80,7 +82,6 @@ class _CheckWorker(QThread):
 
     def stop(self) -> None:
         """请求停止：批边界生效，查询进行中无法打断，最多多等一批的时间。
-
         已查到的数据一律丢弃不落库（含最后一批途中点的停，见 run 末尾
         的兜底）——重新点一次检测很快，不值得为半截数据写复杂的续传逻辑。
         """
@@ -120,7 +121,6 @@ class _CheckWorker(QThread):
 
 class _CollectionWorker(QThread):
     """后台查询合集成员：单次网络请求，只发不写。"""
-
     succeeded = Signal(int, list)  # (合集编号, 成员编号列表)
     failed = Signal(str)
 
@@ -142,12 +142,16 @@ class _CollectionWorker(QThread):
 class UpdateCheckPage(QWidget):
     """checks_finished(int)：一次检测完成落库后发射，参数为本次检测到
     有新版本的 mod 数（合集展开登记后发射 0），主窗口借此刷新 mod 库页。
+
+    updates_found(int, list)：同一次检测里"确有新版本"的 mod id 清单
+    （参数 = 开始检测那一刻的档案 app_id）。主窗口接它做日常更新
+    一条龙（决策 26）：弹窗确认或按勾选自动开批量下载。
     """
-
     checks_finished = Signal(int)
+    updates_found = Signal(int, list)
 
-    def __init__(self, repo, settings, parent: QWidget | None = None, *,
-                 log: LogBus | None = None) -> None:
+    def __init__(self, repo, settings, parent: QWidget | None = None,
+                 *, log: LogBus | None = None) -> None:
         super().__init__(parent)
         self._repo = repo
         self._settings = settings
@@ -181,7 +185,6 @@ class UpdateCheckPage(QWidget):
             "文件大小缺失的条目会列为「疑似合集」，确认后可展开入库；"
             "已删除的 mod 不会查询；手动确认入账（版本未知）的 mod "
             "照常查询，但无法判定新旧，结果里单独列为「版本未知」。")
-
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
@@ -194,10 +197,21 @@ class UpdateCheckPage(QWidget):
         self._stop_btn = QPushButton("停止", btn_row)
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_check)
+        # 日常更新一条龙的自动开关（决策 26）：勾了就不询问直接下载。
+        # 勾选即时保存，不经过设置页的【保存】按钮
+        self._auto_check = QCheckBox("发现更新后自动开始下载", btn_row)
+        self._auto_check.setToolTip(
+            "勾选：检测到新版本后不再询问，直接按列表顺序逐条下载\n"
+            "（仍需要 steamcmd 已在终端里启动并登录）。\n"
+            "不勾选：每次检测到更新先弹窗询问。勾选即时保存。")
+        self._auto_check.setChecked(
+            self._settings.get_int(_KEY_AUTO_DOWNLOAD, 0) != 0)
+        self._auto_check.toggled.connect(self._on_auto_download_toggled)
         self._progress = QProgressBar(btn_row)
         self._progress.setVisible(False)
         h.addWidget(self._start_btn)
         h.addWidget(self._stop_btn)
+        h.addWidget(self._auto_check)
         h.addWidget(self._progress, 1)
         root.addWidget(btn_row)
 
@@ -241,7 +255,6 @@ class UpdateCheckPage(QWidget):
 
     def shutdown(self) -> None:
         """程序退出前的收尾：停掉可能还在跑的线程并等它们退出。
-
         检测线程有停止协议：点一下停止标记，它做完当前这批查询就会退，
         所以 wait() 最多等几秒（网络超时上限内）。合集查询没有停止
         协议但本身就一次请求，直接等它跑完即可。
@@ -252,13 +265,13 @@ class UpdateCheckPage(QWidget):
         if self._col_worker is not None:
             self._col_worker.wait()
 
-
     # ---------- 检测流程 ----------
 
     def _start_check(self) -> None:
         if self._game is None or self._worker is not None:
             return
-        mods = self._repo.list_mods(self._game.app_id, order_by="time_updated DESC")
+        mods = self._repo.list_mods(self._game.app_id,
+                                    order_by="time_updated DESC")
         ids = [m.mod_id for m in mods if m.status != "deleted"]
         if not ids:
             self._summary.setText("当前档案没有任何可检测的 mod（已删除的除外）。")
@@ -285,13 +298,12 @@ class UpdateCheckPage(QWidget):
         # Python 侧提前销毁会让 Qt 直接终止进程（闪退 0xC0000409）
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.start()
-
         self._log.info(f"开始检测 {len(ids)} 个 mod…")
 
     def _stop_check(self) -> None:
         if self._worker is not None:
             self._worker.stop()
-            self._stop_btn.setEnabled(False)
+        self._stop_btn.setEnabled(False)
 
     def _set_running(self, running: bool) -> None:
         self._start_btn.setEnabled(not running and self._game is not None)
@@ -300,7 +312,6 @@ class UpdateCheckPage(QWidget):
 
     def _on_worker_finished(self) -> None:
         """检测线程跑完的统一收尾：确认线程彻底退出后，才释放引用。
-
         finished 发出时线程本体可能还在做最后的退出动作，直接把
         引用丢给 Python 销毁会踩中"销毁仍在运行的线程"，进程当场
         终止（0xC0000409）。wait() 在这里只等几毫秒（线程已在收尾），
@@ -310,7 +321,6 @@ class UpdateCheckPage(QWidget):
         self._worker = None
         if w is not None:
             w.wait()
-
 
     # ---------- 结果处理（主线程） ----------
 
@@ -333,20 +343,26 @@ class UpdateCheckPage(QWidget):
 
     def _apply_results(self, ok_items: list[WorkshopItem],
                        suspected_ids: set[int],
-                       failed: dict[int, int]) -> int:
-        """把查询结果写入数据库，返回"检测到有新版本"的个数。
+                       failed: dict[int, int]) -> tuple[int, list[int]]:
+        """把查询结果写入数据库，返回 (有新版本的个数, 有新版本的 id 清单)。
 
         全部写入包在一个事务里：中途任何一步失败，整体回滚，
         不会出现"一半 mod 更新了一半没更新"的中间状态。
+        id 清单交给主窗口的"日常更新一条龙"（决策 26）；只有版本
+        真变了（changed）才进清单——第一次补全远端信息（first_fill）
+        和版本未知（决策 24）都不算"有新版本"。
         """
         now = int(time.time())
         updates_found = 0
+        updated_ids: list[int] = []
+
         # 先整体记"检测过"（包括失败和疑似合集的）——"查过了"这个事实本身
         # 就值得记，否则"上次检测时间"的展示会骗人
         all_ids = ([i.mod_id for i in ok_items]
                    + sorted(suspected_ids) + sorted(failed))
         with self._repo.transaction():
             self._repo.touch_checked(all_ids, checked_at=now)
+
             for item in ok_items:
                 row = self._repo.get_mod(item.mod_id)
                 if row is None:
@@ -384,22 +400,27 @@ class UpdateCheckPage(QWidget):
                         manifest=row.manifest,
                         local_timeupdated=row.local_timeupdated)
                     updates_found += 1
+                    updated_ids.append(item.mod_id)
                     if row.is_special:
                         # 特别关注的 mod：同一远端版本只提醒一次
                         # （拿最近一条提醒记录的远端时间比对去重）
                         last = self._repo.get_last_alert(item.mod_id)
-                        if last is None or last.remote_time_updated != item.time_updated:
+                        if last is None or \
+                                last.remote_time_updated != item.time_updated:
                             diff = ((item.time_updated - row.last_time_updated)
                                     if row.last_time_updated else None)
                             self._repo.add_alert(
-                                item.mod_id, item.time_updated, diff_seconds=diff,
+                                item.mod_id, item.time_updated,
+                                diff_seconds=diff,
                                 was_downloaded=(row.status == "downloaded"))
                 else:
                     # 版本没变：只刷新其余元数据，时间字段一个都不动
                     self._repo.update_api_metadata(item.mod_id, **meta)
-        return updates_found
 
-    def _show_results(self, suspected_ids: set[int], failed: dict[int, int]) -> None:
+        return updates_found, updated_ids
+
+    def _show_results(self, suspected_ids: set[int],
+                      failed: dict[int, int]) -> None:
         """按开始检测时的库内顺序展示结果。正常条目重新从库里读一遍——
         展示的是写入完成后的最新状态，和 mod 库页看到的一致。
         """
@@ -412,7 +433,7 @@ class UpdateCheckPage(QWidget):
         for r, m in enumerate(visible):
             fresh = self._repo.get_mod(m.mod_id)
             title = (fresh.title if fresh is not None else None) or m.title \
-                    or "（无标题）"
+                or "（无标题）"
             self._set_cell(r, 0, str(m.mod_id))
             self._set_cell(r, 1, title)
             if m.mod_id in failed:
@@ -457,7 +478,6 @@ class UpdateCheckPage(QWidget):
             f"｜版本未知 {counts['版本未知']}"
             f"｜疑似合集 {counts['疑似']}｜查询失败 {counts['失败']}"
             f"（其余为已最新 / 未下载 / 远端未知）")
-
         self._summary.setStyleSheet("color: #46a758;")
 
     def _set_cell(self, row: int, col: int, text: str) -> QTableWidgetItem:
@@ -466,11 +486,11 @@ class UpdateCheckPage(QWidget):
         return item
 
     def _on_check_succeeded(self, items: list) -> None:
-
         self._set_running(False)
         ok_items, suspected_ids, failed = self._classify(items)
         try:
-            updates_found = self._apply_results(ok_items, suspected_ids, failed)
+            updates_found, updated_ids = self._apply_results(
+                ok_items, suspected_ids, failed)
         except Exception as exc:
             # 写库失败：明确告诉用户，不让程序无声崩溃
             self._log.error(f"检测结果写入失败，已整体回滚：{exc}")
@@ -481,11 +501,14 @@ class UpdateCheckPage(QWidget):
             return
         self._show_results(suspected_ids, failed)
         self.checks_finished.emit(updates_found)
+        if updated_ids and self._check_game is not None:
+            # 交给主窗口的"日常更新一条龙"（决策 26）：归属开始检测
+            # 那一刻的档案，与写库同一口径
+            self.updates_found.emit(self._check_game.app_id, updated_ids)
         self._log.ok(f"检测完成：需更新 {updates_found}，"
                      f"疑似合集 {len(suspected_ids)}，查询失败 {len(failed)}")
 
     def _on_check_failed(self, message: str) -> None:
-
         self._set_running(False)
         self._summary.setText(message)
         self._summary.setStyleSheet("color: #e5484d;")
@@ -494,15 +517,20 @@ class UpdateCheckPage(QWidget):
 
     def _on_check_stopped(self) -> None:
         """用户手动停止：正常收场。
-
         不弹窗、不标红——停止是用户主动做的正常操作，和"接口报错"
         是两回事，界面上用灰字说明即可。数据没写库，无需任何清理。
         """
-
         self._set_running(False)
         self._summary.setText("已手动停止，本次结果未写入。重新点【开始检测】即可。")
         self._summary.setStyleSheet("color: gray;")
         self._log.info("更新检测已手动停止，本次结果未写入")
+
+    def _on_auto_download_toggled(self, checked: bool) -> None:
+        """「发现更新后自动开始下载」勾选即保存（决策 26）。
+        不经过设置页的【保存】按钮，与运行日志页"自动弹出"同款口径。
+        """
+        self._settings.set(_KEY_AUTO_DOWNLOAD, "1" if checked else "0")
+        self._settings.save()
 
     # ---------- 展开合集 ----------
 
@@ -515,11 +543,11 @@ class UpdateCheckPage(QWidget):
         self._col_worker.succeeded.connect(self._on_collection_children)
         self._col_worker.failed.connect(self._on_collection_failed)
         self._col_worker.finished.connect(self._on_col_worker_finished)
-
         self._col_worker.start()
 
     def _on_collection_failed(self, message: str) -> None:
-        QMessageBox.warning(self, "查询失败", f"无法获取合集成员：{message}")
+        QMessageBox.warning(self, "查询失败",
+                            f"无法获取合集成员：{message}")
 
     def _on_col_worker_finished(self) -> None:
         """合集查询线程跑完的统一收尾（理由同 _on_worker_finished）。"""
@@ -528,8 +556,8 @@ class UpdateCheckPage(QWidget):
         if w is not None:
             w.wait()
 
-
-    def _on_collection_children(self, collection_id: int, children: list[int]) -> None:
+    def _on_collection_children(self, collection_id: int,
+                                children: list[int]) -> None:
         if not children:
             self._log.warn(f"编号 {collection_id} 不是合集（查不到成员）")
             QMessageBox.information(
@@ -546,7 +574,7 @@ class UpdateCheckPage(QWidget):
         existing = self._repo.filter_existing_ids(children)
         new_ids = [i for i in children if i not in existing]
         preview = "、".join(str(i) for i in children[:20]) \
-                  + ("…" if len(children) > 20 else "")
+            + ("…" if len(children) > 20 else "")
         ret = QMessageBox.question(
             self, "展开合集",
             f"该合集包含 {len(children)} 个条目：\n{preview}\n\n"
