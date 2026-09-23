@@ -22,15 +22,20 @@ mod 备份的位置（决策 21⑥）也在本模块推导：
       （自更新不碰、重装不误删）；远离 Documents/OneDrive。
 
 边界约定：
-- 本模块只做路径推导和"目录是否存在"的核对（refresh_download_dir），
-  不读写任何文件内容——"推导出路径"和"路径下真有东西"是两回事；
+ - 本模块做三件事：路径推导、"目录是否存在"的核对（refresh_download_dir）、
+   联接状态判定（junction_state）；只读路径元数据（存在性、是否链接、
+   目录是否为空），不读写任何文件内容——"推导出路径"和"路径下真有东西"
+   是两回事；
+
 - steamcmd 程序路径是唯一的推导钥匙，它没填就什么都推不出来，
   此时返回 None，由调用方决定提示用户去设置页、还是降级手填。
 
 为什么集中放在 core：设置、建档、本地扫描、备份引擎
 都要按同一套公式找位置。公式写两遍，早晚改出不一致。
 """
+import os
 from pathlib import Path
+from typing import NamedTuple
 
 
 def steamcmd_root(steamcmd_path: str | None) -> Path | None:
@@ -131,3 +136,107 @@ def ensure_steamcmd_exe(path: str) -> str:
         if candidate.is_file():
             return str(candidate)
     return text
+class JunctionReport(NamedTuple):
+    """联接状态判定结果（junction_state 的返回值）。
+
+    state 十种取值（连接指引对话框按它分派文案和命令）：
+    - no_target:              实体侧（下载目录）为空，无从判定
+    - missing:                游戏 mod 目录不存在（含上级不存在），且下载目录不是联接
+    - file:                   游戏 mod 目录被一个普通文件占用
+    - linked:                 正向已连接：游戏 mod 目录是联接，且正确指向下载目录
+    - wrong_target:           正向指错：游戏 mod 目录是联接，但指向了别处（悬空也算）
+    - linked_reverse:         反向已连接：下载目录本身是联接，指向游戏 mod 目录
+    - linked_reverse_missing: 反向接了一半：下载目录联接指向的游戏 mod 目录不存在
+    - wrong_target_reverse:   下载目录是联接，但指向别处（或游戏侧形态异常）
+    - empty_dir:              两侧都不是联接；游戏 mod 目录是真实空目录——建链前需先移除
+    - real_dir:               两侧都不是联接；游戏 mod 目录是真实目录且有内容——需先搬运再建链
+
+    detail：linked / wrong_target 时为游戏侧联接的解析路径；
+    linked_reverse* / wrong_target_reverse 时为下载目录联接的解析路径；其余为 ""。
+    """
+    state: str
+    detail: str
+
+
+def junction_state(link_path: str | None, target_dir: str | None) -> JunctionReport:
+    """T13：判定"游戏 mod 目录 ↔ 下载目录"这对路径处于哪种联接状态。
+    只读判定，不做任何修改。
+
+    背景见连接指引对话框（gui/linkGuideDialog.py）：部分游戏只从自己的
+    目录读 mod，需要用 junction 把它和 steamcmd 的工坊内容目录接通。
+    本函数是对话框唯一的判定依据；命令生成、文案分派都在对话框侧。
+
+    支持两种拓扑（v2：实测用户环境存在反向拓扑后加入）：
+    - 正向：游戏 mod 目录是联接 → 指向下载目录（指引推荐的建法）
+    - 反向：下载目录本身是联接 → 指向游戏 mod 目录——steamcmd 写入时
+      经联接落到游戏目录，游戏直接读真实目录，同样成立
+
+    判定顺序：
+    1. 任一侧为空 → no_target / missing（防御口径，对话框不会在空输入
+       时调到这里）
+    2. 游戏 mod 目录是链接（os.readlink 成功）：两侧 realpath 归一化后
+       casefold 比较（R14），相等 → linked，不等 → wrong_target。悬空
+       链接同样能解析、能比较，不会崩
+    3. 游戏 mod 目录不是链接 → 先查反向拓扑（下载目录是否是链接），
+       再退回普通形态判定：
+       - 下载目录是链接且解析结果 == 游戏 mod 目录 → 已按反向拓扑接通：
+         游戏目录真实存在 → linked_reverse；不存在（悬空）→
+         linked_reverse_missing；解析到别处 → wrong_target_reverse
+       - 下载目录不是链接 → 不存在 → missing；是文件 → file；
+         是目录 → 空则 empty_dir、有内容则 real_dir
+
+    反向检查必须排在"建议正向建链"之前，两个原因：
+    一是把"已接通"误报成"需搬运"（v1 恰好在用户环境犯了这个错，
+    而且照做等于对着同一份数据自己搬自己）；二是游戏目录不存在、
+    下载目录却是联接时，若仍建议 mklink 游戏→下载，会造出
+    联接→联接 的环，NTFS 会照单全收，之后遍历就是无底洞。
+
+    两侧都先 strip 引号/空白：从资源管理器地址栏复制的路径经常带引号
+    或尾随空格，不能让格式问题污染判定。
+    """
+    link = str(link_path or "").strip().strip('"').strip()
+    target = str(target_dir or "").strip().strip('"').strip()
+    if not target:
+        return JunctionReport("no_target", "")
+    if not link:
+        return JunctionReport("missing", "")
+
+    # realpath 会一路穿透联接解析到最终实体，且不要求路径存在——
+    # 悬空联接也照样解析出目标路径字符串
+    resolved_target = os.path.realpath(target)
+    p = Path(link)  # Path 会归一化尾随分隔符——readlink 对 "C:\\dir\\" 会失败
+
+    # 第一优先：正向拓扑——游戏 mod 目录本身是链接
+    try:
+        os.readlink(str(p))
+    except OSError:
+        pass  # 不是链接，落入下面的反向 / 普通形态判定
+    else:
+        resolved_link = os.path.realpath(str(p))
+        if resolved_link.casefold() == resolved_target.casefold():
+            return JunctionReport("linked", resolved_link)
+        return JunctionReport("wrong_target", resolved_link)
+
+    # 第二优先：反向拓扑——下载目录本身是链接
+    try:
+        os.readlink(target)
+    except OSError:
+        pass
+    else:
+        if resolved_target.casefold() == os.path.realpath(str(p)).casefold():
+            if p.is_dir():
+                return JunctionReport("linked_reverse", resolved_target)
+            if not p.exists():
+                return JunctionReport("linked_reverse_missing", resolved_target)
+            return JunctionReport("wrong_target_reverse", resolved_target)
+        return JunctionReport("wrong_target_reverse", resolved_target)
+
+    # 两侧都不是链接：按游戏 mod 目录的普通形态判
+    if not p.exists():
+        return JunctionReport("missing", "")
+    if p.is_file():
+        return JunctionReport("file", "")
+    if p.is_dir():
+        empty = next(p.iterdir(), None) is None
+        return JunctionReport("empty_dir" if empty else "real_dir", "")
+    return JunctionReport("file", "")  # 极端形态（设备等），按占用处理

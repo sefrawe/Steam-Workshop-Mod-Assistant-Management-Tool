@@ -1,7 +1,8 @@
 """游戏档案切换器
 """
 r"""
-左导航顶部组件：下拉选择当前游戏 + 临时"添加档案"入口。
+左导航顶部组件：下拉选择当前游戏 + 临时"添加档案"入口 + 连接指引入口（T13）。
+
 只与 ModRepository 接口交互，GUI 层零 SQL（记事本架构约定）。
 
 "添加游戏档案"目前是输入框串联的临时对话框，够调试期用；
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from core import steamPaths
 from core.models import Game
+from gui.linkGuideDialog import LinkGuideDialog
 
 
 class GameSwitcher(QWidget):
@@ -46,6 +48,14 @@ class GameSwitcher(QWidget):
             "正式的建档向导做好后此入口会被替换；当前仅供调试期手工建档")
         self._btn_add.clicked.connect(self.add_game_dialog)
         layout.addWidget(self._btn_add)
+        self._btn_link = QPushButton("连接指引…", self)
+        self._btn_link.setToolTip(
+            "把游戏自己的 mod 目录联接（junction）到本档案的下载目录，"
+            "让游戏读到 steamcmd 下载的 mod。\n"
+            "只生成命令和步骤，命令由你自己在 cmd 里执行（对话框全程只读）")
+        self._btn_link.clicked.connect(self._open_link_guide)
+        layout.addWidget(self._btn_link)
+
         self.reload()
 
     # ---------- 对外 ----------
@@ -63,8 +73,10 @@ class GameSwitcher(QWidget):
             # 空库不崩：放一个占位项，data=None → current_game() 返回 None
             self._combo.addItem("（暂无游戏档案）", None)
             self._combo.setEnabled(False)
+            self._btn_link.setEnabled(False)
         else:
             self._combo.setEnabled(True)
+            self._btn_link.setEnabled(True)
         if previous is not None:
             idx = self._combo.findData(previous.app_id)
             if idx >= 0:
@@ -135,6 +147,22 @@ class GameSwitcher(QWidget):
                 "注意：该目录只放 mod 内容，请勿手动放入其他文件。")
 
     # ---------- 内部 ----------
+    def _open_link_guide(self) -> None:
+        """打开连接指引对话框（T13）。空库时按钮本就禁用，这里双保险。
+
+        联接应指向的"实体"优先按 steamcmd 当前位置现推导（决策 21 的
+        权威公式），推导不出才退回档案记录值——历史建档时手填的下载
+        目录可能记的是游戏侧联接位置，现推导让指引与这类历史数据解耦。
+        """
+        game = self.current_game()
+        if game is None:
+            return
+        steamcmd_exe = self._settings.get("steamcmd_path") \
+            if self._settings else ""
+        target = steamPaths.workshop_content_dir(steamcmd_exe, game.app_id) \
+                 or game.download_dir
+        LinkGuideDialog(game, self, target_dir=target).exec()
+
     def _emit_current(self) -> None:
         """把当前选择广播出去。下拉框变化、reload() 末尾都会走到这里。"""
         self.current_game_changed.emit(self.current_game())
