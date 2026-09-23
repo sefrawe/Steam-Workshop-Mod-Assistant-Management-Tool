@@ -33,7 +33,9 @@ def group_mods(mods):
     """把 mod 列表分成三组，返回字典，每组内部按 mod_id 从小到大排。
 
     分组尺子（和更新检测页保持同一把）：
-      - 本地没有下载记录（local_timeupdated <= 0）        → "not_downloaded" 未下载
+       - 本地没有下载记录（local_timeupdated <= 0） → "not_downloaded"（键保持英文，
+   命令生成页组标题显示"已收录"——T19⑦ 与 mod 库页状态列同词；
+   手动确认入账但未用 steamcmd 下载的 mod 也落在本组）
       - 远端比本地新（time_updated > local_timeupdated）   → "needs_update"   需要更新
       - 本地有文件但从没查过远端（time_updated <= 0）      → 也归"需要更新"
         （宁可让用户多下载一遍，也不能漏掉可能的新版本）

@@ -43,7 +43,9 @@ rmdir 的安全性（已写进界面文案）：rmdir 对联接只摘链接本�
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
-    QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
+    QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout,
+    QWidget,
+
 )
 
 from core import steamPaths
@@ -90,11 +92,20 @@ class LinkGuideDialog(QDialog):
         self._show_idle()
 
     # ---------- UI 构建 ----------
-
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(10)
+
+        # T19⑧：内容装进滚动区——提示/步骤/命令块加起来高过小窗时会被裁掉
+        # （实测步骤文案显示不全）；Close 按钮留在滚动区外，任何高度都可见
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget(scroll)
+        v = QVBoxLayout(body)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(10)
 
         tip = QLabel(
             "部分游戏只从自己的目录读 mod（如 CK3：Documents 下的 mod 文件夹），"
@@ -105,7 +116,7 @@ class LinkGuideDialog(QDialog):
             self)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
-        root.addWidget(tip)
+        v.addWidget(tip)
 
         if self._target:
             self._target_label = QLabel(
@@ -115,7 +126,7 @@ class LinkGuideDialog(QDialog):
                 "下载目录（联接应指向的实体）：（档案没有下载目录）", self)
         self._target_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
-        root.addWidget(self._target_label)
+        v.addWidget(self._target_label)
 
         # 档案记录值与现推导值不一致时的提示（历史手填数据会走到这里）。
         # 只提示不改档案——修正通道留给将来的档案编辑界面
@@ -127,7 +138,7 @@ class LinkGuideDialog(QDialog):
                 "当前位置推导的值不同——本指引以推导值为准。", self)
             note.setWordWrap(True)
             note.setStyleSheet("color: gray;")
-            root.addWidget(note)
+            v.addWidget(note)
 
         row = QWidget(self)
         h = QHBoxLayout(row)
@@ -139,7 +150,7 @@ class LinkGuideDialog(QDialog):
         self._input.returnPressed.connect(self._on_check)
         self._input.textEdited.connect(self._on_edited)
         h.addWidget(self._input, 1)
-        root.addWidget(row)
+        v.addWidget(row)
 
         # 检测按钮单独一行放在输入框下方（用户反馈：输入框右侧那个位置
         # 按桌面惯例是"目录选择…"，放检测键会被误当成浏览目录按钮）
@@ -150,32 +161,35 @@ class LinkGuideDialog(QDialog):
         self._check_btn.clicked.connect(self._on_check)
         bh.addWidget(self._check_btn)
         bh.addStretch(1)
-        root.addWidget(btn_row)
+        v.addWidget(btn_row)
 
         self._state_label = QLabel("", self)
         self._state_label.setWordWrap(True)
-        root.addWidget(self._state_label)
+        v.addWidget(self._state_label)
 
         self._detail_label = QLabel("", self)
         self._detail_label.setWordWrap(True)
-        root.addWidget(self._detail_label)
+        v.addWidget(self._detail_label)
 
         # 两个命令块：标题、内容、显隐全部由 _refresh 按状态分派
-        # （正向建链 / 反向重建 / 拆除 / 移除空目录 / mkdir 接通……）
         self._build_box, self._build_title, self._build_edit = \
             self._make_cmd_block()
         self._remove_box, self._remove_title, self._remove_edit = \
             self._make_cmd_block()
-        root.addWidget(self._build_box)
-        root.addWidget(self._remove_box)
+        v.addWidget(self._build_box)
+        v.addWidget(self._remove_box)
 
         self._steps_label = QLabel("", self)
         self._steps_label.setWordWrap(True)
-        root.addWidget(self._steps_label)
+        v.addWidget(self._steps_label)
+
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+
 
     def _make_cmd_block(self) -> tuple[QWidget, QLabel, QPlainTextEdit]:
         """造一个命令块（标题 + 命令文本 + 复制按钮），初始隐藏。

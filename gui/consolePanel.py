@@ -91,7 +91,7 @@ class ConsolePanel(QWidget):
         clear.setFixedWidth(80)
         clear.clicked.connect(self._log_view.clear)
         bottom_row.addWidget(clear)
-        bottom_row.addStretch(1)
+
         self._auto_show = QCheckBox("新消息自动弹出", log_page)
         self._auto_show.setToolTip(
             "勾上：控制台被关闭期间来了新日志，自动把控制台拉回屏幕"
@@ -100,6 +100,8 @@ class ConsolePanel(QWidget):
         self._auto_show.setChecked(self._load_auto_show())
         self._auto_show.toggled.connect(self._on_auto_show_toggled)
         bottom_row.addWidget(self._auto_show)
+        bottom_row.addStretch(1)  # T19⑥：与终端页同拍，按钮/开关一律靠左
+
         log_layout.addLayout(bottom_row)
         self._tabs.addTab(log_page, "运行日志")
 

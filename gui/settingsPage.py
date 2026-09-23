@@ -22,6 +22,11 @@ T10 之后不再有"Steam 库目录"和"默认下载目录"两项：
 不开换行的标签会把整行文字宽度当作"最小宽度"上报给窗口，
 一条一百多字的提示就能把整个主窗口撑到一千三百像素以上、
 缩不回去。凡是可能变长的文字（灰字提示、保存结果行）一律换行。
+ T19⑧⑨：字段区整体装进 QScrollArea（8 个条目 + 常驻说明，总高度轻松
+ 超过小窗，硬排会被裁掉）；每项输入框下常驻一行小字说明（灰、11px，
+ 文本就是 _FIELDS 的 hint），校验状态单独一行、只对已填内容说话——
+ 说明层常驻、校验层按需，两层不再互相顶掉。
+
 """
 import time
 from pathlib import Path
@@ -29,7 +34,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from core.appSettings import DEFAULTS, AppSettings
@@ -82,12 +87,11 @@ class SettingsPage(QWidget):
         self._edits: dict[str, QLineEdit] = {}
         self._kinds: dict[str, str] = {}
         self._statuses: dict[str, QLabel] = {}
-        self._hints: dict[str, str] = {}
+
         self._build_ui()
         self._load_to_ui()
 
     # ---------- UI ----------
-
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -96,11 +100,16 @@ class SettingsPage(QWidget):
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
         root.addWidget(title)
 
-        form = QFormLayout()
+        # T19⑧：字段区装进滚动区——保存按钮、保存结果、页脚说明留在
+        # 滚动区外，任何窗口高度都够得着、看得见
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget(scroll)
+        form = QFormLayout(body)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(6)
-        root.addLayout(form)
 
         for key, label, hint, kind in _FIELDS:
             edit = QLineEdit()
@@ -110,30 +119,45 @@ class SettingsPage(QWidget):
             if kind == "number":
                 # 数字不用那么宽的输入框，视觉上和路径行区分开
                 edit.setMaximumWidth(160)
-                form.addRow(label, edit)
-            else:
+
+            # 每项一个纵向容器：输入行 + 常驻说明 + 校验状态（T19⑨）。
+            # 旧版说明和状态共用一个标签，一填内容说明就被校验文案顶掉；
+            # 拆成两层后说明常驻、状态按需
+            field = QWidget()
+            v = QVBoxLayout(field)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.setSpacing(2)
+            if kind in ("file", "dir"):
                 # 路径行 = 输入框 + 浏览按钮并排；文本项直接放输入框。
                 # 不设最小宽度：QLineEdit 横向本来就是扩张策略，
                 # 会自动填满页面剩余宽度，设了反而把窗口顶宽（踩坑 ⑨）
-                if kind in ("file", "dir"):
-                    browse = QPushButton("浏览…")
-                    browse.clicked.connect(
-                        lambda _=False, e=edit, f=(kind == "file"): self._browse(e, f))
-                    row = QWidget()
-                    h = QHBoxLayout(row)
-                    h.setContentsMargins(0, 0, 0, 0)
-                    h.addWidget(edit, 1)
-                    h.addWidget(browse)
-                    form.addRow(label, row)
-                else:
-                    form.addRow(label, edit)
-            status = QLabel(hint)
-            status.setWordWrap(True)  # 必须换行，否则整句长度变成窗口最小宽度
-            status.setStyleSheet("color: gray;")
-            self._statuses[key] = status
-            self._hints[key] = hint
-            form.addRow("", status)
+                browse = QPushButton("浏览…")
+                browse.clicked.connect(
+                    lambda _=False, e=edit, f=(kind == "file"): self._browse(e, f))
+                h = QHBoxLayout()
+                h.setContentsMargins(0, 0, 0, 0)
+                h.addWidget(edit, 1)
+                h.addWidget(browse)
+                v.addLayout(h)
+            else:
+                v.addWidget(edit)
 
+            desc = QLabel(hint)
+            desc.setWordWrap(True)  # 必须换行，否则整句长度变成窗口最小宽度
+            desc.setStyleSheet("color: gray; font-size: 11px;")
+            v.addWidget(desc)
+
+            status = QLabel("")
+            status.setWordWrap(True)
+            self._statuses[key] = status
+            v.addWidget(status)
+
+            form.addRow(label, field)
+
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
+
+        # 按钮与反馈行在滚动区外：保存动作和它的结果永远可见
         btn_row = QWidget()
         h = QHBoxLayout(btn_row)
         h.setContentsMargins(0, 6, 0, 0)
@@ -157,7 +181,6 @@ class SettingsPage(QWidget):
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")
         root.addWidget(note)
-        root.addStretch(1)
 
     def _browse(self, edit: QLineEdit, is_file: bool) -> None:
         if is_file:
@@ -188,9 +211,12 @@ class SettingsPage(QWidget):
             text = self._edits[key].text().strip()
             kind = self._kinds[key]
             if not text:
-                status.setText(self._hints[key])
+                # 空值：状态行留白——解释已常驻在下方小字里（T19⑨），
+                # 校验状态只对已填内容说话
+                status.setText("")
                 status.setStyleSheet("color: gray;")
                 continue
+
             if kind == "file":
                 p = Path(text)
                 if p.is_dir():

@@ -266,25 +266,32 @@ class ModListPage(QWidget):
             return
         m = self._model.mod_at(index.row())
         menu = QMenu(self)
+        # QMenu 的动作 tooltip 默认不显示（Qt 有意默认关）：右键说明要生效
+        # 必须显式打开（T19⑩）——此前设过的 tooltip 其实一直没展示过
+        menu.setToolTipsVisible(True)
         mid = m.mod_id
-
         # 打开工坊页面：链接理论上必有（导入时按模板生成），保险起见判一下
         act_open = QAction("打开工坊页面", menu)
+        act_open.setToolTip(
+            "在浏览器打开该 mod 的 Steam 创意工坊页面（链接来自导入时登记的网址）")
         act_open.setEnabled(bool(m.url))
         act_open.triggered.connect(
             lambda: QDesktopServices.openUrl(QUrl(m.url)))
         menu.addAction(act_open)
-
         menu.addSeparator()
-        for text, cb in (
-                ("编辑备注…", lambda: self._edit_note(m)),
-                ("颜色标记…", lambda: self._pick_color(m)),
-                ("切换特别关注", lambda: self._toggle_special(m)),
+        for text, tip, cb in (
+                ("编辑备注…", "给自己看的备忘，只存本地数据库，与工坊无关",
+                 lambda: self._edit_note(m)),
+                ("颜色标记…", "给条目着个色，方便扫一眼分类；重进本菜单可选「清除标记」",
+                 lambda: self._pick_color(m)),
+                ("切换特别关注",
+                 "特别关注的 mod 出新版本时，更新检测会记一条提醒（同一版本只提醒一次）",
+                 lambda: self._toggle_special(m)),
         ):
             act = QAction(text, menu)
+            act.setToolTip(tip)
             act.triggered.connect(cb)
             menu.addAction(act)
-
         menu.addSeparator()
         # 跳到命令生成页，让它只勾选这个 mod（不带页面参数，交给 MainWindow 接线）
         # 手动确认入账（T18）：只对 tracked 开放——downloaded 已确认过，
@@ -297,26 +304,28 @@ class ModListPage(QWidget):
             "「版本未知」；重下并扫描本地可恢复")
         act_confirm.triggered.connect(lambda: self._manual_confirm(m))
         menu.addAction(act_confirm)
-
         act_cmdgen = QAction("获取下载命令…", menu)
+        act_cmdgen.setToolTip(
+            "跳到命令生成页并只勾选该 mod，生成可粘贴进 steamcmd 的下载命令")
         act_cmdgen.triggered.connect(
             lambda: self.command_gen_requested.emit([mid]))
         menu.addAction(act_cmdgen)
-
         act_backup = QAction("手动备份…", menu)
         act_backup.setToolTip(
             "把该 mod 的下载内容复制进备份区（robocopy）；"
             "保留份数与总配额按设置页执行")
         act_backup.triggered.connect(lambda: self._start_backup(m))
         menu.addAction(act_backup)
-
         menu.addSeparator()
         act_del = QAction("软删除…", menu)
         act_del.setEnabled(m.status != "deleted")  # 已删除的不重复删
+        act_del.setToolTip(
+            "标记为已删除（记录与快照保留，可随时恢复）；"
+            "删除后更新检测不再查询、命令生成不再列出")
         act_del.triggered.connect(lambda: self._soft_delete(m))
         menu.addAction(act_del)
-
         menu.exec(self._table.viewport().mapToGlobal(pos))
+
 
     # ---------- 动作 ----------
 

@@ -6,7 +6,7 @@
 页面从上到下四块：
   1) 游戏信息行：当前档案 + "重新载入"按钮；
   2) 用法提示行：三步说明 + "复制登录命令"按钮（内容来自设置页，原样复制）；
-  3) 三组勾选清单（需要更新 / 未下载 / 已最新）：
+  3) 三组勾选清单（需要更新 / 已收录 / 已最新）：
      前两组默认勾上，"已最新"默认不勾（想强制重下可手动勾）；
   4) 底部：只读预览框（实时显示将要复制的内容）+ 统计 + 复制 / 另存按钮。
 
@@ -40,12 +40,15 @@ from PySide6.QtWidgets import (
 from core.commandBuilder import build_copy_text, group_mods
 from gui.consolePanel import LogBus
 
-# 三组的展示顺序和标题（键要和 commandBuilder.group_mods 的返回值对上）
+# 组键 not_downloaded 与 core/commandBuilder.group_mods 的返回键一致，别改；
+# 界面标题改"已收录"（T19⑦）：与 mod 库页状态列同词。语义 = 库里已登记、
+# 本地还没有下载记录（含手动确认入账、尚未用 steamcmd 下载过的 mod）
 _GROUP_ORDER = [
     ("needs_update", "需要更新"),
-    ("not_downloaded", "未下载"),
+    ("not_downloaded", "已收录"),
     ("up_to_date", "已最新"),
 ]
+
 
 # 登录命令在设置页里的键名（appSettings.DEFAULTS / settingsPage._FIELDS 同名）
 _LOGIN_CMD_KEY = "steamcmd_login_cmd"
@@ -180,7 +183,7 @@ class CommandGenPage(QWidget):
                 # 标题还没补全（没跑过更新检测）时显示"（无标题）"而不是
                 # "None"——和 mod 库页列表的兜底口径保持一致
                 cb = QCheckBox(f"{m.mod_id} {m.title or '（无标题）'}")
-                # 推荐勾选：需要更新 + 未下载 默认勾上；已最新默认不勾
+                # 推荐勾选：需要更新 + 已收录 默认勾上；已最新默认不勾
                 cb.setChecked(key in ("needs_update", "not_downloaded"))
                 cb.toggled.connect(self._refresh_stats)
                 box.layout().addWidget(cb)
@@ -193,6 +196,12 @@ class CommandGenPage(QWidget):
     def _make_group_box(self, key, title):
         """建一个分组框：标题行（勾选统计 + 全选/清空）+ 内部勾选框容器。"""
         box = QGroupBox(title)
+        if key == "not_downloaded":
+            box.setToolTip(
+                "库里已登记、本地还没有下载记录的 mod（与 mod 库页状态列"
+                "「已收录」同词）。\n手动确认入账、还没用 steamcmd 下载过的"
+                " mod 也在本组：重新下载并扫描本地即可补全版本。")
+
         layout = QVBoxLayout(box)
         head = QHBoxLayout()
         lbl = QLabel("共 0 个")

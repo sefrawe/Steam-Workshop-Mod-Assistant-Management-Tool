@@ -175,10 +175,10 @@ class TerminalDock(QWidget):
         self._btn_login.clicked.connect(self._on_send_login)
         self._btn_login.setEnabled(False)
         top.addWidget(self._lbl_state)
-        top.addStretch(1)
         top.addWidget(self._btn_start)
         top.addWidget(self._btn_stop)
         top.addWidget(self._btn_login)
+        top.addStretch(1)  # T19⑥：弹簧挪到按钮后面——按钮靠左，与 mod 库页顶栏同风格
         root.addLayout(top)
 
         # 中部：输出区（等宽字体更像终端；上限 5000 行防内存膨胀，
