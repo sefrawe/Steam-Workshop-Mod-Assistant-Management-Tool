@@ -21,6 +21,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox, QInputDialog, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
+from gui.backupRelocateDialog import BackupRelocateDialog
 
 from core import steamPaths
 from core.models import Game
@@ -55,6 +56,13 @@ class GameSwitcher(QWidget):
             "只生成命令和步骤，命令由你自己在 cmd 里执行（对话框全程只读）")
         self._btn_link.clicked.connect(self._open_link_guide)
         layout.addWidget(self._btn_link)
+        self._btn_relocate = QPushButton("重定位备份目录…", self)
+        self._btn_relocate.setToolTip(
+            "备份记录在备份页「盘上」列失联时用：指认备份文件夹现在的位置，"
+            "先预演能对回多少条记录，确认后只改档案的备份目录一个字段，"
+            "不动任何备份文件（决策 29：资产指针绝不静默自愈）")
+        self._btn_relocate.clicked.connect(self._open_relocate)
+        layout.addWidget(self._btn_relocate)
 
         self.reload()
 
@@ -74,9 +82,11 @@ class GameSwitcher(QWidget):
             self._combo.addItem("（暂无游戏档案）", None)
             self._combo.setEnabled(False)
             self._btn_link.setEnabled(False)
+            self._btn_relocate.setEnabled(False)
         else:
             self._combo.setEnabled(True)
             self._btn_link.setEnabled(True)
+            self._btn_relocate.setEnabled(True)
         if previous is not None:
             idx = self._combo.findData(previous.app_id)
             if idx >= 0:
@@ -166,3 +176,15 @@ class GameSwitcher(QWidget):
     def _emit_current(self) -> None:
         """把当前选择广播出去。下拉框变化、reload() 末尾都会走到这里。"""
         self.current_game_changed.emit(self.current_game())
+
+    def _open_relocate(self) -> None:
+        """打开备份目录重定位对话框（T21④）。空库时按钮本就禁用，
+        这里双保险。确认成功后 reload()：重读 games 表并把当前档案
+        重播给各页——backupPage 等持有旧 Game 对象的页面据此拿到
+        新的 backup_dir（set_game → 各自重载）。"""
+        game = self.current_game()
+        if game is None:
+            return
+        dlg = BackupRelocateDialog(self._repo, game, self._settings, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.reload()

@@ -30,7 +30,7 @@ gui/backupPage.py · mod 内容备份的交互层。
 """
 
 from pathlib import Path
-
+from gui.backupRelocateDialog import BackupRelocateDialog
 from PySide6.QtCore import QThread, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
@@ -185,7 +185,7 @@ class BackupPage(QWidget):
             "不会丢数据；删除是先删盘上目录、成功才删记录；钉住的备份"
             "豁免自动清理，但不挡手动删除。\n"
             "「备份数据库」是另一种备份（数据库快照），两者互不相干。"
-            "「盘上」列标出失联记录（盘上已找不到，多半是备份目录改过位置）。")
+            "「盘上」列标出失联记录（盘上已找不到，多半是备份目录改过位置），可用【重定位备份目录】指认新位置。")
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
@@ -201,11 +201,13 @@ class BackupPage(QWidget):
         self._refresh_btn.clicked.connect(self._reload)
         self._open_btn = QPushButton("打开备份目录", btn_row)
         self._open_btn.clicked.connect(self._open_backup_dir)
+        self._relocate_btn = QPushButton("重定位备份目录…", btn_row)
+        self._relocate_btn.clicked.connect(self._relocate)
         self._stop_btn = QPushButton("停止备份", btn_row)
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_backup)
         for b in (self._backup_btn, self._db_btn, self._refresh_btn,
-                  self._open_btn, self._stop_btn):
+                  self._open_btn, self._relocate_btn, self._stop_btn):
             h.addWidget(b)
         h.addStretch(1)
         root.addWidget(btn_row)
@@ -257,6 +259,10 @@ class BackupPage(QWidget):
             "生成数据库快照文件（与 mod 内容备份是两回事），滚动保留 3 份")
         self._refresh_btn.setToolTip("重新读取备份记录列表")
         self._open_btn.setToolTip("在资源管理器中打开当前游戏的备份目录")
+        self._relocate_btn.setToolTip(
+            "「盘上」列有失联记录时用：指认备份文件夹现在的位置，"
+            "先预演能对回多少条，确认后只改档案的备份目录字段，不动文件")
+
         self._stop_btn.setToolTip("请求停止：当前 mod 备完后不再继续")
         self._restore_btn.setToolTip(
             "把所选备份复制回下载目录；恢复前自动备份当前版本，失败自动回退")
@@ -343,7 +349,7 @@ class BackupPage(QWidget):
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         for b in (self._backup_btn, self._db_btn, self._refresh_btn,
-                  self._open_btn):
+                  self._open_btn, self._relocate_btn):
             b.setEnabled(not busy)
         self._stop_btn.setEnabled(False)
         self._refresh_op_buttons()
@@ -398,7 +404,7 @@ class BackupPage(QWidget):
         policy = (f"每个 mod 保留最新 {keep} 份"
                   + (f"，总量上限 {quota_gb} GB" if quota_gb else "，总量不限")
                   + "（设置页修改）")
-        lost_note = (f"，其中失联 {lost} 份（盘上已找不到）" if lost else "")
+        lost_note = (f"，其中失联 {lost} 份（盘上已找不到——点【重定位备份目录】指认新位置）" if lost else "")
         self._count_label.setText(
             f"共 {len(self._rows)} 份备份，合计 {fmt_size(total)}{lost_note}\n"
             f"保留策略：{policy}")
@@ -603,3 +609,17 @@ class BackupPage(QWidget):
             QMessageBox.warning(self, "打开备份目录", f"备份目录无法创建：{exc}")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(self._game.backup_dir))
+
+    # ---------- 备份目录重定位（T21④） ----------
+    def _relocate(self) -> None:
+        """打开重定位对话框：引擎只读预演（core/backupRelocate），
+        确认后对话框只写 games.backup_dir 一个字段。成功后本页
+        立即重载，「盘上」列按新位置重新核对。"""
+        if self._game is None:
+            QMessageBox.information(self, "重定位备份目录",
+                                    "当前未选择游戏档案。")
+            return
+        dlg = BackupRelocateDialog(self._repo, self._game, self._settings,
+                                   self, log=self._log)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._reload()
