@@ -77,3 +77,32 @@ def build_copy_text(app_id, mod_ids):
     结尾留一个换行：粘贴进 steamcmd 后直接回车就行，不用再补。
     """
     return "\n".join(build_plain_commands(app_id, mod_ids)) + "\n"
+
+# ---------------------------------------------------------------------------
+# 校验重下（validate）命令 —— 核验页"修复三选"专用
+# ---------------------------------------------------------------------------
+# 语法（Valve 官方）：workshop_download_item <appid> <publishedfileid> validate
+# 语义（记事本关键事实节查证）：
+#   - 校验盘上文件与 manifest 的一致性，只补缺失/损坏的文件；
+#   - 被用户改动过的文件会被冲回原版；
+#   - 整个文件夹缺失（或为空）时 = 完整重下，与不带 validate 行为一致。
+# 使用边界（记事本 Won't 条目）：日常更新命令【不加】validate——增量由
+#   manifest 保证，加了更慢且可能冲掉 mod 内自定义文件；validate 只在
+#   核验页"怀疑文件损坏、想彻底校验"的修复场景使用。
+
+def build_validate_commands(app_id: int, mod_ids: list[int]) -> list[str]:
+    """生成带 validate 参数的下载命令，每条一个字符串，顺序 = 给定顺序。"""
+
+    return [f"workshop_download_item {app_id} {mid} validate" for mid in mod_ids]
+
+
+def build_validate_copy_text(app_id: int, mod_ids: list[int]) -> str:
+    """拼成可直接粘贴进 steamcmd 的整段文本（每行一条，结尾一个换行）。
+
+    与 build_copy_text 同一款拼装口径；空清单返回空串，
+    不返回一个孤零零的换行符。
+    """
+
+    if not mod_ids:
+        return ""
+    return "\n".join(build_validate_commands(app_id, mod_ids)) + "\n"
