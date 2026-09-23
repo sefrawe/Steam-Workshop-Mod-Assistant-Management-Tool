@@ -26,6 +26,8 @@ from core.models import Game
 from core.sqliteRepository import SQLiteRepository
 from gui.backupPage import BackupPage
 from gui.commandGenPage import CommandGenPage
+from gui.exceptionPage import ExceptionPage
+
 from gui.consolePanel import ConsolePanel, LogBus
 from gui.batchDownloadController import BatchDownloadController
 from gui.gameSwitcher import GameSwitcher
@@ -56,6 +58,8 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
         ("更新检测", 4),
         ("下载命令生成", 5),
         ("账实核验", 6),
+        ("异常处理", 7),
+
     ]),
     ("备份管理", [
         ("备份与恢复", 2),
@@ -154,6 +158,8 @@ class MainWindow(QMainWindow):
             UpdateCheckPage(self._repo, self._settings, self._stack, log=self._log),  # 4
             CommandGenPage(self._repo, self._settings, self._stack, log=self._log),   # 5
             VerifyPage(self._repo, self._settings, self._stack, log=self._log),   # 6
+            ExceptionPage(self._repo, self._settings, self._stack, log=self._log),  # 7
+
         ]
         for page in self._pages:
             self._stack.addWidget(page)
@@ -168,6 +174,8 @@ class MainWindow(QMainWindow):
         self._pages[0].download_requested.connect(self._start_batch)
         # 前缀照抄上一行
         self._pages[0].backup_requested.connect(self._backup_checked)
+        self._pages[7].command_gen_requested.connect(self._on_command_gen_requested)  # 前缀照抄上一行
+
 
         self._nav.setCurrentItem(self._nav_items[0])
         root.addWidget(side)
