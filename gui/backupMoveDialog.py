@@ -193,6 +193,7 @@ class BackupMoveDialog(QDialog):
         root.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
+        buttons.button(QDialogButtonBox.StandardButton.Close).setText("关闭")
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 

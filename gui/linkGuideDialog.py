@@ -187,9 +187,9 @@ class LinkGuideDialog(QDialog):
         root.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
+        buttons.button(QDialogButtonBox.StandardButton.Close).setText("关闭")
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
-
 
     def _make_cmd_block(self) -> tuple[QWidget, QLabel, QPlainTextEdit]:
         """造一个命令块（标题 + 命令文本 + 复制按钮），初始隐藏。

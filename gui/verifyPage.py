@@ -48,6 +48,8 @@ from PySide6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
+    QScrollArea,
+
 )
 
 from core import modVerifier, steamPaths
@@ -101,8 +103,20 @@ class _Section(QWidget):
             Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
         self._body.setVisible(expanded)
 
-    def set_content(self, widget: QWidget) -> None:
-        """挂明细区（每分区只调一次）。"""
+    def set_expanded(self, expanded: bool) -> None:
+        """程序性收展（空桶自动收起用）。setChecked 只发 toggled
+        不发 clicked，而我们连的是 clicked——所以外观同步要
+        手动调一次 _on_toggle，不存在信号环路。"""
+        self._toggle.setChecked(expanded)
+        self._on_toggle(expanded)
+
+
+
+    def set_content(self, widget: QWidget, height: int) -> None:
+        """挂明细区（每分区只调一次）。height = 明细区固定高度：
+        收起/展开都占同样高度，内容多时靠控件内部滚动——
+        分区高度不随内容涨，页面总高度交给整页滚动管。"""
+        widget.setFixedHeight(height)
         self._body_v.addWidget(widget)
 
 
@@ -126,7 +140,17 @@ class VerifyPage(QWidget):
 
     # ---------- UI 构建 ----------
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        # 整页滚动（T19㉑ 追加）：明细区改固定高度后内容总高度可能超过
+        # 窗口，装进 QScrollArea——与设置页/统计页同一套做法
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget(scroll)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("账实核验", self)
@@ -210,15 +234,15 @@ class VerifyPage(QWidget):
         # 问题明细改可折叠（T19㉑）：表格与全部配置/信号不动，
         # 只是挂进分区；上方摘要行常驻
         self._sec_table = _Section("问题明细", self)
-        self._sec_table.set_content(self._table)
-        root.addWidget(self._sec_table, 1)
+        self._sec_table.set_content(self._table, 500)
+        root.addWidget(self._sec_table)
 
         self._nn_label = QLabel("", self)
         root.addWidget(self._nn_label)
         self._nn_list = QListWidget(self)
         self._sec_nn = _Section("非数字明细", self)
-        self._sec_nn.set_content(self._nn_list)
-        root.addWidget(self._sec_nn, 1)
+        self._sec_nn.set_content(self._nn_list, 300)
+        root.addWidget(self._sec_nn)
 
         # junction 巡检结果区（配置了游戏侧目录才有内容）
         self._junc_label = QLabel("", self)
@@ -226,8 +250,8 @@ class VerifyPage(QWidget):
         root.addWidget(self._junc_label)
         self._junc_list = QListWidget(self)
         self._sec_junc = _Section("链接巡检明细", self)
-        self._sec_junc.set_content(self._junc_list)
-        root.addWidget(self._sec_junc, 1)
+        self._sec_junc.set_content(self._junc_list, 300)
+        root.addWidget(self._sec_junc)
 
         self._verify_btn.setToolTip(
             "只读对账：账本↔磁盘实况 + 游戏侧链接；除\"修复三选\"里"
@@ -239,6 +263,8 @@ class VerifyPage(QWidget):
             "（早期手动下载，acf 永无记录，扫描无法确认）；"
             "确认后版本留空——备份将拒、更新检测列「版本未知」；"
             "重下并扫描可恢复")
+        root.addStretch(1)  # 剩余空间留在页尾：分区保持自然高度，不跟着拉伸
+
 
     # ---------- 对外（MainWindow 调用） ----------
     def set_game(self, game: Game | None) -> None:
@@ -248,6 +274,11 @@ class VerifyPage(QWidget):
         self._nn_label.setText("")
         self._junc_list.clear()
         self._junc_label.setText("")
+        # 切档案后旧明细已清空：两个桶收回折叠态，不留空框；
+        # 下次【开始核验】按新结果重新收展
+        self._sec_nn.set_expanded(False)
+        self._sec_junc.set_expanded(False)
+
         self._summary.setText("")
         self._pending_confirm_ids = []
         self._refresh_confirm_ui()  # 连带收起勾选按钮/全选框
@@ -323,6 +354,9 @@ class VerifyPage(QWidget):
             # （防止按钮还在但旧数据已失效）
             self._pending_confirm_ids = []
             self._refresh_confirm_ui()
+            self._sec_nn.set_expanded(False)
+            self._sec_junc.set_expanded(False)
+
             self._summary.setStyleSheet("color: #e5484d;")
             self._summary.setText(
                 "下载目录不存在，逐条对账没有意义（会满屏误报）。\n"
@@ -627,6 +661,7 @@ class VerifyPage(QWidget):
     def _fill_non_numeric(self, result: modVerifier.VerifyResult) -> None:
         self._nn_list.clear()
         n = len(result.non_numeric)
+
         self._nn_label.setText(
             f"非数字内容桶（{n} 项）——来历不明的目录/文件，"
             "本工具不代删，请人工确认后自行处理：")
@@ -635,6 +670,10 @@ class VerifyPage(QWidget):
                 self._nn_list.addItem(name)
         else:
             self._nn_list.addItem("（无——正常）")
+        # 空桶自动收起：0 项时 300px 空框没有信息量。
+        # 每次核验都按本轮结果重设收展——手工收展只在两次核验之间有效
+        self._sec_nn.set_expanded(n > 0)
+
 
     # ---------- junction 巡检 ----------
     def _run_junction_check(self, status_by_id: dict[int, str]) -> None:
@@ -652,6 +691,8 @@ class VerifyPage(QWidget):
                 "或游戏侧目录与下载目录相同（单目录布局，没有链接可查）。"
                 "需要检查链接布局时点上方【设置…】。")
             self._junc_label.setStyleSheet("color: gray;")
+            self._sec_junc.set_expanded(False)  # 没跑巡检，没有明细可看
+
             return
 
         if result.dead_root:
@@ -660,6 +701,8 @@ class VerifyPage(QWidget):
                 "请检查配置。")
             self._junc_label.setStyleSheet("color: #e5484d;")
             self._log.warn("junction 巡检：游戏侧目录不存在")
+            self._sec_junc.set_expanded(False)  # 目录都没有，明细无意义
+
             return
 
         # 逐桶翻人话。注意修法差异：
@@ -695,6 +738,9 @@ class VerifyPage(QWidget):
             f"{len(result.link_missing)}，指错 "
             f"{len(result.link_wrong_target)}，实为目录 "
             f"{len(result.link_real_dir)}，多余 {len(result.extra)}")
+        # 有问题自动摊开（缺链接等需要你看），全正常自动收起
+        self._sec_junc.set_expanded(bool(lines))
+
 
     # ---------- 跳转命令生成页（双击行的快捷重下） ----------
     def _on_row_double_clicked(self, row: int, _col: int) -> None:

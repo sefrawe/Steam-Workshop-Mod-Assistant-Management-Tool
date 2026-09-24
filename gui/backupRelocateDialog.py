@@ -135,7 +135,11 @@ class BackupRelocateDialog(QDialog):
             | QDialogButtonBox.StandardButton.Cancel, self)
         self._ok_btn = bb.button(QDialogButtonBox.StandardButton.Ok)
         self._ok_btn.setText("确认重定位")
+
         self._ok_btn.setEnabled(False)
+        bb.setCenterButtons(True)
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+
         bb.accepted.connect(self._confirm)
         bb.rejected.connect(self.reject)
         v.addWidget(bb)

@@ -187,8 +187,14 @@ class GameEditDialog(QDialog):
         bb = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel, self)
+
         ok = bb.button(QDialogButtonBox.StandardButton.Ok)
         ok.setText("保存")
+        bb.setCenterButtons(True)  # 保存/取消整组居中（默认靠右）
+
+        cancel = bb.button(QDialogButtonBox.StandardButton.Cancel)
+        cancel.setText("取消")  # 没装 Qt 中文翻译时的兜底
+
         bb.accepted.connect(self._on_save)
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
