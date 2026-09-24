@@ -36,6 +36,7 @@ from gui.modListPage import ModListPage
 from gui.settingsPage import SettingsPage
 from gui.updateCheckPage import UpdateCheckPage
 from gui.verifyPage import VerifyPage
+from gui.statsPage import StatsPage
 
 import sys
 import threading
@@ -57,6 +58,7 @@ _KEY_AUTO_RESCAN = "auto_rescan_after_batch"       # 批次结束后自动扫描
 # 然后把对应条目的 None 改成新下标、去掉后缀、setDisabled(False) 即点亮。
 _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
     ("mod 库", 0),
+    ("统计", 8),
     ("基础功能", [
         ("网址批量导入", 1),
         ("更新检测", 4),
@@ -166,6 +168,7 @@ class MainWindow(QMainWindow):
             CommandGenPage(self._repo, self._settings, self._stack, log=self._log),   # 5
             VerifyPage(self._repo, self._settings, self._stack, log=self._log),   # 6
             ExceptionPage(self._repo, self._settings, self._stack, log=self._log),  # 7
+            StatsPage(self._repo, self._stack),  # 8
 
         ]
         for page in self._pages:

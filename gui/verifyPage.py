@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -65,6 +66,44 @@ _STATUS_LABELS = {
     "deleted": "已删除",
     "failed": "已失败",
 }
+
+class _Section(QWidget):
+    """可折叠分区（T19㉑）：一行"箭头＋标题"的开关，下面挂明细区。
+    摘要/说明不进分区（常驻可见），收起后页面只剩摘要数字行；
+    默认展开，与旧版行为一致。"""
+
+    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(2)
+
+        self._toggle = QToolButton(self)
+        self._toggle.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._toggle.setCheckable(True)
+        self._toggle.setChecked(True)  # 默认展开
+        self._toggle.setArrowType(Qt.ArrowType.DownArrow)
+        self._toggle.setText(title)
+        self._toggle.setFixedHeight(22)
+        v.addWidget(self._toggle)
+
+        self._body = QWidget(self)
+        self._body_v = QVBoxLayout(self._body)
+        self._body_v.setContentsMargins(0, 0, 0, 0)
+        v.addWidget(self._body)
+
+        # clicked(bool) 对 checkable 按钮传的就是新状态，直接用
+        self._toggle.clicked.connect(self._on_toggle)
+
+    def _on_toggle(self, expanded: bool) -> None:
+        self._toggle.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+        self._body.setVisible(expanded)
+
+    def set_content(self, widget: QWidget) -> None:
+        """挂明细区（每分区只调一次）。"""
+        self._body_v.addWidget(widget)
 
 
 class VerifyPage(QWidget):
@@ -168,19 +207,27 @@ class VerifyPage(QWidget):
         # 没有覆盖任何旧连接
         self._table.cellDoubleClicked.connect(self._on_row_double_clicked)
         self._table.itemChanged.connect(self._on_item_changed)
-        root.addWidget(self._table, 1)
+        # 问题明细改可折叠（T19㉑）：表格与全部配置/信号不动，
+        # 只是挂进分区；上方摘要行常驻
+        self._sec_table = _Section("问题明细", self)
+        self._sec_table.set_content(self._table)
+        root.addWidget(self._sec_table, 1)
 
         self._nn_label = QLabel("", self)
         root.addWidget(self._nn_label)
         self._nn_list = QListWidget(self)
-        root.addWidget(self._nn_list, 1)
+        self._sec_nn = _Section("非数字明细", self)
+        self._sec_nn.set_content(self._nn_list)
+        root.addWidget(self._sec_nn, 1)
 
         # junction 巡检结果区（配置了游戏侧目录才有内容）
         self._junc_label = QLabel("", self)
         self._junc_label.setWordWrap(True)
         root.addWidget(self._junc_label)
         self._junc_list = QListWidget(self)
-        root.addWidget(self._junc_list, 1)
+        self._sec_junc = _Section("链接巡检明细", self)
+        self._sec_junc.set_content(self._junc_list)
+        root.addWidget(self._sec_junc, 1)
 
         self._verify_btn.setToolTip(
             "只读对账：账本↔磁盘实况 + 游戏侧链接；除\"修复三选\"里"

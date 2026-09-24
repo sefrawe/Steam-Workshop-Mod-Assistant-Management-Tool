@@ -2,7 +2,7 @@
 """
 r"""后端调试主战场。
 
-布局：顶部筛选条（搜索 / 状态 / 特别关注 / 排序下拉 / 统计条 /
+布局：顶部筛选条（搜索 / 状态 / 特别关注 / 排序下拉 /统计见统计页/
 下载 / 备份选中项；"刷新"与"扫描本地"收进【刷新 ▾】下拉）+
 水平分割（左表格 / 右详情）。
 
@@ -218,29 +218,36 @@ class ModListPage(QWidget):
         self._btn_refresh.clicked.connect(self._reload)
         h.addWidget(self._btn_refresh)
 
-        # 统计条（T19⑱）：当前档案全体 mod 的概览，不受搜索/筛选影响。
-        # _reload 里随查询一起刷新（_update_stats）
-        self._stats_label = QLabel("", row)
-        self._stats_label.setStyleSheet("color: gray;")
-        self._stats_label.setToolTip(
-            "当前档案全体 mod 概览（不受搜索/筛选影响）；\n"
-            "「共」包含已删除条目；筛选结果数见右侧「共 N 个 mod」")
-        h.addWidget(self._stats_label)
+        # 统计条已撤（T19⑲）：全景数字搬去「统计」页，工具条只留筛选结果数
 
-        self._btn_download = QPushButton("下载选中项", row)
-        self._btn_download.setToolTip(
+        # 操作 ▾（T19⑳）：下载/备份选中项收进下拉——继续瘦身。
+        # InstantPopup = 点按钮就弹菜单（主按钮无默认动作）
+        self._btn_actions = QToolButton(row)
+        self._btn_actions.setText("操作 ▾")
+        self._btn_actions.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._btn_actions.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._actions_menu = QMenu(self._btn_actions)
+        self._act_download = QAction("下载选中项", self._actions_menu)
+        self._act_download.setToolTip(
             "把勾选的 mod 交给 控制台 → 下载批次 逐条下载"
             "（顺序 = 列表当前排序）：\n需要 steamcmd 已在终端里启动并登录，"
             "未启动时会提示")
-        self._btn_download.clicked.connect(self._on_download_checked)
-        h.addWidget(self._btn_download)
-
-        self._btn_backup = QPushButton("备份选中项", row)
-        self._btn_backup.setToolTip(
+        self._act_download.triggered.connect(self._on_download_checked)
+        self._actions_menu.addAction(self._act_download)
+        self._act_backup = QAction("备份选中项", self._actions_menu)
+        self._act_backup.setToolTip(
             "把勾选的 mod 内容复制进备份区（未下载的自动跳过）；\n"
             "保留份数与配额按设置页执行")
-        self._btn_backup.clicked.connect(self._on_backup_checked)
-        h.addWidget(self._btn_backup)
+        self._act_backup.triggered.connect(self._on_backup_checked)
+        self._actions_menu.addAction(self._act_backup)
+        # 菜单动作 tooltip 默认不显示，显式打开（T19⑩）
+        self._actions_menu.setToolTipsVisible(True)
+        self._btn_actions.setMenu(self._actions_menu)
+        self._btn_actions.setToolTip(
+            "对第一列勾选的 mod 批量操作；菜单项文字带当前勾选数")
+        h.addWidget(self._btn_actions)
 
         self._count_label = QLabel("", row)
         h.addWidget(self._count_label)
@@ -321,7 +328,7 @@ class ModListPage(QWidget):
         if self._game is None:
             self._model.set_rows([])
             self._count_label.setText("请先在左上角选择游戏档案")
-            self._stats_label.setText("")
+
             return
         rows = self._repo.list_mods(
             self._game.app_id,
@@ -332,7 +339,7 @@ class ModListPage(QWidget):
         )
         self._model.set_rows(rows)
         self._count_label.setText(f"共 {len(rows)} 个 mod")
-        self._update_stats()
+
         # 每次刷新重读列开关：设置页改完保存，回来点【刷新】即生效
         self._apply_col_visibility()
 
@@ -352,21 +359,6 @@ class ModListPage(QWidget):
         模型列号不受影响，勾选/排序照常。"""
         for col, key in _COL_SETTING.items():
             self._table.setColumnHidden(col, self._settings.get(key) == "0")
-
-    def _update_stats(self) -> None:
-        """统计条（T19⑱）：当前档案全体 mod 的概览，与筛选无关。
-        口径：已下载/未下载按状态（措辞与更新状态列一致，不手写同义词）；
-        需更新复用模型 _update_state 判定单源（版本未知/远端未知不计入）；
-        特别关注按标记。全体清单 = 一次不带筛选的查询，本地库毫秒级。"""
-        rows = self._repo.list_mods(self._game.app_id)
-        n_down = sum(1 for m in rows if m.status == "downloaded")
-        n_track = sum(1 for m in rows if m.status == "tracked")
-        n_update = sum(1 for m in rows
-                       if ModListModel._update_state(m) == "需更新")
-        n_special = sum(1 for m in rows if m.is_special)
-        self._stats_label.setText(
-            f"共 {len(rows)}｜已下载 {n_down}｜需更新 {n_update}"
-            f"｜未下载 {n_track}｜特别关注 {n_special}")
 
     # ---------- 槽 ----------
 
@@ -545,11 +537,15 @@ class ModListPage(QWidget):
         确认成功后刷新列表（恢复选中逻辑 _reload 已有）。"""
         if confirm_one(self, self._repo, self._log, m.mod_id):
             self._reload()
-
     def _update_checked_label(self) -> None:
-        """勾选数变化时更新"已勾选 N"（没有勾选就不显示）。"""
+        """勾选数变化时更新"已勾选 N"（没有勾选就不显示），
+        并把数字同步进操作菜单的菜单项——打开菜单前就有预期。"""
         n = self._model.checked_count_in_rows()
         self._checked_label.setText(f"已勾选 {n}" if n else "")
+        label = f"（{n}）" if n else ""
+        self._act_download.setText(f"下载选中项{label}")
+        self._act_backup.setText(f"备份选中项{label}")
+
 
     def _on_download_checked(self) -> None:
         """【下载选中项】：收集勾选的 mod，发信号让 MainWindow 开批次。

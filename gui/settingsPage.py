@@ -253,6 +253,10 @@ class SettingsPage(QWidget):
         # 开关项：存 "1"/"0"；缺键/其他值按开（默认全显示）
         for key, cb in self._checks.items():
             cb.setChecked(self._settings.get(key) != "0")
+        # 记住打开时的开关状态：保存时对比，才知道"这次有没有动列显示"
+        self._bools_at_load = {k: cb.isChecked()
+                               for k, cb in self._checks.items()}
+
 
     @staticmethod
     def _number_ok(text: str) -> bool:
@@ -331,8 +335,16 @@ class SettingsPage(QWidget):
             self._settings.set(key, "1" if cb.isChecked() else "0")
 
         self._settings.save()
-        self._saved_label.setText(
-            f"已保存 {time.strftime('%H:%M:%S')} → {self._settings.path}")
+        # 列显示的生效时机是"回 mod 库页点刷新"，不在保存瞬间——
+        # 动过开关就提醒一句，别让用户以为没生效
+        changed = [k for k, cb in self._checks.items()
+                   if cb.isChecked() != self._bools_at_load.get(k, True)]
+        self._bools_at_load = {k: cb.isChecked()
+                               for k, cb in self._checks.items()}
+        msg = f"已保存 {time.strftime('%H:%M:%S')} → {self._settings.path}"
+        if changed:
+            msg += "\n列显示有改动：回 mod 库页点【刷新】生效"
+        self._saved_label.setText(msg)
         self._saved_label.setStyleSheet("color: #46a758;")
 
     def _reset(self) -> None:
