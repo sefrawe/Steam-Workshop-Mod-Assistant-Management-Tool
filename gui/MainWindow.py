@@ -116,6 +116,8 @@ class MainWindow(QMainWindow):
 
         side = QWidget(central)
         side.setFixedWidth(_NAV_WIDTH)
+        self._side = side  # 视图菜单显隐用（T19⑭）：局部变量跨方法必须挂 self
+
         side_layout = QVBoxLayout(side)
         side_layout.setContentsMargins(8, 8, 8, 8)
         side_layout.setSpacing(8)
@@ -237,6 +239,20 @@ class MainWindow(QMainWindow):
         self._act_relocate.triggered.connect(self._switcher.open_relocate)
         m_game.addAction(self._act_relocate)
 
+        # 视图(&V)（T19⑭⑮）：两块面板的显隐开关，checkable 状态即现状。
+        # 与控制台显隐同口径——不记忆跨重启（要记的话往 appSettings
+        # DEFAULTS 加键，随时可补）
+        m_view = self.menuBar().addMenu("视图(&V)")
+        self._act_side = QAction("显示 / 隐藏左侧导航栏", self)
+        self._act_side.setCheckable(True)
+        self._act_side.setChecked(True)
+        self._act_side.toggled.connect(self._toggle_side)
+        m_view.addAction(self._act_side)
+        self._act_detail = QAction("显示 / 隐藏详情面板（mod 库页）", self)
+        self._act_detail.setCheckable(True)
+        self._act_detail.setChecked(True)
+        self._act_detail.toggled.connect(self._toggle_detail)
+        m_view.addAction(self._act_detail)
 
         # 控制台显隐单独成项（T21②）：原先塞在"视图"菜单里，而视图菜单
         # 只有这一项——腾空后整个删掉（拍板：留一个空菜单是坏体验）。
@@ -367,6 +383,18 @@ class MainWindow(QMainWindow):
             self.showNormal()  # 程序最小化时先还原，否则弹了也看不见
         self._console_dock.show()
         self._console_dock.raise_()
+
+    def _toggle_side(self, visible: bool) -> None:
+        """显示/隐藏左侧导航栏（T19⑭）：整个侧栏（切换下拉 + 导航树）
+        一起收起，中央页面拿到全部宽度；回程走本菜单项。"""
+        self._side.setVisible(visible)
+
+    def _toggle_detail(self, visible: bool) -> None:
+        """显示/隐藏 mod 库页详情面板（T19⑮）：主窗口只转发开关，
+        布局归页面自己管（QSplitter 不给隐藏的子件分空间，
+        表格自动占满整行）。"""
+        self._pages[0].set_detail_visible(visible)
+
 
     def _start_batch(self, app_id: int, mod_ids: list) -> None:
         """mod 库页【下载选中项】→ 开批量下载批次。

@@ -24,9 +24,13 @@ COLUMNS = ["选", "编号", "标题", "状态", "远端版本", "本地版本", 
 _SORT_MAP: dict[int, tuple[str, str | None]] = {
     1: ("mod_id ASC", "mod_id DESC"),
     2: ("title ASC", "title DESC"),
+    3: ("status ASC", "status DESC"),
     4: ("time_updated DESC", "time_updated ASC"),
+    5: ("local_timeupdated DESC", "local_timeupdated ASC"),
     7: ("local_size DESC", None),
+    9: ("is_special DESC", None),
 }
+
 
 _CHECK_COL = 0  # 勾选列号：data/flags/setData 里反复用到，收拢成常量
 

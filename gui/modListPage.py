@@ -96,12 +96,17 @@ _COL_SETTING = {
 # 排序下拉（T19⑰）的措辞：列号 → 中文名 / 方向说法。
 # 排序串本身一律走 modListModel._SORT_MAP 白名单（防注入单源），这里
 # 只负责把白名单条目翻译成人话；方向布尔 = 排序串是否以 DESC 结尾
-_SORT_COL_NAME = {1: "编号", 2: "标题", 4: "远端版本", 7: "大小"}
+_SORT_COL_NAME = {1: "编号", 2: "标题", 3: "状态", 4: "远端版本",
+                  5: "本地版本", 7: "大小", 9: "特别关注"}
+
 _SORT_DIR_LABEL = {
     (1, False): "小→大", (1, True): "大→小",
     (2, False): "A→Z", (2, True): "Z→A",
     (4, False): "旧→新", (4, True): "新→旧",
-    (7, True): "大→小",
+    (7, True): "大→小",    (3, False): "升序", (3, True): "降序",
+    (5, False): "旧→新", (5, True): "新→旧",
+    (9, True): "关注的在前",
+
 }
 
 
@@ -174,7 +179,7 @@ class ModListPage(QWidget):
         # 排序下拉（T19⑰）：与表头点击同一套白名单（_SORT_MAP），两者
         # 双向同步；列表当前顺序也是下载/备份批次的执行顺序
         self._sort_combo = QComboBox(row)
-        for col in (1, 2, 4, 7):
+        for col in (1, 2, 3, 4, 5, 7, 9):
             first, second = _SORT_MAP[col]
             for order_by in (first, second):
                 if order_by is None:

@@ -38,12 +38,18 @@ ALLOWED_ORDERS: frozenset[str] = frozenset({
     "title ASC",
     "title DESC",
     "local_size DESC",
+    "local_timeupdated DESC",   # 本地版本（T19⑰ 扩列）
+    "local_timeupdated ASC",
+    "status ASC",               # 状态：按库内值字母序分组聚拢（T19⑰）
+    "status DESC",
+    "is_special DESC",          # 特别关注：关注的在前（单向，反向无场景）
     "first_tracked_at DESC",
     "first_tracked_at ASC",
     "last_checked_at DESC",
     "mod_id ASC",
     "mod_id DESC",
 })
+
 
 
 
