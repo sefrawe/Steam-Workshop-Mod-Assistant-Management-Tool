@@ -45,6 +45,14 @@ DEFAULTS: dict[str, str] = {
     # ↓ 两个"日常更新一条龙"开关（决策 26）：界面就地开关，不进设置页
     "auto_rescan_after_batch": "1",  # 批次下载结束后自动扫描本地入账（下载成功的判定时刻，决策 23⑤）
     "auto_download_after_check": "0",  # 检测到新版本后跳过询问直接下载（默认关=每次弹窗确认；勾选框在更新检测页）
+    "mod_col_status": "1",
+    "mod_col_remote_ver": "1",
+    "mod_col_local_ver": "1",
+    "mod_col_update": "1",
+    "mod_col_size": "1",
+    "mod_col_tags": "1",
+    "mod_col_special": "1",
+    "mod_col_note": "1",
 
 }
 

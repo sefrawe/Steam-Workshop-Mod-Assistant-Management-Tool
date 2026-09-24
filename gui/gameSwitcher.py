@@ -1,28 +1,34 @@
 """游戏档案切换器
 """
-r"""
-左导航顶部组件：下拉选择当前游戏 + 临时"添加档案"入口 + 连接指引入口（T13）。
-
+r"""左导航顶部组件：下拉选择当前游戏 + 临时"添加档案"入口 + 三个档案
+工具入口（编辑档案 / 连接指引 / 重定位备份目录）。
 只与 ModRepository 接口交互，GUI 层零 SQL（记事本架构约定）。
 
 "添加游戏档案"目前是输入框串联的临时对话框，够调试期用；
 正式的建档向导做好后，把按钮指到向导即可，本组件其余部分不用动。
 
-下载目录的来历（决策 21）：不再让用户手填，而是从设置页的
-steamcmd 程序路径自动推导——<steamcmd根>\steamapps\workshop\content\<appid>
-（推导公式在 core/steamPaths.py，建档、扫描、将来的备份引擎共用）。
+下载目录的来历（决策 21）：不再让用户手填，而是从设置页的 steamcmd
+程序路径自动推导——<steamcmd根>\steamapps\workshop\content\<appid>
+（推导公式在 core/steamPaths.py，建档、扫描、备份引擎共用）。
 steamcmd 程序路径没填时推导不出来，此时降级为手填——
-宁可让用户填一次，也不能把空值存进档案：档案建成后目前
-没有编辑界面，空下载目录没有任何补救通道。
+宁可让用户填一次，也不能把空值存进档案；万一填错了，
+【编辑档案】的"改为推导值"就是兜底通道（T19⑪）。
 """
 import sqlite3
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QComboBox, QInputDialog, QMessageBox, QPushButton, QVBoxLayout, QWidget,
+    QComboBox,
+    QDialog,
+    QInputDialog,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-from gui.backupRelocateDialog import BackupRelocateDialog
 
+from gui.backupRelocateDialog import BackupRelocateDialog
+from gui.gameEditDialog import GameEditDialog
 from core import steamPaths
 from core.models import Game
 from gui.linkGuideDialog import LinkGuideDialog
@@ -30,6 +36,7 @@ from gui.linkGuideDialog import LinkGuideDialog
 
 class GameSwitcher(QWidget):
     """current_game_changed(Game | None)：选择变化（含清空为空库态）时发射。"""
+
     current_game_changed = Signal(object)
 
     def __init__(self, repo, parent: QWidget | None = None, settings=None) -> None:
@@ -37,56 +44,48 @@ class GameSwitcher(QWidget):
         self._repo = repo
         self._settings = settings  # 读"steamcmd 程序路径"做目录推导用，可为 None
         self._games: list[Game] = []
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+
         # 下拉框：显示"名称（AppID）"，data 里存 app_id，current_game() 靠它反查
         self._combo = QComboBox(self)
         self._combo.currentIndexChanged.connect(self._emit_current)
         layout.addWidget(self._combo)
+
         self._btn_add = QPushButton("＋ 添加游戏档案（临时）", self)
         self._btn_add.setToolTip(
             "正式的建档向导做好后此入口会被替换；当前仅供调试期手工建档")
         self._btn_add.clicked.connect(self.add_game_dialog)
         layout.addWidget(self._btn_add)
-        self._btn_link = QPushButton("连接指引…", self)
-        self._btn_link.setToolTip(
-            "把游戏自己的 mod 目录联接（junction）到本档案的下载目录，"
-            "让游戏读到 steamcmd 下载的 mod。\n"
-            "只生成命令和步骤，命令由你自己在 cmd 里执行（对话框全程只读）")
-        self._btn_link.clicked.connect(self._open_link_guide)
-        layout.addWidget(self._btn_link)
-        self._btn_relocate = QPushButton("重定位备份目录…", self)
-        self._btn_relocate.setToolTip(
-            "备份记录在备份页「盘上」列失联时用：指认备份文件夹现在的位置，"
-            "先预演能对回多少条记录，确认后只改档案的备份目录一个字段，"
-            "不动任何备份文件（决策 29：资产指针绝不静默自愈）")
-        self._btn_relocate.clicked.connect(self._open_relocate)
-        layout.addWidget(self._btn_relocate)
+
+        # 档案操作按钮（添加/编辑/连接指引/重定位）已迁往主窗口
+        # 「游戏」菜单，本组件只负责切换游戏
 
         self.reload()
 
     # ---------- 对外 ----------
+
     def reload(self) -> None:
         """重读 games 表。添加档案后调用；尽量保持当前选择不变。"""
         previous = self.current_game()
         self._games = self._repo.list_games()
+
         # 先掐断信号再重建选项，防止中途 currentIndexChanged 乱发；
         # 重建完手动补发一次，保证外部拿到的是最终状态
         self._combo.blockSignals(True)
         self._combo.clear()
         for game in self._games:
             self._combo.addItem(f"{game.name}（{game.app_id}）", game.app_id)
+
         if not self._games:
             # 空库不崩：放一个占位项，data=None → current_game() 返回 None
             self._combo.addItem("（暂无游戏档案）", None)
             self._combo.setEnabled(False)
-            self._btn_link.setEnabled(False)
-            self._btn_relocate.setEnabled(False)
         else:
             self._combo.setEnabled(True)
-            self._btn_link.setEnabled(True)
-            self._btn_relocate.setEnabled(True)
+
         if previous is not None:
             idx = self._combo.findData(previous.app_id)
             if idx >= 0:
@@ -112,6 +111,7 @@ class GameSwitcher(QWidget):
         except ValueError:
             QMessageBox.warning(self, "添加失败", "AppID 必须是整数。")
             return
+
         # 第二问：显示名称。
         name, ok = QInputDialog.getText(self, "添加游戏档案", "游戏名称：")
         if not ok or not name.strip():
@@ -140,6 +140,7 @@ class GameSwitcher(QWidget):
             # 这里只负责把报错翻译成一句用户能懂的话。
             QMessageBox.warning(self, "添加失败", f"档案 {app_id} 已存在。")
             return
+
         self.reload()
         # 新建的档案直接设为当前：刚加完大概率马上要导 mod，
         # 停在旧档案上会让人以为"没加上"。
@@ -147,6 +148,7 @@ class GameSwitcher(QWidget):
         idx = self._combo.findData(app_id)
         if idx >= 0:
             self._combo.setCurrentIndex(idx)
+
         if derived is not None:
             # 建档成功后才告知推导结果：用户应当知道档案用到了哪个目录，
             # 也顺手把"content 树只放编号文件夹"的规矩带一句
@@ -157,9 +159,21 @@ class GameSwitcher(QWidget):
                 "注意：该目录只放 mod 内容，请勿手动放入其他文件。")
 
     # ---------- 内部 ----------
-    def _open_link_guide(self) -> None:
-        """打开连接指引对话框（T13）。空库时按钮本就禁用，这里双保险。
 
+    def open_edit(self) -> None:
+        """打开档案编辑对话框（T19⑪）。空库时按钮本就禁用，这里双保险。
+        保存成功（对话框 accept）后 reload()：重读 games 表并把当前档案
+        重新广播给各页——改名后下拉框立即换新名字，持有旧 Game 对象的
+        页面（备份页等）同步拿到新字段（与重定位按钮同一套收尾）。"""
+        game = self.current_game()
+        if game is None:
+            return
+        dlg = GameEditDialog(self._repo, game, self._settings, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.reload()
+
+    def open_link_guide(self) -> None:
+        """打开连接指引对话框（T13）。空库时按钮本就禁用，这里双保险。
         联接应指向的"实体"优先按 steamcmd 当前位置现推导（决策 21 的
         权威公式），推导不出才退回档案记录值——历史建档时手填的下载
         目录可能记的是游戏侧联接位置，现推导让指引与这类历史数据解耦。
@@ -177,10 +191,10 @@ class GameSwitcher(QWidget):
         """把当前选择广播出去。下拉框变化、reload() 末尾都会走到这里。"""
         self.current_game_changed.emit(self.current_game())
 
-    def _open_relocate(self) -> None:
+    def open_relocate(self) -> None:
         """打开备份目录重定位对话框（T21④）。空库时按钮本就禁用，
         这里双保险。确认成功后 reload()：重读 games 表并把当前档案
-        重播给各页——backupPage 等持有旧 Game 对象的页面据此拿到
+        重新广播给各页——backupPage 等持有旧 Game 对象的页面据此拿到
         新的 backup_dir（set_game → 各自重载）。"""
         game = self.current_game()
         if game is None:

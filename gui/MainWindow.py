@@ -37,6 +37,10 @@ from gui.settingsPage import SettingsPage
 from gui.updateCheckPage import UpdateCheckPage
 from gui.verifyPage import VerifyPage
 
+import sys
+import threading
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "mods.db"
 
@@ -100,6 +104,7 @@ class MainWindow(QMainWindow):
         # 正在跑（或最近一跑）的批次属于哪个档案：_start_batch 记、
         # _on_batch_done 读后清。批次全软件单实例，不会串
         self._batch_app_id: int | None = None
+        self._install_excepthook()
 
     # ---------- UI 构建 ----------
 
@@ -198,14 +203,40 @@ class MainWindow(QMainWindow):
 
     def _build_menus(self) -> None:
         m_file = self.menuBar().addMenu("文件(&F)")
-        act_add_game = QAction("添加游戏档案（临时）…", self)
-        act_add_game.triggered.connect(self._switcher.add_game_dialog)
-        m_file.addAction(act_add_game)
-        m_file.addSeparator()
+
         act_quit = QAction("退出", self)
         act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         act_quit.triggered.connect(self.close)
         m_file.addAction(act_quit)
+
+        # 游戏(&G)：原侧栏四颗按钮的操作收进这里（按钮撤出后侧栏
+        # 只剩"切换游戏"下拉）。三个档案相关项无档案时置灰，
+        # 置灰统一走 _on_game_changed
+        m_game = self.menuBar().addMenu("游戏(&G)")
+        act_add_game = QAction("添加游戏档案（临时）…", self)
+        act_add_game.setToolTip("正式建档向导做好前的临时建档入口")
+        act_add_game.triggered.connect(self._switcher.add_game_dialog)
+        m_game.addAction(act_add_game)
+        m_game.addSeparator()
+        self._act_edit = QAction("编辑档案…", self)
+        self._act_edit.setToolTip(
+            "修改当前档案的名称、游戏 mod 目录、备份目录；"
+            "下载目录不开放手填，只提供一键改回推导值")
+        self._act_edit.triggered.connect(self._switcher.open_edit)
+        m_game.addAction(self._act_edit)
+        self._act_link = QAction("连接指引…", self)
+        self._act_link.setToolTip(
+            "把游戏自己的 mod 目录联接到下载目录，让游戏读到 steamcmd "
+            "下载的 mod。生成命令与步骤，命令由你自己在 cmd 里执行")
+        self._act_link.triggered.connect(self._switcher.open_link_guide)
+        m_game.addAction(self._act_link)
+        self._act_relocate = QAction("重定位备份目录…", self)
+        self._act_relocate.setToolTip(
+            "备份记录在「盘上」列失联时用：指认备份文件夹现在的位置，"
+            "先预演能对回多少条，确认后只改档案字段，不动文件")
+        self._act_relocate.triggered.connect(self._switcher.open_relocate)
+        m_game.addAction(self._act_relocate)
+
 
         # 控制台显隐单独成项（T21②）：原先塞在"视图"菜单里，而视图菜单
         # 只有这一项——腾空后整个删掉（拍板：留一个空菜单是坏体验）。
@@ -248,6 +279,12 @@ class MainWindow(QMainWindow):
         for page in self._pages:
             if hasattr(page, "set_game"):
                 page.set_game(game)
+        # 无档案时三个档案入口没有操作对象；添加档案不在其列——空库也能加
+        has_game = game is not None
+        self._act_edit.setEnabled(has_game)
+        self._act_link.setEnabled(has_game)
+        self._act_relocate.setEnabled(has_game)
+
 
     def _on_imported(self, count: int) -> None:
         self._nav.setCurrentItem(self._nav_items[0])  # 跳到 mod 库页
@@ -371,3 +408,34 @@ class MainWindow(QMainWindow):
                 shutdown()
         self._repo.close()
         super().closeEvent(event)
+
+    # ---------- 全局异常兜底 ----------
+
+    def _install_excepthook(self) -> None:
+        """让"漏出来的意外错误"被用户看见。
+        错误处理原则不变：照旧完整暴露、绝不吞——终端 traceback 照印
+        （sys.__excepthook__ 就是原来那个打印器，原样转发给它）；
+        改变的只有"报到地点"：运行日志同步多一条红字，主线程的意外
+        再弹一个框。像 steamcmd_exe 那样的 NameError，有这层就
+        不会只躺在终端里了。
+        后台线程的钩子只发日志、不弹框——工作线程严禁碰控件（R11），
+        而 LogBus 是信号总线，跨线程安全（consolePanel 文件头保证）。
+        """
+        def main_hook(exc_type, exc_value, exc_tb):
+            self._log.error(
+                f"未处理的异常：{exc_type.__name__}: {exc_value}"
+                "（完整 traceback 见终端）")
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            QMessageBox.critical(
+                self, "程序内部错误",
+                "发生了一个程序内部错误，详情已写入运行日志。\n\n"
+                f"{exc_type.__name__}: {exc_value}")
+        sys.excepthook = main_hook
+
+        def thread_hook(args) -> None:
+            self._log.error(
+                f"后台线程异常：{args.exc_type.__name__}: {args.exc_value}"
+                "（完整 traceback 见终端）")
+            threading.__excepthook__(args)
+        threading.excepthook = thread_hook
+

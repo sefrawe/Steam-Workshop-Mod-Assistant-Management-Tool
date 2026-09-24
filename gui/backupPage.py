@@ -56,7 +56,7 @@ from core.backupManager import BackupManager
 from core.models import Game
 from gui.consolePanel import LogBus
 from gui.formatters import abs_time, fmt_size, status_zh
-
+from gui.backupMoveDialog import BackupMoveDialog
 
 # 与设置页 _FIELDS 核对过的真键名（settingsPage.py）。注意配额在设置页
 # 以 GB 计（人好填），引擎以字节计（好比较），换算只在 _make_manager 做一次
@@ -203,12 +203,16 @@ class BackupPage(QWidget):
         self._open_btn.clicked.connect(self._open_backup_dir)
         self._relocate_btn = QPushButton("重定位备份目录…", btn_row)
         self._relocate_btn.clicked.connect(self._relocate)
+        self._move_btn = QPushButton("备份搬家…", btn_row)
+        self._move_btn.clicked.connect(self._move)
+
         self._stop_btn = QPushButton("停止备份", btn_row)
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_backup)
-        for b in (self._backup_btn, self._db_btn, self._refresh_btn,
-                  self._open_btn, self._relocate_btn, self._stop_btn):
+        for b in (self._backup_btn, self._db_btn, self._refresh_btn, self._open_btn, self._relocate_btn, self._move_btn,
+                  self._stop_btn):
             h.addWidget(b)
+
         h.addStretch(1)
         root.addWidget(btn_row)
 
@@ -262,6 +266,10 @@ class BackupPage(QWidget):
         self._relocate_btn.setToolTip(
             "「盘上」列有失联记录时用：指认备份文件夹现在的位置，"
             "先预演能对回多少条，确认后只改档案的备份目录字段，不动文件")
+        self._move_btn.setToolTip(
+            "备份所在的盘快满时用：生成把备份整体搬到新位置并原地建联接的命令，"
+            "记录一个不用改；与重定位的分工见窗口内说明")
+
 
         self._stop_btn.setToolTip("请求停止：当前 mod 备完后不再继续")
         self._restore_btn.setToolTip(
@@ -349,7 +357,7 @@ class BackupPage(QWidget):
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         for b in (self._backup_btn, self._db_btn, self._refresh_btn,
-                  self._open_btn, self._relocate_btn):
+                  self._open_btn, self._relocate_btn,self._move_btn):
             b.setEnabled(not busy)
         self._stop_btn.setEnabled(False)
         self._refresh_op_buttons()
@@ -623,3 +631,18 @@ class BackupPage(QWidget):
                                    self, log=self._log)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._reload()
+
+    # ---------- 备份搬家指引（命令生成，全程只读） ----------
+
+    def _move(self) -> None:
+        """打开备份搬家指引：与【重定位备份目录】互补——备份都在、
+        只是想换位置时用它（物理搬运 + 旧位置建联接，档案记录一个不动）；
+        记录失联了才用重定位。
+        对话框关闭后无条件重载一次：联接建好后旧路径恢复可达，
+        「盘上」列按现状重新核对。"""
+        if self._game is None:
+            QMessageBox.information(self, "备份搬家", "当前未选择游戏档案。")
+            return
+        dlg = BackupMoveDialog(self._game, self._settings, self)
+        dlg.exec()
+        self._reload()
