@@ -19,8 +19,10 @@ config/GlobalSettings.json 的读写封装，程序内唯一的配置入口。
 import json
 import shutil
 from pathlib import Path
+from core.appPaths import app_root
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = app_root()  # T17：数据根统一定位（源码=项目根；打包=exe 旁）
+
 CONFIG_PATH = PROJECT_ROOT / "config" / "GlobalSettings.json"
 
 # 默认值：数字也写成字符串（理由见文件头），使用处一律 get_int() 转换。

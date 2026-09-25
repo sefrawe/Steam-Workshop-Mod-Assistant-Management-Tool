@@ -31,6 +31,8 @@
 内容、acf 永无记录）在第一列勾选，点【确认勾选的已下载】批量入账——
 勾哪几行确认哪几行；行数多时用旁边的【全选】。
 """
+import os
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
@@ -677,12 +679,82 @@ class VerifyPage(QWidget):
 
     # ---------- junction 巡检 ----------
     def _run_junction_check(self, status_by_id: dict[int, str]) -> None:
+        """账本 ↔ 游戏侧链接巡检。
+
+        T19㉒ 第 2 步：动手逐条查之前，先用判定单源
+        （core/steamPaths.junction_state）认一次拓扑——
+
+        - 反向拓扑健康（下载目录本身是联接、指对游戏侧目录）：
+          游戏侧每条都是真实目录，逐条巡检会把每个已下载 mod 都报成
+          "实为目录"，满屏同一句误报。改为一行绿字收工；各 mod 在不在
+          盘上，上方账实对账透过联接已经查过（联接两侧是同一份内容）。
+
+        - 反向联接指错目标 / 指对了位置但游戏目录已不在（悬空）：
+          反向环境此前没有任何检查能逮住的情况——联接一坏，steamcmd
+          写入就静默落空。给一行红字 + 指路连接指引，同样不逐条查
+          （逐条查只会刷屏"实为目录"，没有信息量）。
+
+        - 其余一切情况（下载目录不是联接）：维持既有逐条巡检——
+          正向根联接、正向逐 mod 联接、单目录布局、未配置等，
+          由 modVerifier.verify_junctions 与下面的分支照旧处理。
+        """
         assert self._game is not None
         self._junc_list.clear()
         self._junc_label.setText("")
 
+        game_dir = str(self._game.game_mod_dir or "").strip().strip('"').strip()
+        if game_dir:
+            # 拓扑探针：junction_state(下载目录, 游戏目录)。状态名按参数
+            # 位置命名——第一个参数是联接且指对第二个参数 → "linked"，
+            # 指到别处 → "wrong_target"。下载目录此刻必然存在
+            # （上面账实对账对死路径已经短路过了）
+            reverse = steamPaths.junction_state(
+                self._game.download_dir, game_dir)
+            if reverse.state == "linked":
+                if os.path.isdir(game_dir):
+                    self._junc_label.setText(
+                        "junction 巡检：✓ 反向拓扑正常——下载目录是联接，"
+                        f"指向游戏侧目录：{game_dir}\n"
+                        "（反向布局下游戏直接读真实目录，无需逐条链接；"
+                        "各 mod 是否在盘上，已由上方账实对账覆盖）")
+                    self._junc_label.setStyleSheet("color: #46a758;")
+                    self._log.ok(
+                        f"junction 巡检：反向拓扑正常（{game_dir}）")
+                else:
+                    # 联接指对了位置但目标不存在（悬空）。不赌
+                    # junction_state 把这种情况归到哪个状态名，用
+                    # 存在性兜底——绝不能当"正常"放过去：steamcmd
+                    # 下次下载会写进一个不存在的位置，静默失败
+                    self._junc_label.setText(
+                        "junction 巡检：✗ 反向联接指对了位置，"
+                        f"但游戏侧目录当前不存在：{game_dir}\n"
+                        "steamcmd 的下载此刻写不进去。"
+                        "到「游戏 → 连接指引」重新检测，按步骤修复"
+                        "（通常把该目录建回来即可接上）。")
+                    self._junc_label.setStyleSheet("color: #e5484d;")
+                    self._log.warn(
+                        "junction 巡检：反向联接悬空，"
+                        f"游戏目录不存在：{game_dir}")
+                self._sec_junc.set_expanded(False)
+                return
+            if reverse.state == "wrong_target":
+                self._junc_label.setText(
+                    "junction 巡检：✗ 反向联接指错了目标——下载目录是联接，"
+                    f"但没有指向游戏侧目录（解析目标：{reverse.detail}）。\n"
+                    "steamcmd 的内容正写进别处，游戏侧收不到。"
+                    "到「游戏 → 连接指引」重新检测，按步骤原地重建。")
+                self._junc_label.setStyleSheet("color: #e5484d;")
+                self._log.warn(
+                    "junction 巡检：反向联接指错目标，"
+                    f"解析目标：{reverse.detail}")
+                self._sec_junc.set_expanded(False)
+                return
+            # 其余状态（下载目录是真实目录等）→ 落到下面的既有逐条巡检
+
         result = modVerifier.verify_junctions(
-            self._game.download_dir, self._game.game_mod_dir, status_by_id)
+            self._game.download_dir,
+            self._game.game_mod_dir,
+            status_by_id)
         if result is None:
             # None 有两种来路：未配置；或单目录布局（游戏侧=下载目录，
             # 本就没有链接可查）。文案把两种都说清，不吓唬人
@@ -691,20 +763,18 @@ class VerifyPage(QWidget):
                 "或游戏侧目录与下载目录相同（单目录布局，没有链接可查）。"
                 "需要检查链接布局时点上方【设置…】。")
             self._junc_label.setStyleSheet("color: gray;")
-            self._sec_junc.set_expanded(False)  # 没跑巡检，没有明细可看
-
+            self._sec_junc.set_expanded(False)
+            # 没跑巡检，没有明细可看
             return
-
         if result.dead_root:
             self._junc_label.setText(
                 f"junction 巡检：目录不存在（{result.game_mod_dir}），"
                 "请检查配置。")
             self._junc_label.setStyleSheet("color: #e5484d;")
             self._log.warn("junction 巡检：游戏侧目录不存在")
-            self._sec_junc.set_expanded(False)  # 目录都没有，明细无意义
-
+            self._sec_junc.set_expanded(False)
+            # 目录都没有，明细无意义
             return
-
         # 逐桶翻人话。注意修法差异：
         # - 缺链接 → 重建链接（重下无效！重下只恢复 content 侧，
         #   游戏侧链接不会自己长出来）
@@ -723,7 +793,6 @@ class VerifyPage(QWidget):
             lines.append(f"{name}：游戏侧多余条目——人工确认后自行处理")
         for line in lines:
             self._junc_list.addItem(line)
-
         n_bad = len(lines)
         self._junc_label.setText(
             f"junction 巡检：正常 {result.ok}"
@@ -740,7 +809,6 @@ class VerifyPage(QWidget):
             f"{len(result.link_real_dir)}，多余 {len(result.extra)}")
         # 有问题自动摊开（缺链接等需要你看），全正常自动收起
         self._sec_junc.set_expanded(bool(lines))
-
 
     # ---------- 跳转命令生成页（双击行的快捷重下） ----------
     def _on_row_double_clicked(self, row: int, _col: int) -> None:

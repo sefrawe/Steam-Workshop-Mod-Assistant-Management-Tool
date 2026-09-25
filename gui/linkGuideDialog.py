@@ -1,7 +1,6 @@
 """连接指引对话框（T13）
 """
-"""
-给"游戏自己的 mod 目录"和"steamcmd 下载目录"牵线的操作指引。
+"""给"游戏自己的 mod 目录"和"steamcmd 下载目录"牵线的操作指引。
 
 背景（决策 21④）：部分游戏只从自己的目录读 mod（如 CK3 读
 Documents 下的 mod 文件夹），而 steamcmd 下载的内容在
@@ -9,15 +8,15 @@ steamapps\\workshop\\content\\<appid>——两边对不上，游戏就看不见
 下载的 mod。标准解法是建一个目录联接（junction）。两种拓扑都成立，
 本对话框都认识（判定在 core/steamPaths.junction_state，本文件零判断）：
 
-    正向：游戏 mod 目录（联接） --mklink /J--> 下载目录（实体）
-    反向：下载目录（联接）     --mklink /J--> 游戏 mod 目录（实体）
+正向：游戏 mod 目录（联接） --mklink /J--> 下载目录（实体）
+反向：下载目录（联接） --mklink /J--> 游戏 mod 目录（实体）
 
 反向拓扑不是纸上谈兵：实测用户环境就是"steamcmd 侧 content\\<appid>
 是联接、游戏侧是真实目录"——steamcmd 写入经联接落到游戏目录，
 游戏直接读真实目录。判定函数 v1 只认正向，把这种环境误报成
 "需搬运再建链"（照做等于对着同一份数据自己搬自己），v2 起双向都认。
 
-本对话框只做三件事：
+本对话框只做四件事：
 1. 实况判定：把游戏 mod 目录的当前路径填进来，判定它处于哪种状态
    （已连接 / 接了一半 / 指错位置 / 空目录 / 有内容的真实目录 /
    不存在 / 被文件占用）
@@ -25,6 +24,16 @@ steamapps\\workshop\\content\\<appid>——两边对不上，游戏就看不见
    mkdir（接通悬空反向联接）命令，一键复制。命令永远由用户自己在
    cmd 里执行——本对话框全程只读，不做任何盘上写操作（R4 天然满足）
 3. 步骤说明：按状态给出对应的操作顺序
+4. 通过广播（T19㉒）：检测通过（正向 linked / 反向 linked_reverse
+   两种"全通"状态）时发出 check_passed(目录) 信号，把"游戏实际
+   读取 mod 的目录"交给调用方（gameSwitcher）写进档案现成的
+   game_mod_dir 字段——该字段的定义就是"游戏读取 mod 的目录"，
+   两种拓扑下这个值都等于用户刚填、且刚被判"已连接"的那个路径，
+   写账只是把刚确认的事实落到现有字段（走 repo.update_game 正门，
+   不加字段、不升 schema 版本）。写库、去重、日志全归调用方，
+   本对话框依旧零仓库依赖、全程只读。
+   半通状态（linked_reverse_missing 等）不发信号：游戏此刻还读不到
+   mod，把目录记进账等于把"没接通"记成"已接通"。
 
 rmdir 的安全性（已写进界面文案）：rmdir 对联接只摘链接本体、不动
 实体内容；对非空的真实目录会直接报错拒绝——两条都是保护。
@@ -37,15 +46,24 @@ rmdir 的安全性（已写进界面文案）：rmdir 对联接只摘链接本�
 界面约定：路径输入框右侧不放功能按钮——那个位置按桌面惯例是
 "目录选择…"，检测按钮单独放在输入框下方一行（用户反馈）。
 
-联接位置每次由用户现填、不持久化：档案表没有这个字段，避免为它
-动 schema；真常用再加字段（见记事本台账）。
+游戏 mod 目录路径的来历与去向：每次由用户现填（本对话框不预填、
+自己不保存任何状态）；检测通过时该路径经 check_passed 信号交调用方
+写入档案 game_mod_dir 字段（T19㉒，见上面第 4 条）——用的是档案
+现成字段，不为"联接位置"单开新列。
 """
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
-    QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout,
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPlainTextEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
     QWidget,
-
 )
 
 from core import steamPaths
@@ -53,7 +71,8 @@ from core.models import Game
 
 # 状态 → (颜色, 结论一句话)。命令显隐与步骤文案在 _refresh 里按状态分派
 _STATE_LOOKS = {
-    "linked": ("#46a758", "✓ 已连接：游戏 mod 目录是联接，且正确指向下载目录"),
+    "linked": ("#46a758",
+               "✓ 已连接：游戏 mod 目录是联接，且正确指向下载目录"),
     "linked_reverse": ("#46a758",
                        "✓ 已连接（反向拓扑）：下载目录本身是联接，指向游戏 mod 目录"
                        "——无需任何操作"),
@@ -78,8 +97,14 @@ _STATE_LOOKS = {
 class LinkGuideDialog(QDialog):
     """单个档案的连接指引。构造时确定档案与目标实体，生命周期内不变。"""
 
-    def __init__(self, game: Game, parent: QWidget | None = None,
-                 *, target_dir: str | None = None) -> None:
+    # T19㉒：检测通过（linked / linked_reverse）时发射。
+    # 参数 = 游戏实际读取 mod 的目录（用户在输入框填的路径，
+    # 已去引号去空白）。写库/去重/日志归调用方（gameSwitcher），
+    # 本对话框只负责"判定通过"这一个事实。
+    check_passed = Signal(str)
+
+    def __init__(self, game: Game, parent: QWidget | None = None, *,
+                 target_dir: str | None = None) -> None:
         super().__init__(parent)
         self._game = game
         # 联接应指向的实体目录：优先用调用方按 steamcmd 现推导的值，
@@ -129,7 +154,7 @@ class LinkGuideDialog(QDialog):
         v.addWidget(self._target_label)
 
         # 档案记录值与现推导值不一致时的提示（历史手填数据会走到这里）。
-        # 只提示不改档案——修正通道留给将来的档案编辑界面
+        # 只提示不改档案——修正通道留给档案编辑界面
         stored = str(self._game.download_dir or "").strip().strip('"').strip()
         if self._target and stored and \
                 stored.casefold() != self._target.casefold():
@@ -166,7 +191,6 @@ class LinkGuideDialog(QDialog):
         self._state_label = QLabel("", self)
         self._state_label.setWordWrap(True)
         v.addWidget(self._state_label)
-
         self._detail_label = QLabel("", self)
         self._detail_label.setWordWrap(True)
         v.addWidget(self._detail_label)
@@ -216,7 +240,6 @@ class LinkGuideDialog(QDialog):
         return box, title, edit
 
     # ---------- 状态与刷新 ----------
-
     def _show_idle(self) -> None:
         """初始 / 输入被改动后的待判定状态：清空结论、藏起命令。
         改了路径还挂着上一条的绿勾是会出事的，必须立刻清掉。
@@ -243,8 +266,8 @@ class LinkGuideDialog(QDialog):
 
     def _refresh(self, report: steamPaths.JunctionReport) -> None:
         """按判定结果分派：结论颜色、说明行、命令块、步骤文案。
-        状态 → 行动的对照表就铺在这一个方法里，对照
-        JunctionReport 的 docstring 看即可。
+        状态 → 行动的对照表就铺在这一个方法里，对照 JunctionReport
+        的 docstring 看即可。
         """
         color, text = _STATE_LOOKS.get(
             report.state, ("gray", f"未知状态：{report.state}"))
@@ -364,6 +387,17 @@ class LinkGuideDialog(QDialog):
         self._build_box.setVisible(show_build)
         self._remove_box.setVisible(show_remove)
         self._steps_label.setText(steps)
+
+        # ---- T19㉒：检测通过 → 广播"游戏读取目录"（写账归调用方）----
+        # 只有两种"全通"状态算通过：正向 linked（游戏侧联接指对）、
+        # 反向 linked_reverse（下载侧联接指对、游戏侧实体在位）。
+        # 半通态（linked_reverse_missing 等）不广播——游戏此刻还读不到
+        # mod，把目录记进账等于把"没接通"记成"已接通"。
+        # 两种状态下要写的都是 link：用户填的、且刚被判"已连接"的
+        # 游戏侧目录（正向 = 联接位置；反向 = 实体目录位置）。
+        # 重复检测同一路径时由接收方去重，不会反复写库刷日志。
+        if report.state in ("linked", "linked_reverse"):
+            self.check_passed.emit(link)
 
     def _copy(self, text: str) -> None:
         QApplication.clipboard().setText(text)

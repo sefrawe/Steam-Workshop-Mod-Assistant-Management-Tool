@@ -51,6 +51,14 @@ ALLOWED_ORDERS: frozenset[str] = frozenset({
 })
 
 
+# 整库导出/导入的表清单与灌库顺序（T19 dataExporter）。顺序 = 外键
+# 依赖序：父表在前（games → mods → 各子表）。灌库按此序、清库按
+# 倒序，RESTRICT 外键两头都不卡；导出的 JSON 各表也按此序，人肉
+# 打开先档案后 mod，可读。
+LEDGER_TABLES: tuple[str, ...] = (
+    "games", "mods", "mod_snapshots", "backups",
+    "operations_log", "failed_mods", "special_mod_alerts",
+)
 
 
 class ModRepository(ABC):
@@ -299,3 +307,25 @@ class ModRepository(ABC):
     @abstractmethod
     def list_alerts(self, mod_id: int) -> list[Alert]:
         """提醒历史，新→旧（v1.1 后的提醒历史 UI 用）。"""
+
+    # ============ 账本导入导出（2，T19 dataExporter） ============
+    @abstractmethod
+    def export_all(self) -> dict:
+        """整库倒出（T19 dataExporter 的唯一读取原语）：
+        {"user_version": 导出时的 schema 版本,
+         "tables": {表名: [行 dict, ...]}}，表序见 LEDGER_TABLES。
+        行 = dataclass 自然类型（tags 是 list、is_special 是 bool、
+        JSON 字段是 dict）——存储格式（0/1、JSON 文本）绝不越过本
+        方法（models.py 边界约定）。行内 id 等库生成值原样保留，
+        导入时据此复原跨表引用（operations_log.backup_id 等）。"""
+
+    @abstractmethod
+    def import_all(self, exported: dict) -> None:
+        """清库重灌（export_all 的逆操作，完整账本的导入语义）。
+        exported 形状同 export_all 返回值。user_version 比本库
+        PRAGMA user_version 新 → ValueError（旧程序读不懂新结构，
+        绝不硬吃）；tables 的键 ⊄ LEDGER_TABLES → ValueError；
+        任何一行不合法 → 整体回滚，绝不留半截账。
+        本方法只做自然类型 → 存储格式的转换，不做行级校验——那是
+        dataExporter 的职责。自带事务（_atomic）；外层再包
+        transaction() 也安全（自动并入）。"""

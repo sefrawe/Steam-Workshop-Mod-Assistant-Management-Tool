@@ -15,6 +15,8 @@ import re
 import json
 import sqlite3
 import time
+from dataclasses import asdict
+
 from collections.abc import Iterable
 from contextlib import contextmanager
 from pathlib import Path
@@ -22,7 +24,8 @@ from pathlib import Path
 from core.models import (
     Alert, Backup, FailedMod, Game, Mod, OperationLog, Snapshot,
 )
-from core.modRepository import ALLOWED_ORDERS, ModRepository
+from core.modRepository import ALLOWED_ORDERS, LEDGER_TABLES, ModRepository
+
 
 _VALID_STATUSES = frozenset({"tracked", "downloaded", "deleted", "failed"})
 # 每 mod 保留的快照条数：这里只是默认值，实际值由主窗口从设置读出后
@@ -150,6 +153,33 @@ class SQLiteRepository(ModRepository):
     def _in_chunks(ids: list[int]) -> Iterable[list[int]]:
         for i in range(0, len(ids), _CHUNK):
             yield ids[i:i + _CHUNK]
+
+    @staticmethod
+    def _to_storage(table: str, row: dict) -> dict:
+        """自然类型 dict → 存储格式 dict（import_all 专用），与
+        _row 系列互为镜像。带特殊类型的列全项目就两类（JSON 文本、
+        0/1 布尔），显式列出比查表一目了然。表里没有的列名不在
+        这里拦——_insert 拼出的 SQL 会被 SQLite 以 no such column
+        拒绝 → 事务回滚，错误照旧显式爆炸。"""
+        data = dict(row)
+        if table == "mods":
+            if data.get("tags") is not None:
+                data["tags"] = _dumps(data["tags"])
+            if data.get("deleted_last_state") is not None:
+                data["deleted_last_state"] = _dumps(data["deleted_last_state"])
+            if data.get("is_special") is not None:
+                data["is_special"] = int(data["is_special"])
+        elif table == "backups":
+            if data.get("pinned") is not None:
+                data["pinned"] = int(data["pinned"])
+        elif table == "failed_mods":
+            if data.get("last_known_state") is not None:
+                data["last_known_state"] = _dumps(data["last_known_state"])
+        elif table == "special_mod_alerts":
+            if data.get("was_downloaded") is not None:
+                data["was_downloaded"] = int(data["was_downloaded"])
+        return data
+
 
     # ---------- 行 → dataclass 转换（边界转换集中在这里） ----------
 
@@ -720,3 +750,66 @@ class SQLiteRepository(ModRepository):
         return [self._alert(r) for r in rows]
 
 
+    # ---------- 账本导入导出（T19 dataExporter） ----------
+    def export_all(self) -> dict:
+        """整库倒出：{"user_version": 当前 schema 版本,
+                      "tables": {表名: [行 dict, ...]}}（表序 LEDGER_TABLES）。
+        行 = dataclass 自然类型（复用 _row 系列转换 + asdict）——
+        存储格式（0/1、JSON 文本）绝不越过本方法的返回值（文件头
+        约定 2）。行内 id 等库生成值原样保留，import_all 灌回时
+        跨表引用（operations_log.backup_id、failed_mods.replaced_by）
+        随之复原。dataExporter 是唯一调用方（切片、变换、编解码归它）。"""
+        converters = {
+            "games": self._game,
+            "mods": self._mod,
+            "mod_snapshots": self._snapshot,
+            "backups": self._backup,
+            "operations_log": self._oplog,
+            "failed_mods": self._failed,
+            "special_mod_alerts": self._alert,
+        }
+        tables: dict[str, list[dict]] = {}
+        for table in LEDGER_TABLES:
+            rows = self._conn.execute(f"SELECT * FROM {table}").fetchall()
+            tables[table] = [asdict(converters[table](r)) for r in rows]
+        return {
+            "user_version":
+                self._conn.execute("PRAGMA user_version").fetchone()[0],
+            "tables": tables,
+        }
+
+    def import_all(self, exported: dict) -> None:
+        """清库重灌（export_all 的逆操作，完整账本的导入语义）。
+
+        一个事务内：先按外键安全顺序（LEDGER_TABLES 倒序）清空 7 张
+        表，再按正序灌入。守门三道，全部显式爆炸：
+        - exported 缺 user_version / tables → ValueError；
+        - tables 键 ⊄ LEDGER_TABLES → ValueError；
+        - user_version 比本库 PRAGMA user_version 新 → ValueError
+          （旧程序读不懂新结构，绝不硬吃——dataExporter 文件头
+          第 2 道版本闸的裁决点）。
+        行只做自然类型 → 存储格式的转换（_to_storage），不做行级
+        校验——那是 dataExporter 的职责；数据库约束（CHECK / 外键 /
+        NOT NULL）兜底，任何一行不合法 → 整体回滚，绝不留半截账。
+        自带事务（_atomic）；外层再包 transaction() 也安全（并入）。"""
+        user_version = exported.get("user_version")
+        tables = exported.get("tables")
+        if not isinstance(user_version, int) or isinstance(user_version, bool):
+            raise ValueError("载荷缺少 user_version（schema 版本）")
+        if not isinstance(tables, dict):
+            raise ValueError("载荷缺少 tables")
+        unknown = set(tables) - set(LEDGER_TABLES)
+        if unknown:
+            raise ValueError(f"载荷里出现了不认识的表：{sorted(unknown)}")
+        mine = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        if user_version > mine:
+            raise ValueError(
+                f"账本由更新的程序结构导出（schema v{user_version} > "
+                f"当前 v{mine}），请先升级本工具再导入")
+        with self._atomic():
+            # 清空顺序 = 灌入顺序的倒序：RESTRICT 外键要求先删子表
+            for table in reversed(LEDGER_TABLES):
+                self._conn.execute(f"DELETE FROM {table}")
+            for table in LEDGER_TABLES:
+                for row in tables.get(table, []):
+                    self._insert(table, self._to_storage(table, row))
