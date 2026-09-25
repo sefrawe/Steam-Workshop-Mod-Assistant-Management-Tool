@@ -15,6 +15,9 @@ GlobalSettings.json（界面就地开关，不进设置页 _FIELDS）：
 import sys
 import threading
 import sqlite3
+from gui.addModPage import AddModPage
+from gui.welcomePage import WelcomePage
+from gui.browserTabPage import BrowserTabPage
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
@@ -56,15 +59,23 @@ _KEY_AUTO_RESCAN = "auto_rescan_after_batch"       # 批次结束后自动扫描
 # 完成模块时：在 _pages 末尾 append 新页面（栈顺序不再需要和导航一致），
 # 然后把对应条目的 None 改成新下标、去掉后缀、setDisabled(False) 即点亮。
 _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
+    ("欢迎", 9),
+    ("功能模块", [
+        ("加入新 mod", 10),
+        ("首次使用", None),   # 待做：建档向导（gameSwitcher 临时入口届时退役）
+        ("日常更新", None),   # 待做：编排更新检测+批量下载+复扫（基础件已齐）
+        ("删除 mod", None),   # 待做：软删除/恢复/清理编排
+    ]),
     ("mod 库", 0),
     ("统计", 8),
     ("基础功能", [
         ("网址批量导入", 1),
+        ("从浏览器取网址", 11),
+
         ("更新检测", 4),
         ("下载命令生成", 5),
         ("账实核验", 6),
         ("异常处理", 7),
-
     ]),
     ("备份管理", [
         ("备份与恢复", 2),
@@ -169,6 +180,9 @@ class MainWindow(QMainWindow):
             VerifyPage(self._repo, self._settings, self._stack, log=self._log),   # 6
             ExceptionPage(self._repo, self._settings, self._stack, log=self._log),  # 7
             StatsPage(self._repo, self._stack),  # 8
+            WelcomePage(self._stack),  # 9 欢迎页：纯静态，无 repo 依赖
+            AddModPage(self._repo, self._settings, self._stack, log=self._log),  # 10 功能模块：加入新 mod
+            BrowserTabPage(self._stack, log=self._log),  # 11 基础功能：从浏览器取网址
 
         ]
         for page in self._pages:
@@ -184,10 +198,19 @@ class MainWindow(QMainWindow):
         self._pages[0].download_requested.connect(self._start_batch)
         # 前缀照抄上一行
         self._pages[0].backup_requested.connect(self._backup_checked)
-        self._pages[7].command_gen_requested.connect(self._on_command_gen_requested)  # 前缀照抄上一行
+        self._pages[7].command_gen_requested.connect(self._on_command_gen_requested)
+        # 前缀照抄上一行
+        # 功能模块「加入新 mod」第④步【扫描确认】：转调 mod 库页既有
+        # 扫描链（quiet 版，只写日志不弹窗）；扫描同步完成后回叫模块
+        # 盘点批次结果。归属口径与决策 26 复扫一致：扫批次所属档案，
+        # 不是界面当前档案
+        self._pages[10].scan_requested.connect(self._on_addmod_scan_requested)
+        self._pages[11].handoff_to_addmod.connect(self._on_handoff_to_addmod)
+        # 模块②"从浏览器取标签页…"→ 跳浏览器页（单源：界面不复制）
+        self._pages[10].open_browser_picker.connect(lambda: self._goto_page(11))
 
+        self._nav.setCurrentItem(self._nav_items[9])  # 启动默认落「欢迎」页
 
-        self._nav.setCurrentItem(self._nav_items[0])
         root.addWidget(side)
         root.addWidget(self._stack, 1)
         self.setCentralWidget(central)
@@ -356,6 +379,36 @@ class MainWindow(QMainWindow):
                 f"更新检测完成：发现 {updates} 个 mod 有新版本", 5000)
         else:
             self.statusBar().showMessage("更新检测完成", 5000)
+
+    def _goto_page(self, page_index: int) -> None:
+        """程序化跳页 + 导航树高亮同步：setCurrentIndex 不经过点击，
+        树高亮不会自己跟上——跨页跳转一律走这里，别裸调 stack。"""
+        self._stack.setCurrentIndex(page_index)
+        item = self._nav_items[page_index]
+        if item is not None:
+            self._nav.setCurrentItem(item)
+
+
+    def _on_handoff_to_addmod(self, lines: list) -> None:
+        """「从浏览器取网址」→「加入新 mod」跨页交接：填入第②步
+        输入框并自动解析预览，同时跳到模块页。只填与预览、不代入库
+        （决策 22⑤：跳转后说明来意；入库防呆不省）。"""
+        self._pages[10].receive_external_lines(lines)
+        self._goto_page(10)
+
+
+    def _on_addmod_scan_requested(self, app_id: int) -> None:
+        """功能模块「加入新 mod」第④步【扫描确认】：
+        转调 mod 库页的既有扫描链（quiet 版，全程只写日志不弹窗），
+        扫描同步完成（本地只读一个 acf 文本，毫秒级）后回叫模块盘点。
+        扫哪个档案由模块批次归属（入库那一刻的档案）决定，与界面
+        当前档案无关——与决策 26 复扫归属同一口径。
+        档案可能已被删除（game=None）：scan_local_quiet 自带守卫，
+        盘点会把该批如实标成"状态异常"，不吞不瞒。"""
+        game = self._repo.get_game(app_id)
+        self._pages[0].scan_local_quiet(game)
+        self._pages[10].on_scan_confirmed()
+
 
     def _on_updates_found(self, app_id: int, mod_ids: list) -> None:
         """更新检测发现新版本 → 按设置弹窗确认，或勾选了自动就直接开批。

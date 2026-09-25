@@ -8,7 +8,11 @@ pytest>=8.0
 truststore
 psutil
 pywinpty
-
-
-#说明：M1 是纯后端，PySide6/pyqtdarktheme 本阶段用不到，但现在装好省事；
-#若日后 pyqtdarktheme 与新版 PySide6 冲突，换 pyqtdarktheme-fork 或手写 QSS。
+# —— 实时采集（决策 35）：pywinauto 走 UIA 遍历窗口，
+#    pyautogui 发热键，pyperclip 管剪贴板；core 侧惰性导入，
+#    缺包只影响采集功能，其他功能照常 ——
+pywinauto
+pyautogui
+pyperclip
+# 说明：M1 是纯后端，PySide6/pyqtdarktheme 本阶段用不到，但现在装好省事；
+# 若日后 pyqtdarktheme 与新版 PySide6 冲突，换 pyqtdarktheme-fork 或手写 QSS。
