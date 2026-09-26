@@ -69,6 +69,11 @@ _FIELDS = [
      "（会明文保存在本机设置文件里）。"
      "账号必须拥有对应游戏，否则下载其创意工坊内容会报错",
      "text"),
+    ("steam_client_library", "Steam 客户端库目录",
+     "Steam 客户端存放游戏内容库的位置（如 D:\\SteamLibrary），「首次使用 → 纳入已有 mod」"
+     "按它读取客户端的订阅记录；选库根、steamapps 或 workshop 层都可以。"
+     "它只关系到 Steam 客户端，与 steamcmd 的目录无关", "dir"),
+
     ("api_request_interval_ms", "API 请求间隔（毫秒）",
      "批量查询 Steam 工坊接口时，两次请求之间的等待时间；太小可能被服务器限流",
      "number"),

@@ -37,6 +37,8 @@ DEFAULTS: dict[str, str] = {
     # 备份引擎按它推导默认备份位置
     "steamcmd_path": "",           # steamcmd.exe 完整路径
     "steamcmd_login_cmd": "",      # steamcmd 登录命令，整行原样使用（如 login 你的账号）
+    "steam_client_library": "",  # Steam 客户端库目录（首次使用向导第④步读订阅记录用；与 steamcmd 的目录树是两回事）
+
     "api_request_interval_ms": "200",  # 批量查 Steam 接口时，两次请求的间隔毫秒数
     "api_max_retries": "3",        # 被限流（429/503）时的自动重试上限
     "slow_update_days": "180",      # 距上次已知更新超过 N 天，检测结果里标红提醒

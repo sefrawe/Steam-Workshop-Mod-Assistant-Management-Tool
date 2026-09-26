@@ -11,18 +11,36 @@ LogBus 打日志。
 GlobalSettings.json（界面就地开关，不进设置页 _FIELDS）：
 - auto_download_after_check（默认 0 = 弹窗确认；勾选框在更新检测页）
 - auto_rescan_after_batch（默认 1 = 批次结束后自动复扫）
+
+功能模块「首次使用」（决策 54）的接线也在这里，三条信号全走转调、
+零新实体（与模块页同一哲学：模块的每一步都是既有功能的入口）：
+- 第①步 settings_requested → 跳「设置」页（_goto_page）；
+- 第②步 add_game_requested → 档案切换器的建档对话框（与「游戏」
+  菜单里是同一份）；
+- 第③步 link_guide_requested → 连接指引（同上）。
+第④步"纳入已有 mod"的逻辑住在 workflows/intakeFlow（零 Qt，
+pytest 已覆盖），页面只管预览、确认、落库与复制命令。
 """
 import sqlite3
 import sys
 import threading
-from gui.browserPickDialog import BrowserPickDialog
 
+from gui.browserPickDialog import BrowserPickDialog
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QDockWidget, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
-    QMessageBox, QFileDialog, QDialog,
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QStackedWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+    QMessageBox,
+    QFileDialog,
+    QDialog,
 )
 
 from core import appPaths
@@ -39,6 +57,7 @@ from gui.commandGenPage import CommandGenPage
 from gui.consolePanel import ConsolePanel, LogBus
 from gui.dailyUpdatePage import DailyUpdatePage
 from gui.exceptionPage import ExceptionPage
+from gui.firstUsePage import FirstUsePage
 from gui.gameSwitcher import GameSwitcher
 from gui.importPage import ImportPage
 from gui.modListPage import ModListPage
@@ -53,12 +72,13 @@ DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根统一从 appPaths 定位
 
 _NAV_WIDTH = 210
 _IDX_BACKUP_OVERVIEW = 13  # 备份总览页栈下标 = _pages 末尾 append 后落位（决策 13 模式）
+_IDX_FIRST_USE = 14        # 首次使用模块页 = _pages 末尾 append 后落位（同决策 13 模式）
 
 # 日常更新一条龙的两个开关键名（值一律 "1"/"0"，经 get_int 读）。
 # 与 console_auto_show 同款口径：界面就地开关，只进 appSettings.DEFAULTS，
 # 不进设置页 _FIELDS（决策 12 的键集口径是单向的：_FIELDS ⊆ DEFAULTS）
-_KEY_AUTO_DOWNLOAD = "auto_download_after_check"   # 检测到更新后跳过询问直接下载
-_KEY_AUTO_RESCAN = "auto_rescan_after_batch"       # 批次结束后自动扫描本地入账
+_KEY_AUTO_DOWNLOAD = "auto_download_after_check"  # 检测到更新后跳过询问直接下载
+_KEY_AUTO_RESCAN = "auto_rescan_after_batch"      # 批次结束后自动扫描本地入账
 
 # 左导航树：整数 = 页面栈下标（真实页面）；None = 未完成模块，灰色"开发中"。
 # 完成模块时：在 _pages 末尾 append 新页面（栈顺序不再需要和导航一致），
@@ -67,7 +87,9 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
     ("欢迎", 9),
     ("功能模块", [
         ("加入新 mod", 10),
-        ("首次使用", None),  # 待做：建档向导（gameSwitcher 临时入口届时退役）
+        ("首次使用", _IDX_FIRST_USE),  # 决策 54：四步向导已上线。
+        # 建档/连接转调 gameSwitcher 既有对话框——原"临时入口届时退役"
+        # 改判不退役：模块走转调、入口留给熟手直达（两条路一本账）
         ("日常更新", 12),  # T22：检测 → 确认清单 → 批量下载 → 复扫 的引导壳
         ("删除 mod", None),  # 待做：软删除/恢复/清理编排
     ]),
@@ -88,6 +110,7 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
     ("设置", 3),
 ]
 
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -100,19 +123,20 @@ class MainWindow(QMainWindow):
         self._log = LogBus()
         # 数据库操作全在主线程（毫秒级）；联网/扫描等长操作走各自页面的工作线程
         self._repo = SQLiteRepository(
-            DEFAULT_DB_PATH, snapshot_keep=self._settings.get_int("snapshot_keep", 5))
-
+            DEFAULT_DB_PATH,
+            snapshot_keep=self._settings.get_int("snapshot_keep", 5))
         self._current_game: Game | None = None
+
         # 更新确认清单（非模态）：MainWindow 持引用防 GC——局部变量 +
         # show() 出作用域会把 Python 包装回收而 C++ 对象悬空，经典闪退
         # （决策 36⑦）。清单关闭时由 finished 回调清引用
         self._update_dialog: UpdateSelectDialog | None = None
 
-
         self._build_central()
         self._build_console_dock()
         self._build_menus()
         self._build_status_bar()
+
         # 构造期 switcher 已发射过信号（当时无人监听），补一次初始化状态栏
         self._on_game_changed(self._switcher.current_game())
 
@@ -125,10 +149,10 @@ class MainWindow(QMainWindow):
         # 正在跑（或最近一跑）的批次属于哪个档案：_start_batch 记、
         # _on_batch_done 读后清。批次全软件单实例，不会串
         self._batch_app_id: int | None = None
+
         self._install_excepthook()
 
     # ---------- UI 构建 ----------
-
     def _build_central(self) -> None:
         central = QWidget(self)
         root = QHBoxLayout(central)
@@ -138,13 +162,12 @@ class MainWindow(QMainWindow):
         side = QWidget(central)
         side.setFixedWidth(_NAV_WIDTH)
         self._side = side  # 视图菜单显隐用（T19⑭）：局部变量跨方法必须挂 self
-
         side_layout = QVBoxLayout(side)
         side_layout.setContentsMargins(8, 8, 8, 8)
         side_layout.setSpacing(8)
+
         self._switcher = GameSwitcher(self._repo, side, settings=self._settings,
                                       log=self._log)
-
         self._switcher.current_game_changed.connect(self._on_game_changed)
         self._switcher.overview_requested.connect(self._on_overview_requested)
         side_layout.addWidget(self._switcher)
@@ -153,7 +176,6 @@ class MainWindow(QMainWindow):
         self._nav.setHeaderHidden(True)
         self._nav.setIndentation(14)
         self._nav_items: dict[int, QTreeWidgetItem] = {}  # 页面下标 → 树条目
-
         for name, spec in _NAV_SCHEMA:
             if isinstance(spec, int):
                 item = QTreeWidgetItem([name])
@@ -174,7 +196,6 @@ class MainWindow(QMainWindow):
                 group.addChild(child)
             group.setExpanded(True)
             self._nav.addTopLevelItem(group)
-
         self._nav.currentItemChanged.connect(self._on_nav_changed)
         self._nav.itemClicked.connect(self._on_nav_clicked)
         side_layout.addWidget(self._nav, 1)
@@ -194,11 +215,9 @@ class MainWindow(QMainWindow):
             AddModPage(self._repo, self._settings, self._stack, log=self._log),  # 10 功能模块：加入新 mod
             BrowserTabPage(self._stack, log=self._log),  # 11 基础功能：从浏览器取网址
             DailyUpdatePage(self._repo, self._settings, self._stack, log=self._log),  # 12 功能模块：日常更新
-            BackupOverviewPage(self._repo, self._settings, self._stack,
-                               log=self._log),  # 13 备份总览（跨档案大盘）
-
+            BackupOverviewPage(self._repo, self._settings, self._stack, log=self._log),  # 13 备份总览（跨档案大盘）
+            FirstUsePage(self._repo, self._settings, self._stack, log=self._log),  # 14 功能模块：首次使用（决策 54）
         ]
-
         for page in self._pages:
             self._stack.addWidget(page)
 
@@ -209,8 +228,9 @@ class MainWindow(QMainWindow):
         # 发出 mod id 列表 → 切到命令生成页并只勾选这些 mod
         self._pages[0].command_gen_requested.connect(self._on_command_gen_requested)
         self._pages[6].command_gen_requested.connect(self._on_command_gen_requested)  # 前缀照抄上一行
-        self._pages[0].download_requested.connect(self._start_batch)  # 前缀照抄上一行
+        self._pages[0].download_requested.connect(self._start_batch)   # 前缀照抄上一行
         self._pages[0].backup_requested.connect(self._backup_checked)
+
         self._pages[7].command_gen_requested.connect(self._on_command_gen_requested)  # 前缀照抄上一行
 
         # 功能模块「加入新 mod」第④步【扫描确认】：转调 mod 库页既有
@@ -219,7 +239,6 @@ class MainWindow(QMainWindow):
         # 不是界面当前档案
         self._pages[10].scan_requested.connect(self._on_addmod_scan_requested)
         self._pages[10].download_requested.connect(self._start_batch)  # 前缀照抄 mod 库页 download_requested 那行
-
         self._pages[11].handoff_to_addmod.connect(self._on_handoff_to_addmod)
 
         # 模块②"从浏览器取标签页…"：弹出页内选择器（T23，不跳页）。
@@ -233,6 +252,18 @@ class MainWindow(QMainWindow):
         self._pages[12].check_requested.connect(self._on_daily_check_requested)
         self._pages[4].progress_changed.connect(self._pages[12].on_check_progress)
         self._pages[4].check_interrupted.connect(self._pages[12].on_check_interrupted)
+
+        # —— 功能模块「首次使用」（决策 54）：三张卡全是既有实体的入口，
+        # 本窗口只做转调，零新实体 ——
+        self._pages[14].settings_requested.connect(
+            lambda: self._goto_page(3))                    # 第①步 → 「设置」页
+        self._pages[14].add_game_requested.connect(
+            self._switcher.add_game_dialog)                # 第②步 → 建档对话框（与「游戏」菜单同一份）
+        self._pages[14].link_guide_requested.connect(
+            self._switcher.open_link_guide)                # 第③步 → 连接指引（同上）
+        # 第④步不需要接线：预览/纳入/复制命令都在页面内闭环；
+        # set_game 广播由 _on_game_changed 的 hasattr 循环自动覆盖；
+        # 进页刷新在 _on_nav_changed 里单独处理（见下）
 
         self._nav.setCurrentItem(self._nav_items[9])  # 启动默认落「欢迎」页
 
@@ -312,29 +343,34 @@ class MainWindow(QMainWindow):
         act_add_game = QAction("添加游戏档案…", self)
         act_add_game.setToolTip("输入 AppID 一屏建档：自动查名、查重、"
                                 "下载目录按 steamcmd 位置推导并可预览")
-
         act_add_game.triggered.connect(self._switcher.add_game_dialog)
         m_game.addAction(act_add_game)
+
         m_game.addSeparator()
+
         self._act_edit = QAction("编辑档案…", self)
         self._act_edit.setToolTip(
             "修改当前档案的名称、游戏 mod 目录、备份目录；"
             "下载目录不开放手填，只提供一键改回推导值")
         self._act_edit.triggered.connect(self._switcher.open_edit)
         m_game.addAction(self._act_edit)
+
         self._act_link = QAction("连接指引…", self)
         self._act_link.setToolTip(
             "把游戏自己的 mod 目录联接到下载目录，让游戏读到 steamcmd "
             "下载的 mod。生成命令与步骤，命令由你自己在 cmd 里执行")
         self._act_link.triggered.connect(self._switcher.open_link_guide)
         m_game.addAction(self._act_link)
+
         self._act_relocate = QAction("重定位备份目录…", self)
         self._act_relocate.setToolTip(
             "备份记录在「盘上」列失联时用：指认备份文件夹现在的位置，"
             "先预演能对回多少条，确认后只改档案字段，不动文件")
         self._act_relocate.triggered.connect(self._switcher.open_relocate)
         m_game.addAction(self._act_relocate)
+
         m_game.addSeparator()
+
         self._act_delete = QAction("删除当前档案…", self)
         self._act_delete.setToolTip(
             "删除当前游戏档案名下的全部账目（mod 记录、版本快照、备份登记、"
@@ -352,6 +388,7 @@ class MainWindow(QMainWindow):
         self._act_side.setChecked(True)
         self._act_side.toggled.connect(self._toggle_side)
         m_view.addAction(self._act_side)
+
         self._act_detail = QAction("显示 / 隐藏详情面板（mod 库页）", self)
         self._act_detail.setCheckable(True)
         self._act_detail.setChecked(True)
@@ -372,12 +409,11 @@ class MainWindow(QMainWindow):
 
     def _build_status_bar(self) -> None:
         self._status_game = QLabel(self)
-        self._status_db = QLabel(f"数据库：{DEFAULT_DB_PATH}", self)
+        self._status_db = QLabel(f"数据库：{DEFAULT_DB_PATH}")
         self.statusBar().addWidget(self._status_game)
         self.statusBar().addPermanentWidget(self._status_db)
 
     # ---------- 槽 ----------
-
     def _on_nav_changed(self, current: QTreeWidgetItem | None, _previous) -> None:
         if current is None:
             return
@@ -388,16 +424,19 @@ class MainWindow(QMainWindow):
                 # 备份总览的数据源是全局账本，且没有 set_game——每次切
                 # 进来重读一遍，别让别的页删改后这里显示旧账
                 self._pages[index].refresh()
+            if index == _IDX_FIRST_USE:
+                # 「首次使用」每次进页重读设置刷新四张卡（典型场景：从
+                # 设置页填完 steamcmd 回来即最新）。页面内部有守卫——
+                # 空目录框才回填设置值，不会抢走用户正在输入的内容
+                self._pages[index].refresh()
 
     def _on_overview_requested(self, app_id: int) -> None:
         """删除对话框「先去备份总览看看」→ 跳总览页并按该档案过滤。"""
         self._goto_page(_IDX_BACKUP_OVERVIEW)
         self._pages[_IDX_BACKUP_OVERVIEW].set_filter_game(app_id)
 
-
     def _on_nav_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
-        if item.childCount():
-            # 点组名 = 折叠/展开，和点小箭头等效
+        if item.childCount():  # 点组名 = 折叠/展开，和点小箭头等效
             item.setExpanded(not item.isExpanded())
 
     def _on_game_changed(self, game: Game | None) -> None:
@@ -409,6 +448,8 @@ class MainWindow(QMainWindow):
             self._status_game.setText("当前游戏：（无）—— 请先添加档案")
         else:
             self._status_game.setText(f"当前游戏：{game.name}（{game.app_id}）")
+        # set_game 广播循环：FirstUsePage 也在 _pages 里，自动覆盖——
+        # 页面内部会把第④步的预览作废并写日志（预览归属旧档案）
         for page in self._pages:
             if hasattr(page, "set_game"):
                 page.set_game(game)
@@ -444,14 +485,12 @@ class MainWindow(QMainWindow):
         if item is not None:
             self._nav.setCurrentItem(item)
 
-
     def _on_handoff_to_addmod(self, lines: list) -> None:
         """「从浏览器取网址」→「加入新 mod」跨页交接：填入第②步
         输入框并自动解析预览，同时跳到模块页。只填与预览、不代入库
         （决策 22⑤：跳转后说明来意；入库防呆不省）。"""
         self._pages[10].receive_external_lines(lines)
         self._goto_page(10)
-
 
     def _on_addmod_scan_requested(self, app_id: int) -> None:
         """功能模块「加入新 mod」第④步【扫描确认】：
@@ -479,16 +518,15 @@ class MainWindow(QMainWindow):
 
     def _on_updates_found(self, app_id: int, mod_ids: list) -> None:
         """更新检测发现新版本 → 摆出确认清单（非模态，决策 36⑦）。
-        开批全部走清单的 execute_requested 信号 →
-        _on_update_execute_requested，本方法只负责把清单摆出来；
+        开批全部走清单的 execute_requested 信号 → _on_update_execute_requested，本方法只负责把清单摆出来；
         设置勾了「发现更新后自动开始下载」则不摆清单，全部先备份
         再更新直接开批（决策 26 原判 + 决策 40）。app_id 是"开始
         检测那一刻"的档案（决策 26②）。
         非模态三件套（缺一即闪退/串档）：
         1) show() 不 exec()——清单的执行链依赖窗口外的底部控制台
-          （steamcmd 没启动要去启动），模态 = 死锁（踩坑㊱）；
+        （steamcmd 没启动要去启动），模态 = 死锁（踩坑㊱）；
         2) MainWindow 持引用（self._update_dialog）——局部变量 +
-          show() 出作用域即回收包装，经典闪退；
+        show() 出作用域即回收包装，经典闪退；
         3) 重开检测时旧单先关；切档案自动关单（_on_game_changed）。
         关闭清单不代表取消：已开的批次照跑，没执行的条目之后可在
         mod 库页手动下载。
@@ -531,7 +569,7 @@ class MainWindow(QMainWindow):
         dlg = self._update_dialog
         if dlg is not None:
             dlg.close()
-        self._update_dialog = None
+            self._update_dialog = None
 
     def _on_update_execute_requested(self, app_id: int, action: str,
                                      mod_ids: list) -> None:
@@ -619,15 +657,13 @@ class MainWindow(QMainWindow):
                         f"批次属于档案「{game.name}」，后台为其复扫入账"
                         "（当前界面显示的是别的档案，不受影响）")
                 self._pages[0].scan_local_quiet(game)
-                rescanned = True
-        # 复扫是同步的（本地只读一个 acf 文本，毫秒级），走完这行
-        # 复扫已经结束
-        # 「加入新 mod」③步【开批下载】发起的批次：复扫后自动盘点
-        # 它的第④步（matches_batch 自带守卫：确属该模块的批次才回叫，
-        # 别的批次不惊动它）
-        if batch_app_id is not None and \
-                self._pages[10].matches_batch(batch_app_id):
-            self._pages[10].on_scan_confirmed()
+                rescanned = True  # 复扫是同步的（本地只读一个 acf 文本，毫秒级），走完这行复扫已经结束
+            # 「加入新 mod」③步【开批下载】发起的批次：复扫后自动盘点
+            # 它的第④步（matches_batch 自带守卫：确属该模块的批次才回叫，
+            # 别的批次不惊动它）
+            if batch_app_id is not None and \
+                    self._pages[10].matches_batch(batch_app_id):
+                self._pages[10].on_scan_confirmed()
         # 「日常更新」模块页的"最近一批"仪表盘（无条件回叫）
         self._pages[12].on_batch_finished(game_name, summary, rescanned)
 
@@ -694,8 +730,7 @@ class MainWindow(QMainWindow):
         return path or None
 
     def _export_ledger(self) -> None:
-        """文件 → 导出完整账本…：7 张表全量 → JSON。先在内存构建
-        payload（纯读操作），再用它生成带时间戳的建议文件名弹保存框；
+        """文件 → 导出完整账本…：7 张表全量 → JSON。先在内存构建 payload（纯读操作），再用它生成带时间戳的建议文件名弹保存框；
         用户取消就什么都不写。"""
         payload = dataExporter.build_ledger(self._repo)
         suggested = appPaths.data_dir() / dataExporter.default_filename(payload)
@@ -794,8 +829,8 @@ class MainWindow(QMainWindow):
         self._switcher.reload()
         game = self._repo.get_game(report["app_id"])
         name = game.name if game else str(report["app_id"])
-        elsewhere = (self._current_game is None
-                     or self._current_game.app_id != report["app_id"])
+        elsewhere = (self._current_game is None or
+                     self._current_game.app_id != report["app_id"])
         self._log.ok(f"分享包导入完成：「{name}」新增 {report['added']} 条、"
                      f"跳过 {report['skipped']} 条")
         self.statusBar().showMessage(
@@ -816,7 +851,6 @@ class MainWindow(QMainWindow):
             if ret != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
-
         # 控制台停靠窗不在 _pages 里，下面的页面循环管不到它——
         # steamcmd 还在跑时在这里收尾（quit → 3 秒 → 强杀 → 等读线程），
         # "优雅退出保住登录缓存"靠的就是这一步。
@@ -833,7 +867,6 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     # ---------- 全局异常兜底 ----------
-
     def _install_excepthook(self) -> None:
         """让"漏出来的意外错误"被用户看见。
         错误处理原则不变：照旧完整暴露、绝不吞——终端 traceback 照印
@@ -844,6 +877,7 @@ class MainWindow(QMainWindow):
         后台线程的钩子只发日志、不弹框——工作线程严禁碰控件（R11），
         而 LogBus 是信号总线，跨线程安全（consolePanel 文件头保证）。
         """
+
         def main_hook(exc_type, exc_value, exc_tb):
             self._log.error(
                 f"未处理的异常：{exc_type.__name__}: {exc_value}"
@@ -853,6 +887,7 @@ class MainWindow(QMainWindow):
                 self, "程序内部错误",
                 "发生了一个程序内部错误，详情已写入运行日志。\n\n"
                 f"{exc_type.__name__}: {exc_value}")
+
         sys.excepthook = main_hook
 
         def thread_hook(args) -> None:
@@ -860,5 +895,5 @@ class MainWindow(QMainWindow):
                 f"后台线程异常：{args.exc_type.__name__}: {args.exc_value}"
                 "（完整 traceback 见终端）")
             threading.__excepthook__(args)
-        threading.excepthook = thread_hook
 
+        threading.excepthook = thread_hook

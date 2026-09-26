@@ -10,6 +10,7 @@ r"""后端调试主战场。
 跳到命令生成页并聚焦该 mod；"手动备份"已点亮——调 core.backupManager
 把该 mod 的下载内容复制进备份区（单 mod 手动备份；批量备份、恢复、
 钉住、删除等归备份管理页 M3）。
+ 操作▾（T27）：设为/取消特别关注（勾选行整批）、批量特别关注…（贴清单对话框，解析走 urlParser 单源）。
 
 分工与边界（记事本架构约定）：
 - 只通过 ModRepository 接口读写，GUI 层零 SQL；
@@ -37,6 +38,7 @@ T19⑯⑰⑱ 一批：
   （筛选结果数仍是右侧"共 N 个 mod"）。
 """
 from pathlib import Path
+from gui.batchSpecialDialog import BatchSpecialDialog
 
 from PySide6.QtCore import QModelIndex, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices
@@ -58,6 +60,7 @@ from PySide6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
+    QDialog,
 )
 
 from core import localScanner, steamPaths
@@ -242,6 +245,28 @@ class ModListPage(QWidget):
             "保留份数与配额按设置页执行")
         self._act_backup.triggered.connect(self._on_backup_checked)
         self._actions_menu.addAction(self._act_backup)
+        # —— 批量特别关注（T27）——
+        # 设/取消对勾选行整批写；批量入口贴清单（T27a）。菜单项文字带勾选数，
+        # 由 _update_checked_label 同步（与下载/备份同款）
+        self._act_special_on = QAction("设为特别关注", self._actions_menu)
+        self._act_special_on.setToolTip(
+            "把勾选的 mod 全部标上特别关注：更新检测会对它们记更新提醒"
+            "（同一版本只提醒一次）")
+        self._act_special_on.triggered.connect(
+            lambda: self._set_special_checked(True))
+        self._actions_menu.addAction(self._act_special_on)
+        self._act_special_off = QAction("取消特别关注", self._actions_menu)
+        self._act_special_off.setToolTip("把勾选的 mod 的特别关注全部取消")
+        self._act_special_off.triggered.connect(
+            lambda: self._set_special_checked(False))
+        self._actions_menu.addAction(self._act_special_off)
+        self._act_batch_special = QAction("批量特别关注…", self._actions_menu)
+        self._act_batch_special.setToolTip(
+            "贴一份清单（工坊网址 / 纯数字均可），解析后对当前档案对表，"
+            "把已在库、还没标特别关注的条目一次标上")
+        self._act_batch_special.triggered.connect(self._on_batch_special)
+        self._actions_menu.addAction(self._act_batch_special)
+
         # 菜单动作 tooltip 默认不显示，显式打开（T19⑩）
         self._actions_menu.setToolTipsVisible(True)
         self._btn_actions.setMenu(self._actions_menu)
@@ -545,6 +570,9 @@ class ModListPage(QWidget):
         label = f"（{n}）" if n else ""
         self._act_download.setText(f"下载选中项{label}")
         self._act_backup.setText(f"备份选中项{label}")
+        self._act_special_on.setText(f"设为特别关注{label}")
+        self._act_special_off.setText(f"取消特别关注{label}")
+
 
 
     def _on_download_checked(self) -> None:
@@ -571,6 +599,45 @@ class ModListPage(QWidget):
                 self, "备份选中项", "先在表格第一列勾选要备份的 mod。")
             return
         self.backup_requested.emit(self._game.app_id, ids)
+    def _set_special_checked(self, value: bool) -> None:
+        """【设为/取消特别关注】（T27b）：对第一列勾选的行整批写。
+        与下载/备份同一纪律：只收当前清单里显示的勾选，不隐形操作。
+        对已是目标状态的条目重复写一遍无害（幂等），不值得先逐个查。"""
+        if self._game is None:
+            return
+        ids = self._model.checked_ids_in_rows()
+        if not ids:
+            QMessageBox.information(
+                self, "设为特别关注" if value else "取消特别关注",
+                "先在表格第一列勾选要操作的 mod。")
+            return
+        with self._repo.transaction():
+            for mid in ids:
+                self._repo.set_special(mid, value)
+        self._log.ok(("已设为特别关注" if value else "已取消特别关注")
+                     + f"：{len(ids)} 个")
+        self._reload()
+
+    def _on_batch_special(self) -> None:
+        """【批量特别关注…】（T27a）：弹对话框，应用成功后写日志 + 刷新。
+        对话框内部自带防错档（对表锁当前档案）、五桶预览与确认弹窗，
+        本页只管入口、日志与刷新。"""
+        if self._game is None:
+            QMessageBox.information(self, "批量特别关注", "请先选择游戏档案。")
+            return
+        dlg = BatchSpecialDialog(self._repo, self._game, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.report is not None:
+            r = dlg.report
+            self._log.ok(
+                f"批量特别关注完成（{r.game_name}）：新标 {len(r.to_set)} 个；"
+                f"已是关注跳过 {len(r.already_special)} 个；"
+                f"其他档案跳过 {len(r.in_other_games)} 个；"
+                f"未收录 {len(r.missing)} 个未动")
+            if r.missing:
+                self._log.info(
+                    "未收录条目需先入库才能标记：可到「功能模块 → 加入新 mod」"
+                    "或「基础功能 → 网址批量导入」粘贴同一份清单")
+            self._reload()
 
     def _steamcmd_root(self) -> Path | None:
         """设置页的 steamcmd 程序路径 → steamcmd 根目录（core/steamPaths 推导）。
