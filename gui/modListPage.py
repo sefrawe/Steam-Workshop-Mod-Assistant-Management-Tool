@@ -232,6 +232,7 @@ class ModListPage(QWidget):
         self._btn_actions.setPopupMode(
             QToolButton.ToolButtonPopupMode.InstantPopup)
         self._actions_menu = QMenu(self._btn_actions)
+        self._actions_menu.setMinimumWidth(240)  # T19①：中文菜单项在部分字体下宽度测量偏窄，硬性兜底
         self._act_download = QAction("下载选中项", self._actions_menu)
         self._act_download.setToolTip(
             "把勾选的 mod 交给 控制台 → 下载批次 逐条下载"
@@ -266,6 +267,20 @@ class ModListPage(QWidget):
             "把已在库、还没标特别关注的条目一次标上")
         self._act_batch_special.triggered.connect(self._on_batch_special)
         self._actions_menu.addAction(self._act_batch_special)
+        self._act_open_pages = QAction("打开工坊页面", self._actions_menu)
+        self._act_open_pages.setToolTip(
+            "把勾选 mod 的工坊页面逐个在默认浏览器打开（每个一页标签），"
+            "便于逐页去点订阅；开前有确认弹窗报数")
+        self._act_open_pages.triggered.connect(self._on_open_pages_checked)
+        self._actions_menu.addAction(self._act_open_pages)
+        self._act_open_pages_list = QAction("打开工坊页面（贴清单）…", self._actions_menu)
+        self._act_open_pages_list.setToolTip(
+            "粘贴网址/编号清单批量打开工坊页面——面向“手里只有清单”的订阅"
+            "场景，未收录的编号照样能开；先预览再打开，全程不改账本")
+        self._act_open_pages_list.triggered.connect(self._on_open_pages_paste)
+        self._actions_menu.addAction(self._act_open_pages_list)
+
+
 
         # 菜单动作 tooltip 默认不显示，显式打开（T19⑩）
         self._actions_menu.setToolTipsVisible(True)
@@ -447,6 +462,8 @@ class ModListPage(QWidget):
             return
         m = self._model.mod_at(index.row())
         menu = QMenu(self)
+        menu.setMinimumWidth(240)  # T19①：同上，防"确认已下载（手动）…"被截
+
         # QMenu 的动作 tooltip 默认不显示（Qt 有意默认关）：右键说明要生效
         # 必须显式打开（T19⑩）——此前设过的 tooltip 其实一直没展示过
         menu.setToolTipsVisible(True)
@@ -572,6 +589,8 @@ class ModListPage(QWidget):
         self._act_backup.setText(f"备份选中项{label}")
         self._act_special_on.setText(f"设为特别关注{label}")
         self._act_special_off.setText(f"取消特别关注{label}")
+        self._act_open_pages.setText(f"打开工坊页面{label}")
+
 
 
 
@@ -638,6 +657,46 @@ class ModListPage(QWidget):
                     "未收录条目需先入库才能标记：可到「功能模块 → 加入新 mod」"
                     "或「基础功能 → 网址批量导入」粘贴同一份清单")
             self._reload()
+    def _on_open_pages_checked(self) -> None:
+        """【打开工坊页面】（操作▾，批量订阅场景）：把勾选 mod 的工坊页
+        逐个交给默认浏览器——每个 mod 一个标签页，用户逐页点订阅。
+        与 T27b 同一纪律：只开当前清单里显示的勾选。网址取账本 url 字段
+        （导入时按模板生成），不再发明第五份模板串；开前确认一次——
+        N 个 mod 就是 N 个标签，误点不确认就是浏览器灾难。"""
+        if self._game is None:
+            return
+        ids = self._model.checked_ids_in_rows()
+        if not ids:
+            QMessageBox.information(
+                self, "打开工坊页面", "先在表格第一列勾选要打开的 mod。")
+            return
+        ret = QMessageBox.question(
+            self, "打开工坊页面",
+            f"在浏览器打开 {len(ids)} 个工坊页面？\n"
+            "每个 mod 一个标签页；数量多时浏览器会连开一片，"
+            "可先关掉多余页面再逐个订阅。")
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        opened, missing = 0, []
+        for mid in ids:
+            m = self._repo.get_mod(mid)
+            if m is not None and m.url:
+                QDesktopServices.openUrl(QUrl(m.url))
+                opened += 1
+            else:
+                missing.append(mid)
+        self._log.ok(f"已请求浏览器打开 {opened} 个工坊页面")
+        if missing:
+            self._log.warn(f"这些编号没有网址记录，未打开：{missing}")
+
+    def _on_open_pages_paste(self) -> None:
+        """【打开工坊页面（贴清单）…】（操作▾）：三步对话框（贴 → 预览 →
+        打开）。与勾选版互补：那边面向已在库的 mod（网址取账本字段），
+        这边面向手里只有清单的场景（未收录也能开，网址按模板生成）。
+        就地 import：本页唯一用点，免动文件头 import 区。"""
+        from gui.batchOpenDialog import BatchOpenDialog
+        dlg = BatchOpenDialog(self._repo, self, log=self._log)
+        dlg.exec()
 
     def _steamcmd_root(self) -> Path | None:
         """设置页的 steamcmd 程序路径 → steamcmd 根目录（core/steamPaths 推导）。

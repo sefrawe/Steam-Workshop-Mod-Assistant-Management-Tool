@@ -26,7 +26,7 @@ import sys
 import threading
 
 from gui.browserPickDialog import BrowserPickDialog
-from PySide6.QtCore import Qt
+
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QDialog,
 )
+from PySide6.QtCore import QSettings, Qt
 
 from core import appPaths
 from core import dataExporter
@@ -79,6 +80,12 @@ _IDX_FIRST_USE = 14        # 首次使用模块页 = _pages 末尾 append 后落
 # 不进设置页 _FIELDS（决策 12 的键集口径是单向的：_FIELDS ⊆ DEFAULTS）
 _KEY_AUTO_DOWNLOAD = "auto_download_after_check"  # 检测到更新后跳过询问直接下载
 _KEY_AUTO_RESCAN = "auto_rescan_after_batch"      # 批次结束后自动扫描本地入账
+
+# 面板显隐的会话记忆（T19⑤ 轻量子集）：QSettings 而非 AppSettings——
+# 会话状态≠用户配置；键值一律存 "1"/"0" 字符串，读取行为跨平台确定
+_SES_SIDE = "session/side_visible"
+_SES_DETAIL = "session/detail_visible"
+_SES_CONSOLE = "session/console_visible"
 
 # 左导航树：整数 = 页面栈下标（真实页面）；None = 未完成模块，灰色"开发中"。
 # 完成模块时：在 _pages 末尾 append 新页面（栈顺序不再需要和导航一致），
@@ -151,6 +158,8 @@ class MainWindow(QMainWindow):
         self._batch_app_id: int | None = None
 
         self._install_excepthook()
+        self._restore_panels()
+
 
     # ---------- UI 构建 ----------
     def _build_central(self) -> None:
@@ -863,8 +872,30 @@ class MainWindow(QMainWindow):
             shutdown = getattr(page, "shutdown", None)
             if callable(shutdown):
                 shutdown()
+        self._save_panel_state()
+
         self._repo.close()
         super().closeEvent(event)
+
+    # ---------- 面板显隐的会话记忆（T19⑤ 轻量子集） ----------
+    def _restore_panels(self) -> None:
+        """启动时恢复三块面板的上次显隐。侧栏/详情走菜单 QAction
+        （setChecked 触发既有 toggled 处理，不重写逻辑）；控制台
+        停靠窗直接 setVisible。全默认 = 全显示（老用户无感）。"""
+        q = QSettings()
+        self._act_side.setChecked(str(q.value(_SES_SIDE, "1")) != "0")
+        self._act_detail.setChecked(str(q.value(_SES_DETAIL, "1")) != "0")
+        self._console_dock.setVisible(str(q.value(_SES_CONSOLE, "1")) != "0")
+
+    def _save_panel_state(self) -> None:
+        """退出前落盘当前显隐（closeEvent 调用；QSettings 析构时也会
+        同步，这里显式写一遍求稳）。"""
+        q = QSettings()
+        q.setValue(_SES_SIDE, "1" if self._act_side.isChecked() else "0")
+        q.setValue(_SES_DETAIL, "1" if self._act_detail.isChecked() else "0")
+        q.setValue(_SES_CONSOLE,
+                   "1" if self._console_dock.isVisible() else "0")
+
 
     # ---------- 全局异常兜底 ----------
     def _install_excepthook(self) -> None:

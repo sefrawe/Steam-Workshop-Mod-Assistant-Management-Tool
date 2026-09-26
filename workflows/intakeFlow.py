@@ -37,9 +37,11 @@ from core.localScanner import LocalItem
 from core.models import Mod
 from core.modRepository import ModRepository
 
-# 工坊条目页地址模板。与 addModFlow / importPage / localScanner 的同名
-# 常量是同一个字符串的多份现状（历史原因）——改模板请全局搜，几处一起改。
-_URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
+# 工坊条目页地址模板（公开常量：批量打开工坊页 gui/batchOpenDialog 也用它）。
+# addModFlow / importPage / localScanner 里还有多份同文现状（历史原因），
+# 这里是收敛起点——改模板请全局搜，几处一起改。
+WORKSHOP_URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
+
 
 
 @dataclass
@@ -113,7 +115,7 @@ def apply_intake(repo: ModRepository, plan: ClientIntakePlan) -> IntakeReport:
                 mod_id=item.mod_id,
                 game_id=plan.app_id,
                 status="tracked",
-                url=_URL_TEMPLATE.format(item.mod_id),
+                url=WORKSHOP_URL_TEMPLATE.format(item.mod_id),
                 # 版本线索：客户端下载时的版本 ≈ 当时的远端版本
                 #（语义见文件头）；之后更新检测会用 API 实际值接管
                 time_updated=item.timeupdated,

@@ -37,12 +37,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QComboBox
 )
 
 from core.commandBuilder import build_copy_text
 from core.localScanner import locate_acf, scan_acf
 from core.models import Game
-from core.steamPaths import workshop_content_dir
+from core.steamPaths import client_library_roots, workshop_content_dir
+
 from gui.consolePanel import LogBus
 from workflows.intakeFlow import ClientIntakePlan, apply_intake, classify_client_items
 
@@ -90,15 +92,18 @@ class FirstUsePage(QWidget):
         nb.setContentsMargins(8, 6, 8, 6)
         nb.setSpacing(2)
         for text in (
-            "流程：① 定位 steamcmd → ② 建立游戏档案 → ③ 接通游戏读取目录"
-            " → ④ 纳入客户端已有的 mod。四步可跳步、可重入，缺哪步走哪步。",
-            "为什么这么做：纳入走"+ "先预览再写入" + "，只补缺不覆盖、已删除/"
-            "已失效的不复活；纳入后是「已收录」，要等 steamcmd 下载并扫描"
-            "确认才算「已下载」——客户端那份拷贝不算本地（账实口径以 "
-            "steamcmd 目录为准）。",
-            "术语与关系：客户端订阅记录 = 客户端库里的 appworkshop_<appid>"
-            ".acf，与 steamcmd 的同名文件是两棵树；纳入后的下载与确认走"
-            "「加入新 mod」同一条链（命令同源、扫描同源）。",
+                "流程：① 定位 steamcmd → ② 建立游戏档案 → ③ 接通游戏读取目录"
+                " → ④ 纳入客户端已有的 mod。四步可跳步、可重入，缺哪步走哪步。",
+                "为什么这么做：纳入走「先预览再写入」，只补缺不覆盖、已删除/"
+                "已失效的不复活；纳入后是「已收录」，要等 steamcmd 下载并扫描"
+                "确认才算「已下载」——客户端那份拷贝不算本地（账实口径以 "
+                "steamcmd 目录为准）。",
+                "术语与关系：客户端订阅记录 = 客户端库里的 appworkshop_<appid>"
+                ".acf，与 steamcmd 的同名文件是两棵树；纳入后的下载与确认走"
+                "「加入新 mod」同一条链（命令同源、扫描同源）。",
+                "多前端共存：与这台 steamcmd 共用的其他前端下载的 mod，"
+                "扫描时会被自动纳入账本（已收录/已下载如实对齐），不需要"
+                "重复登记；本工具永远只读 steamcmd 的账实文件。",
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)  # 可能变长的标签一律开换行
@@ -163,13 +168,24 @@ class FirstUsePage(QWidget):
         self._intake_detail.setStyleSheet("border:none; font-size:12px;")
         box4.addWidget(self._intake_detail)
         row_dir = QHBoxLayout()
-        self._dir_edit = QLineEdit(self)
-        # 设置里存过客户端库目录就预填（没存过等用户手选，选成功后写回）
+        # ④ 目录框 = 可编辑下拉（T19 自动探测）：注册表 + libraryfolders.vdf
+        # 探测到的客户端库预填成候选；设置里存过的排最前；都失败就空着
+        # 手填——探测是预填便利，手填能力永不删
+        self._dir_edit = QComboBox(self)
+        self._dir_edit.setEditable(True)
+        self._dir_edit.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        seen: set[str] = set()
+        prefill = ""
         if self._settings is not None:
-            self._dir_edit.setText(self._settings.get("steam_client_library"))
-        self._dir_edit.setPlaceholderText(
+            prefill = str(self._settings.get("steam_client_library") or "").strip()
+        for cand in ([prefill] if prefill else []) + client_library_roots():
+            if cand.casefold() not in seen:
+                seen.add(cand.casefold())
+                self._dir_edit.addItem(cand)
+        self._dir_edit.lineEdit().setPlaceholderText(
             "Steam 客户端库目录，如 D:\\SteamLibrary——"
-            "选库根、steamapps 或 workshop 层都行")
+            "选库根、steamapps 或 workshop 层都行（可手动输入）")
+
         row_dir.addWidget(self._dir_edit, 1)
         self._btn_browse = QPushButton("浏览…", self)
         self._btn_browse.clicked.connect(self._on_browse)
@@ -214,8 +230,8 @@ class FirstUsePage(QWidget):
         """公开的刷新入口（主窗口可在切到本页时调用，也可不接——
         卡片①上有【重新检查】按钮兜底）。空目录框才回填设置值，
         不覆盖用户正在编辑的文本。"""
-        if self._settings is not None and not self._dir_edit.text().strip():
-            self._dir_edit.setText(self._settings.get("steam_client_library"))
+        if self._settings is not None and not self._dir_edit.currentText().strip():
+            self._dir_edit.setCurrentText(str(self._settings.get("steam_client_library") or "").strip())
         self._refresh_all()
 
     # ---------- 卡片刷新 ----------
@@ -289,15 +305,15 @@ class FirstUsePage(QWidget):
     # ---------- 第④步：预览与纳入 ----------
     def _on_browse(self) -> None:
         path = QFileDialog.getExistingDirectory(
-            self, "选择 Steam 客户端库目录", self._dir_edit.text() or "")
+            self, "选择 Steam 客户端库目录", self._dir_edit.currentText().strip() or "")
         if path:
-            self._dir_edit.setText(str(path))
+            self._dir_edit.setCurrentText(str(path))
             self._on_preview()  # 选完自动预览，少点一次
 
     def _on_preview(self) -> None:
         if self._game is None:
             return
-        raw = self._dir_edit.text().strip()
+        raw = self._dir_edit.currentText().strip()
         if not raw:
             QMessageBox.information(self, "解析预览",
                                     "先选择 Steam 客户端库目录。")
@@ -396,7 +412,7 @@ class FirstUsePage(QWidget):
         # 选过的库目录记进设置，下次免选（新键 steam_client_library）
         if self._settings is not None:
             self._settings.set("steam_client_library",
-                               self._dir_edit.text().strip())
+                               self._dir_edit.currentText().strip())
             self._settings.save()
         self._set_card(
             self._d4,

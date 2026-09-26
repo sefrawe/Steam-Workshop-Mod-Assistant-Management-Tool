@@ -81,7 +81,8 @@ class ConsolePanel(QWidget):
         self._log_view = QPlainTextEdit(log_page)
         self._log_view.setReadOnly(True)
         self._log_view.setMaximumBlockCount(2000)  # 超限自动丢最旧的行
-        self._log_view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._log_view.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+
         log_layout.addWidget(self._log_view)
 
         # 日志页底部一排：清空按钮 + 自动弹出开关（左按钮右开关，

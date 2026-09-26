@@ -107,6 +107,19 @@ class ModListModel(QAbstractTableModel):
                 return QColor(220, 60, 60, 46)  # 半透明红，深浅主题下都不刺眼
         if role == Qt.ItemDataRole.ForegroundRole and col == 5 and m.version_unknown:
             return QColor(128, 128, 128)
+        # 颜色标记（v2.21 升级）：色点太小扫不出来（真机反馈），改为
+        # 编号 + 标题两格整格底色；文字按底色亮度自动黑/白，黄底也不糊。
+        # 代价：这两格的选中高亮被底色盖住——选中与否看行首勾选列与
+        # 右侧详情面板，可接受。双色分别设置（编号一色标题一色）需加
+        # 库字段+界面，不做
+        if m.color_tag and col in (1, 2):
+            if role == Qt.ItemDataRole.BackgroundRole:
+                return QColor(m.color_tag)
+            if role == Qt.ItemDataRole.ForegroundRole:
+                c = QColor(m.color_tag)
+                lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
+                return QColor(0, 0, 0) if lum > 140 else QColor(235, 235, 235)
+
         return None
 
     def setData(self, index: QModelIndex, value,

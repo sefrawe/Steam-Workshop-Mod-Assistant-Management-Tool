@@ -30,7 +30,9 @@
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths
+from PySide6.QtCore import QStandardPaths, QUrl
+from PySide6.QtGui import QDesktopServices
+
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel,
     QPlainTextEdit, QMessageBox, QPushButton, QScrollArea, QVBoxLayout,
@@ -186,7 +188,23 @@ class CommandGenPage(QWidget):
                 # 推荐勾选：需要更新 + 已收录 默认勾上；已最新默认不勾
                 cb.setChecked(key in ("needs_update", "not_downloaded"))
                 cb.toggled.connect(self._refresh_stats)
-                box.layout().addWidget(cb)
+                # T25：每行带 ↗ 直达工坊页面——选 mod 做某事的清单
+                # 必须能顺手查详情（本页虽非模态，清单一屏装不下，
+                # 同享直达）
+                row_w = QWidget()
+                rh = QHBoxLayout(row_w)
+                rh.setContentsMargins(0, 0, 0, 0)
+                rh.addWidget(cb, 1)
+                btn_open = QPushButton("↗")
+                btn_open.setFixedWidth(28)
+                btn_open.setToolTip("在浏览器打开该 mod 的创意工坊页面")
+                btn_open.setEnabled(bool(m.url))
+                if m.url:
+                    btn_open.clicked.connect(
+                        lambda _=False, u=m.url: QDesktopServices.openUrl(QUrl(u)))
+                rh.addWidget(btn_open)
+                box.layout().addWidget(row_w)
+
                 self._checks[key].append((m.mod_id, cb))
             self._body_layout.addWidget(box)
         self._refresh_stats()

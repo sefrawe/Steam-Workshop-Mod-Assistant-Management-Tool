@@ -50,6 +50,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QCheckBox,
+
 )
 
 from core.backupManager import BackupManager
@@ -64,7 +66,7 @@ _KEY_KEEP_PER_MOD = "backup_keep_per_mod"
 _KEY_QUOTA_GB = "backup_total_quota_gb"
 
 
-_COLUMNS = ["Mod 编号", "备份目录", "备份版本", "大小", "盘上", "钉住", "备注"]
+_COLUMNS = ["Mod 编号", "mod 标题", "备份目录", "备份版本", "大小", "盘上", "钉住", "备注"]
 
 
 class _BackupWorker(QThread):
@@ -121,9 +123,10 @@ class _CallWorker(QThread):
         except Exception as exc:
             self.crashed.emit(str(exc))
 
-
 class _PickModsDialog(QDialog):
-    """勾选要备份的 mod（引擎头注释预告的"勾选对话框"归 GUI 批）。"""
+    """勾选要备份的 mod（T25 收官：每行带 ↗ 直达工坊页面——
+    "选 mod 做某事"的窗口必须能顺手查详情；QListWidget 用
+    setItemWidget 挂"勾选框 + ↗"的行部件）。"""
 
     def __init__(self, mods, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -131,11 +134,26 @@ class _PickModsDialog(QDialog):
         v = QVBoxLayout(self)
         v.addWidget(QLabel(f"共 {len(mods)} 个已下载 mod，勾选要备份的：", self))
         self._list = QListWidget(self)
+        self._cbs: list[tuple[int, QCheckBox]] = []  # (mod_id, 勾选框)，selected_ids 按它收答案
         for m in mods:
-            item = QListWidgetItem(f"{m.mod_id} {m.title or '（无标题）'}")
-            item.setCheckState(Qt.CheckState.Checked)
+            item = QListWidgetItem(self._list)
+            row = QWidget(self._list)
+            rh = QHBoxLayout(row)
+            rh.setContentsMargins(8, 2, 4, 2)
+            cb = QCheckBox(f"{m.mod_id} {m.title or '（无标题）'}", row)
+            cb.setChecked(True)
+            rh.addWidget(cb, 1)
+            btn_open = QPushButton("↗", row)
+            btn_open.setFixedWidth(28)
+            btn_open.setToolTip("在浏览器打开该 mod 的创意工坊页面")
+            btn_open.setEnabled(bool(m.url))
+            if m.url:
+                btn_open.clicked.connect(
+                    lambda _=False, u=m.url: QDesktopServices.openUrl(QUrl(u)))
+            rh.addWidget(btn_open)
+            self._list.setItemWidget(item, row)
             item.setData(Qt.ItemDataRole.UserRole, m.mod_id)
-            self._list.addItem(item)
+            self._cbs.append((m.mod_id, cb))
         v.addWidget(self._list, 1)
         bb = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
@@ -143,16 +161,10 @@ class _PickModsDialog(QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
-        self.resize(420, 480)
+        self.resize(460, 480)
 
     def selected_ids(self) -> list[int]:
-        out = []
-        for i in range(self._list.count()):
-            it = self._list.item(i)
-            if it.checkState() == Qt.CheckState.Checked:
-                out.append(it.data(Qt.ItemDataRole.UserRole))
-        return out
-
+        return [mid for mid, cb in self._cbs if cb.isChecked()]
 
 class BackupPage(QWidget):
     """备份管理页。"""
@@ -248,9 +260,10 @@ class BackupPage(QWidget):
         self._table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
         header = self._table.horizontalHeader()
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        for col, width in ((0, 110), (2, 150), (3, 90), (4, 60), (5, 60), (6, 200)):
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # mod 标题列伸展
+        for col, width in ((0, 110), (2, 190), (3, 150), (4, 90), (5, 60), (6, 60), (7, 200)):
             self._table.setColumnWidth(col, width)
+
         self._table.itemSelectionChanged.connect(self._refresh_op_buttons)
         root.addWidget(self._table, 1)
 
@@ -383,7 +396,10 @@ class BackupPage(QWidget):
             return
         self._game_label.setText(
             f"当前游戏：{self._game.name}（{self._game.app_id}）")
-        ids = {m.mod_id for m in self._repo.list_mods(self._game.app_id)}
+        # 标题对照表（件 11）：一次取齐当前档案的 mod，行循环里查标题
+        mods_by_id = {m.mod_id: m
+                      for m in self._repo.list_mods(self._game.app_id)}
+        ids = set(mods_by_id)
         rows = [b for b in self._repo.list_backups(oldest_first=True)
                 if b.mod_id in ids]
         bdir_text = (self._game.backup_dir or "").strip()
@@ -399,20 +415,23 @@ class BackupPage(QWidget):
                     on_disk = "✓"
                 else:
                     on_disk, lost = "失联", lost + 1
+            mod = mods_by_id.get(b.mod_id)
+            title = (mod.title if mod is not None else None) or "（无标题或记录缺失）"
             self._cell(r, 0, str(b.mod_id))
-            self._cell(r, 1, b.backup_path)
-            self._cell(r, 2, abs_time(b.version_timeupdated))
-            self._cell(r, 3, fmt_size(b.size_bytes))
-            self._cell(r, 4, on_disk)
-            self._cell(r, 5, "是" if b.pinned else "")
-            self._cell(r, 6, b.note or "")
+            self._cell(r, 1, title)
+            self._cell(r, 2, b.backup_path)
+            self._cell(r, 3, abs_time(b.version_timeupdated))
+            self._cell(r, 4, fmt_size(b.size_bytes))
+            self._cell(r, 5, on_disk)
+            self._cell(r, 6, "是" if b.pinned else "")
+            self._cell(r, 7, b.note or "")
         keep = self._settings.get_int(_KEY_KEEP_PER_MOD, 1)
         quota_gb = self._settings.get_int(_KEY_QUOTA_GB, 100)
-
         policy = (f"每个 mod 保留最新 {keep} 份"
                   + (f"，总量上限 {quota_gb} GB" if quota_gb else "，总量不限")
                   + "（设置页修改）")
-        lost_note = (f"，其中失联 {lost} 份（盘上已找不到——点【重定位备份目录】指认新位置）" if lost else "")
+        lost_note = (f"，其中失联 {lost} 份（盘上已找不到——点【重定位备份目录】指认新位置）"
+                     if lost else "")
         self._count_label.setText(
             f"共 {len(self._rows)} 份备份，合计 {fmt_size(total)}{lost_note}\n"
             f"保留策略：{policy}")
