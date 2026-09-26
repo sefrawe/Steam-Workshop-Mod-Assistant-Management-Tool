@@ -21,9 +21,10 @@
 
 日常更新一条龙（决策 26）：检测落库完成后，把"确有新版本"的 mod id
 清单经 updates_found 信号交给主窗口——由它弹窗询问（或按勾选自动）
-开批量下载，批次结束再自动复扫。判定口径：只有远端版本真变了
-（changed）才算"有新版本"；第一次补全远端信息（first_fill）、
-版本未知（决策 24）都不进清单。页面上的「发现更新后自动开始下载」
+开批量下载，批次结束再自动复扫。判定口径：判定口径（决策 2 唯一公式）：需更新 ⇔ 已下载 且 远端 time_updated >
+本地 local_timeupdated（acf 回填）。检测不写本地版本，所以"检测到
+但没下载"的条目下次检测会再次报出，直到下载并复扫对齐为止。
+未下载（tracked）与版本未知（决策 24）不进清单。页面上的「发现更新后自动开始下载」
 勾选框控制是否跳过询问（勾选即时保存，与运行日志页"自动弹出"同款）。
 
 已删除的 mod 不查询（都不用了没必要查）；已失败的照查（就是它失效才要盯）。
@@ -138,6 +139,12 @@ class _CollectionWorker(QThread):
             return
         self.succeeded.emit(self._collection_id, children)
 
+# 决策 46：网络类失败固定附带的提示（失败原文照展在前，提示附后——
+# 连接超时是到 Steam 的链路波动，不是软件坏了，也不是 Steam 限流）
+_NET_HINT = ("提示：连续失败常是到 Steam 服务器的网络波动（晚间更明显），"
+             "属正常现象——稍等几分钟到几十分钟再试通常就能恢复。"
+             "本次结果没有写入，数据无损；不必连续重试（每次失败要等满"
+             "超时才报错），隔段时间来试即可。")
 
 class UpdateCheckPage(QWidget):
     """checks_finished(int)：一次检测完成落库后发射，参数为本次检测到
@@ -149,6 +156,12 @@ class UpdateCheckPage(QWidget):
     """
     checks_finished = Signal(int)
     updates_found = Signal(int, list)
+    # 决策 42：检测进度对外转发（已比对条数, 本次总数）。日常更新
+    # 模块页接它做"第二块表盘"——数据同源同刻，逻辑零复制
+    progress_changed = Signal(int, int)
+    # 检测非成功收尾（手动停止 / 请求层失败）——模块页据此收起进度
+    # 条、恢复按钮。成功收尾走 checks_finished，不重复发这个
+    check_interrupted = Signal(str)
 
     def __init__(self, repo, settings, parent: QWidget | None = None,
                  *, log: LogBus | None = None) -> None:
@@ -265,22 +278,34 @@ class UpdateCheckPage(QWidget):
         if self._col_worker is not None:
             self._col_worker.wait()
 
+    def start_check(self) -> str:
+        """对外入口（T22）：「日常更新」模块页经主窗口调到这里自动
+        开测。与点【开始检测】同一条路、同一套守卫；返回 "" = 已受理，
+        非空 = 拒绝原因（主窗口记日志用，模块页不进"进行中"状态）。"""
+        return self._start_check()
+
     # ---------- 检测流程 ----------
 
-    def _start_check(self) -> None:
-        if self._game is None or self._worker is not None:
-            return
+    def _start_check(self) -> str:
+        """开一次检测。返回 "" = 已受理开跑；非空 = 拒绝原因（中文，
+        给主窗口写日志用）。本页自己的【开始检测】按钮也走这里，
+        信号槽会忽略返回值，无影响。"""
+        if self._game is None:
+            return "没有选择档案"
+        if self._worker is not None:
+            return "已有检测在进行"
         mods = self._repo.list_mods(self._game.app_id,
                                     order_by="time_updated DESC")
         ids = [m.mod_id for m in mods if m.status != "deleted"]
         if not ids:
             self._summary.setText("当前档案没有任何可检测的 mod（已删除的除外）。")
             self._summary.setStyleSheet("color: gray;")
-            return
+            return "当前档案没有可检测的 mod"
         self._mods_at_start = mods
         # 记下"开始检测那一刻"的档案：本轮所有结果（含展开合集登记的
         # 条目）都写进它，即便检测过程中用户切到了别的档案
         self._check_game = self._game
+        self._check_total = len(ids)  # 进度中继要用（见 _on_batch_progress）
         self._progress.setRange(0, len(ids))
         self._progress.setValue(0)
         self._set_running(True)
@@ -289,6 +314,7 @@ class UpdateCheckPage(QWidget):
             interval_ms=self._settings.get_int("api_request_interval_ms", 200),
             max_retries=self._settings.get_int("api_max_retries", 3))
         self._worker.batch_done.connect(self._progress.setValue)
+        self._worker.batch_done.connect(self._on_batch_progress)
         self._worker.succeeded.connect(self._on_check_succeeded)
         self._worker.failed.connect(self._on_check_failed)
         self._worker.stopped.connect(self._on_check_stopped)
@@ -299,6 +325,13 @@ class UpdateCheckPage(QWidget):
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.start()
         self._log.info(f"开始检测 {len(ids)} 个 mod…")
+        return ""
+
+    def _on_batch_progress(self, done: int) -> None:
+        """进度中继（决策 42）：worker 的 batch_done 在驱动本页进度条
+        之外，原样转发为页面级 progress_changed——日常更新模块页的
+        进度条是同一份数据的第二块表盘。中继只发信号，不碰控件。"""
+        self.progress_changed.emit(done, self._check_total)
 
     def _stop_check(self) -> None:
         if self._worker is not None:
@@ -346,27 +379,43 @@ class UpdateCheckPage(QWidget):
                        failed: dict[int, int]) -> tuple[int, list[int]]:
         """把查询结果写入数据库，返回 (有新版本的个数, 有新版本的 id 清单)。
 
-        全部写入包在一个事务里：中途任何一步失败，整体回滚，
-        不会出现"一半 mod 更新了一半没更新"的中间状态。
-        id 清单交给主窗口的"日常更新一条龙"（决策 26）；只有版本
-        真变了（changed）才进清单——第一次补全远端信息（first_fill）
-        和版本未知（决策 24）都不算"有新版本"。
+        需更新判定 = 决策 2 唯一公式：远端 time_updated > 本地
+        local_timeupdated（acf 回填，本地事实唯一权威）。本地版本只在
+        扫描/复扫时更新，检测不碰它——所以"检测到但没下载"的条目
+        下次检测必然再次报出（v2.17 修正：旧实现拿远端新值对比库里
+        上次记录的远端值，自比一次就把更新"吃掉"了，本地没动也报 0）。
+
+        只统计 status=downloaded：未下载（tracked）没有本地版本，
+        谈不上"更新"，在 mod 库页显示为「已收录」；版本未知（决策 24）
+        新旧无从判定，不进清单。
+
+        写入三路与判定无关，各管各的账：first_fill = 第一次拿到远端
+        信息（last_time_updated 记为当前值 = 没有上一版）；changed =
+        远端真变了（旧远端值挪进 last_time_updated 作间隔基准 +
+        拍版本快照 + 特别关注记提醒，同一远端版本只提醒一次）；其余
+        只刷新标题等元数据。全部包在一个事务里，失败整体回滚。
         """
         now = int(time.time())
         updates_found = 0
         updated_ids: list[int] = []
-
-        # 先整体记"检测过"（包括失败和疑似合集的）——"查过了"这个事实本身
-        # 就值得记，否则"上次检测时间"的展示会骗人
-        all_ids = ([i.mod_id for i in ok_items]
-                   + sorted(suspected_ids) + sorted(failed))
+        # 先整体记"检测过"（包括失败和疑似合集的）——"查过了"这个事实
+        # 本身就值得记，否则"上次检测时间"的展示会骗人
+        all_ids = ([i.mod_id for i in ok_items] + sorted(suspected_ids)
+                   + sorted(failed))
         with self._repo.transaction():
             self._repo.touch_checked(all_ids, checked_at=now)
-
             for item in ok_items:
                 row = self._repo.get_mod(item.mod_id)
                 if row is None:
                     continue  # 编号本来就取自库中，理论到不了这里；防御一行
+                # ——判定（决策 2 公式，与 mod 库页"更新"列同源同尺）——
+                if (row.status == "downloaded"
+                        and row.local_timeupdated is not None
+                        and item.time_updated is not None
+                        and item.time_updated > row.local_timeupdated):
+                    updates_found += 1
+                    updated_ids.append(item.mod_id)
+                # ——写入（只管远端侧的账，本地字段一个不碰）——
                 changed = (item.time_updated is not None
                            and item.time_updated != row.time_updated)
                 first_fill = (item.time_updated is not None
@@ -383,27 +432,23 @@ class UpdateCheckPage(QWidget):
                     "preview_url": item.preview_url,
                 }
                 if first_fill:
-                    # 第一次拿到远端信息：上一版无从得知，
-                    # last_time_updated 先记成与当前值相同
                     self._repo.update_api_metadata(
-                        item.mod_id, time_updated=item.time_updated,
+                        item.mod_id,
+                        time_updated=item.time_updated,
                         last_time_updated=item.time_updated, **meta)
                 elif changed:
-                    # 检测到新版本：旧的远端时间挪进 last_time_updated，
-                    # 作为"作者更新间隔"的计算基准
                     self._repo.update_api_metadata(
-                        item.mod_id, time_updated=item.time_updated,
+                        item.mod_id,
+                        time_updated=item.time_updated,
                         last_time_updated=row.time_updated, **meta)
-                    # 拍版本快照：记录新版本 + 当时的本地状态（manifest / 本地版本）
+                    # 拍版本快照：记录新版本 + 当时的本地状态
                     self._repo.add_snapshot(
-                        item.mod_id, time_updated=item.time_updated,
+                        item.mod_id,
+                        time_updated=item.time_updated,
                         manifest=row.manifest,
                         local_timeupdated=row.local_timeupdated)
-                    updates_found += 1
-                    updated_ids.append(item.mod_id)
                     if row.is_special:
-                        # 特别关注的 mod：同一远端版本只提醒一次
-                        # （拿最近一条提醒记录的远端时间比对去重）
+                        # 特别关注：同一远端版本只提醒一次
                         last = self._repo.get_last_alert(item.mod_id)
                         if last is None or \
                                 last.remote_time_updated != item.time_updated:
@@ -414,9 +459,8 @@ class UpdateCheckPage(QWidget):
                                 diff_seconds=diff,
                                 was_downloaded=(row.status == "downloaded"))
                 else:
-                    # 版本没变：只刷新其余元数据，时间字段一个都不动
+                    # 远端没变：只刷新其余元数据，时间字段一个不动
                     self._repo.update_api_metadata(item.mod_id, **meta)
-
         return updates_found, updated_ids
 
     def _show_results(self, suspected_ids: set[int],
@@ -510,10 +554,15 @@ class UpdateCheckPage(QWidget):
 
     def _on_check_failed(self, message: str) -> None:
         self._set_running(False)
-        self._summary.setText(message)
+        # 决策 42：非成功收尾通知模块页收起进度条（成功走 checks_finished）
+        self.check_interrupted.emit(message)
+        # 决策 46：失败细节原文保留（诊断有用），固定提示附在后面——
+        # 大多数连续失败是链路波动，别让用户以为软件坏了或数据出了问题
+        self._summary.setText(message + "\n" + _NET_HINT)
         self._summary.setStyleSheet("color: #e5484d;")
         self._log.error(message)
-        QMessageBox.warning(self, "检测失败", message)
+        self._log.warn(_NET_HINT)
+        QMessageBox.warning(self, "检测失败", message + "\n\n" + _NET_HINT)
 
     def _on_check_stopped(self) -> None:
         """用户手动停止：正常收场。
@@ -521,6 +570,8 @@ class UpdateCheckPage(QWidget):
         是两回事，界面上用灰字说明即可。数据没写库，无需任何清理。
         """
         self._set_running(False)
+        # 决策 42：模块页的进度条也要收起来（成功收尾不经过这里）
+        self.check_interrupted.emit("已手动停止，本次结果未写入")
         self._summary.setText("已手动停止，本次结果未写入。重新点【开始检测】即可。")
         self._summary.setStyleSheet("color: gray;")
         self._log.info("更新检测已手动停止，本次结果未写入")

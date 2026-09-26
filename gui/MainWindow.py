@@ -12,30 +12,31 @@ GlobalSettings.json（界面就地开关，不进设置页 _FIELDS）：
 - auto_download_after_check（默认 0 = 弹窗确认；勾选框在更新检测页）
 - auto_rescan_after_batch（默认 1 = 批次结束后自动复扫）
 """
+import sqlite3
 import sys
 import threading
-import sqlite3
-from gui.addModPage import AddModPage
-from gui.welcomePage import WelcomePage
-from gui.browserTabPage import BrowserTabPage
+from gui.browserPickDialog import BrowserPickDialog
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QMessageBox,  QFileDialog,
-
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QMessageBox, QFileDialog, QDialog,
 )
-from core import dataExporter
 
 from core import appPaths
+from core import dataExporter
 from core.appSettings import AppSettings
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
+from gui.addModPage import AddModPage
 from gui.backupPage import BackupPage
 from gui.batchDownloadController import BatchDownloadController
+from gui.browserTabPage import BrowserTabPage
 from gui.commandGenPage import CommandGenPage
 from gui.consolePanel import ConsolePanel, LogBus
+from gui.dailyUpdatePage import DailyUpdatePage
 from gui.exceptionPage import ExceptionPage
 from gui.gameSwitcher import GameSwitcher
 from gui.importPage import ImportPage
@@ -43,7 +44,9 @@ from gui.modListPage import ModListPage
 from gui.settingsPage import SettingsPage
 from gui.statsPage import StatsPage
 from gui.updateCheckPage import UpdateCheckPage
+from gui.updateSelectDialog import UpdateSelectDialog
 from gui.verifyPage import VerifyPage
+from gui.welcomePage import WelcomePage
 
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根统一从 appPaths 定位（源码=项目根\data，打包=exe 旁\data）
 
@@ -62,16 +65,15 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
     ("欢迎", 9),
     ("功能模块", [
         ("加入新 mod", 10),
-        ("首次使用", None),   # 待做：建档向导（gameSwitcher 临时入口届时退役）
-        ("日常更新", None),   # 待做：编排更新检测+批量下载+复扫（基础件已齐）
-        ("删除 mod", None),   # 待做：软删除/恢复/清理编排
+        ("首次使用", None),  # 待做：建档向导（gameSwitcher 临时入口届时退役）
+        ("日常更新", 12),  # T22：检测 → 确认清单 → 批量下载 → 复扫 的引导壳
+        ("删除 mod", None),  # 待做：软删除/恢复/清理编排
     ]),
     ("mod 库", 0),
     ("统计", 8),
     ("基础功能", [
         ("网址批量导入", 1),
         ("从浏览器取网址", 11),
-
         ("更新检测", 4),
         ("下载命令生成", 5),
         ("账实核验", 6),
@@ -82,7 +84,6 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
     ]),
     ("设置", 3),
 ]
-
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -99,6 +100,11 @@ class MainWindow(QMainWindow):
             DEFAULT_DB_PATH, snapshot_keep=self._settings.get_int("snapshot_keep", 5))
 
         self._current_game: Game | None = None
+        # 更新确认清单（非模态）：MainWindow 持引用防 GC——局部变量 +
+        # show() 出作用域会把 Python 包装回收而 C++ 对象悬空，经典闪退
+        # （决策 36⑦）。清单关闭时由 finished 回调清引用
+        self._update_dialog: UpdateSelectDialog | None = None
+
 
         self._build_central()
         self._build_console_dock()
@@ -172,42 +178,54 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget(central)
         self._pages = [
             ModListPage(self._repo, self._settings, self._stack, log=self._log),  # 0
-            ImportPage(self._repo, self._stack, log=self._log),                   # 1
-            BackupPage(self._repo, self._settings, self._stack, log=self._log),   # 2
-            SettingsPage(self._settings, self._stack),                            # 3
+            ImportPage(self._repo, self._stack, log=self._log),  # 1
+            BackupPage(self._repo, self._settings, self._stack, log=self._log),  # 2
+            SettingsPage(self._settings, self._stack),  # 3
             UpdateCheckPage(self._repo, self._settings, self._stack, log=self._log),  # 4
-            CommandGenPage(self._repo, self._settings, self._stack, log=self._log),   # 5
-            VerifyPage(self._repo, self._settings, self._stack, log=self._log),   # 6
+            CommandGenPage(self._repo, self._settings, self._stack, log=self._log),  # 5
+            VerifyPage(self._repo, self._settings, self._stack, log=self._log),  # 6
             ExceptionPage(self._repo, self._settings, self._stack, log=self._log),  # 7
             StatsPage(self._repo, self._stack),  # 8
             WelcomePage(self._stack),  # 9 欢迎页：纯静态，无 repo 依赖
             AddModPage(self._repo, self._settings, self._stack, log=self._log),  # 10 功能模块：加入新 mod
             BrowserTabPage(self._stack, log=self._log),  # 11 基础功能：从浏览器取网址
-
+            DailyUpdatePage(self._repo, self._settings, self._stack, log=self._log),  # 12 功能模块：日常更新
         ]
+
         for page in self._pages:
             self._stack.addWidget(page)
 
         self._pages[1].imported.connect(self._on_imported)
         self._pages[4].checks_finished.connect(self._on_checks_finished)
+
         # mod 库页与账实核验页共用同一份跳转契约：
         # 发出 mod id 列表 → 切到命令生成页并只勾选这些 mod
         self._pages[0].command_gen_requested.connect(self._on_command_gen_requested)
-        self._pages[6].command_gen_requested.connect(self._on_command_gen_requested)
-        # 前缀照抄上一行
-        self._pages[0].download_requested.connect(self._start_batch)
-        # 前缀照抄上一行
+        self._pages[6].command_gen_requested.connect(self._on_command_gen_requested)  # 前缀照抄上一行
+        self._pages[0].download_requested.connect(self._start_batch)  # 前缀照抄上一行
         self._pages[0].backup_requested.connect(self._backup_checked)
-        self._pages[7].command_gen_requested.connect(self._on_command_gen_requested)
-        # 前缀照抄上一行
+        self._pages[7].command_gen_requested.connect(self._on_command_gen_requested)  # 前缀照抄上一行
+
         # 功能模块「加入新 mod」第④步【扫描确认】：转调 mod 库页既有
         # 扫描链（quiet 版，只写日志不弹窗）；扫描同步完成后回叫模块
         # 盘点批次结果。归属口径与决策 26 复扫一致：扫批次所属档案，
         # 不是界面当前档案
         self._pages[10].scan_requested.connect(self._on_addmod_scan_requested)
+        self._pages[10].download_requested.connect(self._start_batch)  # 前缀照抄 mod 库页 download_requested 那行
+
         self._pages[11].handoff_to_addmod.connect(self._on_handoff_to_addmod)
-        # 模块②"从浏览器取标签页…"→ 跳浏览器页（单源：界面不复制）
-        self._pages[10].open_browser_picker.connect(lambda: self._goto_page(11))
+
+        # 模块②"从浏览器取标签页…"：弹出页内选择器（T23，不跳页）。
+        # 对话框送来的清单由 _on_handoff_to_addmod 统一处理——只填入
+        # 与解析，不代入库（防呆不省）
+        self._pages[10].open_browser_picker.connect(self._open_browser_picker)
+
+        # 功能模块「日常更新」第②步【开始检测】：后台开测不跳页；
+        # 进度与中断由检测页信号直连模块页（决策 42 第二块表盘，
+        # 无副作用所以直连，不经主窗口方法转手）
+        self._pages[12].check_requested.connect(self._on_daily_check_requested)
+        self._pages[4].progress_changed.connect(self._pages[12].on_check_progress)
+        self._pages[4].check_interrupted.connect(self._pages[12].on_check_interrupted)
 
         self._nav.setCurrentItem(self._nav_items[9])  # 启动默认落「欢迎」页
 
@@ -217,17 +235,24 @@ class MainWindow(QMainWindow):
 
     def _build_console_dock(self) -> None:
         self._console_dock = QDockWidget("控制台", self)
-        console_panel = ConsolePanel(self._log, self._console_dock, settings=self._settings)
+        console_panel = ConsolePanel(self._log, self._console_dock,
+                                     settings=self._settings)
         self._console_dock.setWidget(console_panel)
         # 新消息自动弹出：面板发现控制台被关着又有新日志时发信号，
         # 这里负责把停靠窗拉回屏幕（开关在运行日志页的勾选框）
         console_panel.show_requested.connect(self._pop_console)
+        # 具体引用：别再 widget() 取回 QWidget 硬调子类方法——类型链
+        # 在那里断掉，IDE 黄线和将来的真 bug 都会藏在那后面
+        self._console = console_panel
+
         # 批量下载控制器：整软件一个实例（steamcmd 单实例 → 单批次），
-        # 把终端信号、批次卡片和流程状态机缝在一起
+        # 把终端信号、批次卡片和流程状态机缝在一起。
+        # repo 供"批次前备份阶段"读写备份账（决策 40）
         self._batch_controller = BatchDownloadController(
             console_panel.terminal, console_panel.step_list,
-            self._log, self._settings, self)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._console_dock)
+            self._log, self._settings, self._repo, self)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
+                           self._console_dock)
 
     def _build_menus(self) -> None:
         m_file = self.menuBar().addMenu("文件(&F)")
@@ -350,6 +375,10 @@ class MainWindow(QMainWindow):
 
     def _on_game_changed(self, game: Game | None) -> None:
         self._current_game = game
+        # 决策 36⑦：确认清单归属"检测那一刻"的档案——切档案即自动
+        # 关掉还开着的清单，防止旧档案的条目被执行到新档案头上
+        self._close_update_dialog()
+
         if game is None:
             self._status_game.setText("当前游戏：（无）—— 请先添加档案")
         else:
@@ -374,6 +403,8 @@ class MainWindow(QMainWindow):
     def _on_checks_finished(self, updates: int) -> None:
         # 检测/合集登记改了库内数据，mod 库页必须重载才看得到新标题和红块
         self._pages[0].set_game(self._switcher.current_game())
+        # 「日常更新」模块页第②步卡片同步检测结论（无论检测从哪发起）
+        self._pages[12].on_check_done(updates)
         if updates:
             self.statusBar().showMessage(
                 f"更新检测完成：发现 {updates} 个 mod 有新版本", 5000)
@@ -409,57 +440,171 @@ class MainWindow(QMainWindow):
         self._pages[0].scan_local_quiet(game)
         self._pages[10].on_scan_confirmed()
 
+    def _on_daily_check_requested(self) -> None:
+        """「日常更新」模块页第②步【开始检测】：不跳页。检测链仍
+        单源住在更新检测页；受理成功后模块页进度条进忙态，进度由
+        检测页的 progress_changed 直连转发（决策 42）。被拒绝（没
+        档案 / 已在检测 / 没有可检测条目）时原因写运行日志，模块页
+        卡片维持原状、按钮不锁——没开起来就不装作在跑。"""
+        reason = self._pages[4].start_check()
+        if reason:
+            self._log.warn(f"检测没有开始：{reason}")
+        else:
+            self._pages[12].on_check_started()
 
     def _on_updates_found(self, app_id: int, mod_ids: list) -> None:
-        """更新检测发现新版本 → 按设置弹窗确认，或勾选了自动就直接开批。
-
-        app_id 是"开始检测那一刻"的档案——检测进行中用户切过档案的话，
-        下载仍归旧档案，与更新检测页的写库归属同一口径（决策 26②）。
-        注意：一条龙不会替用户启动 steamcmd（登录这关必须人来）；
-        没启动时 _start_batch 会弹控制台并在日志里指路。
+        """更新检测发现新版本 → 摆出确认清单（非模态，决策 36⑦）。
+        开批全部走清单的 execute_requested 信号 →
+        _on_update_execute_requested，本方法只负责把清单摆出来；
+        设置勾了「发现更新后自动开始下载」则不摆清单，全部先备份
+        再更新直接开批（决策 26 原判 + 决策 40）。app_id 是"开始
+        检测那一刻"的档案（决策 26②）。
+        非模态三件套（缺一即闪退/串档）：
+        1) show() 不 exec()——清单的执行链依赖窗口外的底部控制台
+          （steamcmd 没启动要去启动），模态 = 死锁（踩坑㊱）；
+        2) MainWindow 持引用（self._update_dialog）——局部变量 +
+          show() 出作用域即回收包装，经典闪退；
+        3) 重开检测时旧单先关；切档案自动关单（_on_game_changed）。
+        关闭清单不代表取消：已开的批次照跑，没执行的条目之后可在
+        mod 库页手动下载。
         """
         if not mod_ids:
             return
         if self._batch_controller.is_active():
             self._log.info(
                 f"检测到 {len(mod_ids)} 个 mod 有新版本，但已有批次在进行："
-                "本次不自动开批（需要时到 mod 库页勾选后手动下载）")
+                "本次不弹清单（需要时到 mod 库页勾选后手动下载）")
             return
         auto = self._settings.get_int(_KEY_AUTO_DOWNLOAD, 0) != 0
-        if not auto:
-            ret = QMessageBox.question(
-                self, "发现更新",
-                f"检测到 {len(mod_ids)} 个 mod 有新版本。\n\n"
-                "立即开始批量下载吗？\n"
-                "（需要 steamcmd 已在终端里启动并登录；勾选更新检测页的"
-                "「发现更新后自动开始下载」可跳过本询问）")
-            if ret != QMessageBox.StandardButton.Yes:
-                self._log.info("已跳过自动下载：需要时到 mod 库页或命令生成页手动下载")
-                return
-        self._start_batch(app_id, mod_ids)
+        self._pages[12].on_updates_found(app_id, len(mod_ids), auto)
+        if auto:
+            self._start_batch(app_id, list(mod_ids), list(mod_ids))
+            return
+        mods = [m for m in (self._repo.get_mod(i) for i in mod_ids)
+                if m is not None]
+        if not mods:
+            return
+        self._close_update_dialog()  # 重开检测：旧单先关，不留双份
+        dlg = UpdateSelectDialog(mods, app_id, self)
+        dlg.execute_requested.connect(self._on_update_execute_requested)
+        dlg.finished.connect(self._on_update_dialog_finished)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._update_dialog = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def _on_update_dialog_finished(self, _result: int) -> None:
+        """清单关闭（点【完成】/ 关窗 / 切档案被收）→ 放掉引用。
+        WA_DeleteOnClose 会在关窗后析构 C++ 对象，此后不得再触碰
+        dlg——本回调只清引用，安全。"""
+        self._update_dialog = None
+
+    def _close_update_dialog(self) -> None:
+        """关掉还开着的确认清单（重开检测 / 切档案时调用）。
+        close() 会触发 finished → 引用被清；这里再兜一次 None。"""
+        dlg = self._update_dialog
+        if dlg is not None:
+            dlg.close()
+        self._update_dialog = None
+
+    def _on_update_execute_requested(self, app_id: int, action: str,
+                                     mod_ids: list) -> None:
+        """确认清单【执行选中】：清单非模态且执行不关窗，本槽可被
+        反复调用——每次只处理当前这组勾选。app_id 由对话框随信号
+        带回（构造时传入 = 检测那一刻的档案；清单在档案切换时会被
+        主窗口自动关闭（决策 36⑦），存活期间归属不变）。
+        「备份+更新」里没有旧版本可备份的条目（未下载 / 手动确认
+        版本未知）自动降级为「仅更新」并写日志——备份引擎按决策 24
+        拒绝无版本的备份，先降级就不用等备份失败再跳过。
+        受理回执（决策 36⑧）：_start_batch 受理成功才回叫清单
+        mark_executed（清勾选 + 留痕）；没受理则回叫 notify_not_
+        started——勾选原样保留，没开起来不装作在跑（决策 42④）。"""
+        if not mod_ids:
+            return
+        dlg = self._update_dialog
+        if self._batch_controller.is_active():
+            self._log.info("上一批还在进行：等它跑完再执行下一组"
+                           "（进度见底部控制台 · 下载批次）")
+            if dlg is not None:
+                dlg.notify_not_started("上一批还在进行，等它跑完再执行"
+                                       "下一组（进度见底部控制台 ·"
+                                       "「下载批次」）")
+            return
+        if action == UpdateSelectDialog.ACT_BACKUP:
+            to_backup: list[int] = []
+            update_only: list[int] = []
+            for i in mod_ids:
+                m = self._repo.get_mod(i)
+                if m is not None and m.status == "downloaded" \
+                        and not m.version_unknown:
+                    to_backup.append(i)
+                else:
+                    update_only.append(i)
+            if update_only:
+                self._log.info(
+                    f"{len(update_only)} 个条目没有旧版本可备份"
+                    "（未下载或版本未知），自动按「仅更新」执行")
+            backup_first = to_backup or None
+        else:
+            backup_first = None
+        accepted = self._start_batch(app_id, list(mod_ids), backup_first)
+        if dlg is not None:
+            if accepted:
+                dlg.mark_executed(action, mod_ids)
+            else:
+                # 拒绝详情控制器已写运行日志（通常是 steamcmd 未启动）
+                dlg.notify_not_started(
+                    "原因见底部控制台 · 运行日志，通常是 steamcmd 未"
+                    "启动——切过去启动并登录后，回来再点【执行选中】，"
+                    "勾选已保留")
+
+    def _open_browser_picker(self) -> None:
+        """模块②【从浏览器取标签页…】：弹出内嵌浏览器页的选择器
+        （T23：页内完成，不再跳基础功能页）。勾好后【送到「加入新
+        mod」】→ 对话框关闭、内容填进第②步并自动解析预览。
+        【从浏览器取网址】基础功能页原样保留（独立入口，同一套
+        采集代码，两条路一本账）。"""
+        dlg = BrowserPickDialog(self)
+        dlg.lines_picked.connect(self._on_handoff_to_addmod)
+        dlg.exec()
 
     def _on_batch_done(self, summary: dict) -> None:
-        """批次结束 → 按设置自动复扫入账。
-
-        复扫对准"这一批所属的档案"（_start_batch 记下的 app_id），
-        与批次进行中用户是否切过档案无关；quiet 版全程只写日志，
-        不会在无人值守时弹窗卡住流程。
+        """批次结束 → 按设置自动复扫入账；无论批次从哪个页面发起
+        （mod 库页 / 日常更新模块页 / 加入新 mod 的【开批下载】），
+        收尾都回叫对应页面显示结果。复扫对准"这一批所属的档案"
+        （_start_batch 记下的 app_id），与批次进行中用户是否切过档案
+        无关；quiet 版全程只写日志，不会在无人值守时弹窗卡住流程。
         温和停止 / 出错收尾的批次同样复扫：已下载的那几条一样要入账，
         复扫本身只读 acf、幂等无害（R7 + 决策 23⑤）。
         """
-        if self._settings.get_int(_KEY_AUTO_RESCAN, 1) == 0:
-            return
-        game = (self._repo.get_game(self._batch_app_id)
-                if self._batch_app_id is not None else None)
-        self._batch_app_id = None
-        if game is None:
-            return
-        if self._current_game is None or \
-                game.app_id != self._current_game.app_id:
-            self._log.info(
-                f"批次属于档案「{game.name}」，后台为其复扫入账"
-                "（当前界面显示的是别的档案，不受影响）")
-        self._pages[0].scan_local_quiet(game)
+        # 先把归属摘下来再清：后面两处回叫都要用它
+        batch_app_id = self._batch_app_id
+        game = (self._repo.get_game(batch_app_id)
+                if batch_app_id is not None else None)
+        self._batch_app_id = None  # 所有路径都清掉：残留值没有任何用处
+        game_name: str | None = None
+        rescanned = False
+        if game is not None:
+            game_name = game.name
+            if self._settings.get_int(_KEY_AUTO_RESCAN, 1) != 0:
+                if self._current_game is None or \
+                        game.app_id != self._current_game.app_id:
+                    self._log.info(
+                        f"批次属于档案「{game.name}」，后台为其复扫入账"
+                        "（当前界面显示的是别的档案，不受影响）")
+                self._pages[0].scan_local_quiet(game)
+                rescanned = True
+        # 复扫是同步的（本地只读一个 acf 文本，毫秒级），走完这行
+        # 复扫已经结束
+        # 「加入新 mod」③步【开批下载】发起的批次：复扫后自动盘点
+        # 它的第④步（matches_batch 自带守卫：确属该模块的批次才回叫，
+        # 别的批次不惊动它）
+        if batch_app_id is not None and \
+                self._pages[10].matches_batch(batch_app_id):
+            self._pages[10].on_scan_confirmed()
+        # 「日常更新」模块页的"最近一批"仪表盘（无条件回叫）
+        self._pages[12].on_batch_finished(game_name, summary, rescanned)
 
     def _on_command_gen_requested(self, mod_ids: list) -> None:
         # mod 库页右键"获取下载命令"（或核验页双击缺失行）跳过来：
@@ -489,18 +634,23 @@ class MainWindow(QMainWindow):
         表格自动占满整行）。"""
         self._pages[0].set_detail_visible(visible)
 
-
-    def _start_batch(self, app_id: int, mod_ids: list) -> None:
-        """mod 库页【下载选中项】→ 开批量下载批次。
-        无论成败先弹出控制台并切到「下载批次」标签：失败原因写在
-        运行日志里，不能让用户对着没反应的按钮猜。
+    def _start_batch(self, app_id: int, mod_ids: list,
+                     backup_first: list | None = None) -> bool:
+        """开批量下载批次。backup_first = 要先备份旧版本再下载的条目
+        （日常更新一条龙的"备份+更新"动作，决策 40）；mod 库页手动
+        批次不传 = 维持现状不备份（那边有右键手动备份兜底）。
+        返回是否受理成功（决策 36⑧ 受理回执用；信号槽直连的调用方
+        忽略返回值，无影响）。
+        无论成败先弹出控制台并切到「下载批次」标签：备份阶段与下载
+        阶段的进度都写在运行日志里，不能让用户对着没反应的按钮猜。
         """
         # 批次结束后自动复扫要对上档案（决策 26）；start_batch 拒绝时
         # 不会有 batch_done，残留值无害（下次 _start_batch 会覆盖）
         self._batch_app_id = app_id
         self._pop_console()
-        self._console_dock.widget().show_batch_tab()
-        self._batch_controller.start_batch(app_id, mod_ids)
+        self._console.show_batch_tab()
+        return self._batch_controller.start_batch(app_id, mod_ids,
+                                                  backup_first)
 
     def _backup_checked(self, app_id: int, mod_ids: list) -> None:
         """mod 库页【备份选中项】→ 备份页切档案并开批次。"""
@@ -629,7 +779,6 @@ class MainWindow(QMainWindow):
             + ("（在左上角下拉切换到该游戏查看）" if elsewhere else ""),
             8000)
 
-
     def closeEvent(self, event) -> None:
         # 页面里若有后台线程还在跑（如更新检测），先请它们停下并等
         # 彻底退出，再关数据库——否则退出销毁线程对象时可能闪退
@@ -642,11 +791,15 @@ class MainWindow(QMainWindow):
             if ret != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
+
         # 控制台停靠窗不在 _pages 里，下面的页面循环管不到它——
         # steamcmd 还在跑时在这里收尾（quit → 3 秒 → 强杀 → 等读线程），
         # "优雅退出保住登录缓存"靠的就是这一步。
         # 没启动过 steamcmd 时 shutdown() 直接跳过，安全（已核实幂等）
-        self._console_dock.widget().terminal.shutdown()
+        self._console.terminal.shutdown()
+        # 批次前的备份阶段若在跑：批间停止并等它收尾，防止退出时
+        # 销毁活线程（决策 40）
+        self._batch_controller.shutdown()
         for page in self._pages:
             shutdown = getattr(page, "shutdown", None)
             if callable(shutdown):

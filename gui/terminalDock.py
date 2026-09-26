@@ -59,17 +59,17 @@ import re
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
+    QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
     QPushButton, QVBoxLayout, QWidget,
 )
 
 from core import outputAnalyzer
 from core.backupManager import steamcmd_running
-from gui.logBus import LogBus
 from core.steamPaths import ensure_steamcmd_exe
+from gui.logBus import LogBus
 
 try:
     from winpty import PtyProcess
@@ -132,6 +132,26 @@ class _PtyReader(QThread):
             status = -1
         self.exited.emit(status)
 
+class _CommandInput(QPlainTextEdit):
+    """终端命令输入框（T19㉓ 多行化）：Enter 发送、Shift+Enter 换行。
+    固定约三行高度，粘贴多行命令时框内滚动；发送逻辑在
+    TerminalDock._on_send_input——本类只负责"什么键算发送"。"""
+
+    send_requested = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        # 约三行命令的高度：再高挤占输出区，再矮多行粘贴看不见上下文
+        self.setFixedHeight(72)
+
+    def keyPressEvent(self, event) -> None:
+        # Enter / 小键盘 Enter = 发送；按住 Shift 的 Enter = 换行
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not (
+                event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+            self.send_requested.emit()
+            return
+        super().keyPressEvent(event)
+
 
 class TerminalDock(QWidget):
     """steamcmd 终端：启动/停止子进程 + 原文输出 + 手动命令。"""
@@ -192,15 +212,18 @@ class TerminalDock(QWidget):
         self._view.setFont(font)
         root.addWidget(self._view, 1)
 
-        # 底部：命令输入框 + 发送按钮
+        # 底部：命令输入框（多行）+ 发送按钮（T19㉓）
+        # Enter 发送、Shift+Enter 换行；验证码应答等需要多行的场景
+        # 可以一次粘贴多行，逐行发给 steamcmd（见 _on_send_input）
         bottom = QHBoxLayout()
-        self._input = QLineEdit(self)
+        self._input = _CommandInput(self)
         self._input.setPlaceholderText(
-            "输入 steamcmd 命令，回车发送（例：login 你的用户名）")
+            "输入 steamcmd 命令：Enter 发送，Shift+Enter 换行；"
+            "可一次粘贴多行，会逐行发送（例：login 你的用户名）")
         self._input.setEnabled(False)
         self._btn_send = QPushButton("发送", self)
         self._btn_send.setEnabled(False)
-        self._input.returnPressed.connect(self._on_send_input)
+        self._input.send_requested.connect(self._on_send_input)
         self._btn_send.clicked.connect(self._on_send_input)
         bottom.addWidget(self._input, 1)
         bottom.addWidget(self._btn_send)
@@ -390,12 +413,27 @@ class TerminalDock(QWidget):
             reader.wait(2000)
 
     # ---------------- 输入框 ----------------
-
     def _on_send_input(self) -> None:
-        """用户在输入框敲的命令：与批量下载同走 send_command 一条路。"""
-        text = self._input.text()
-        if self.send_command(text):
-            self._input.clear()
+        """用户在输入框敲的命令：与批量下载同走 send_command 一条路。
+        多行输入按行拆开逐条发（空行跳过）——每条命令独立走一次
+        send_command，中途 steamcmd 退出时自然停在当前行，已发出的
+        行不会被重复补发。全部发出成功才清空输入框；发一半失败时
+        原文保留，用户看着剩余内容自行处理（失败原因 send_command
+        已写进运行日志）。"""
+        if not self._is_running():
+            # 先拦在门外只提醒一次：send_command 每行都会自查，
+            # 不拦的话多行命令会刷出一串相同的警告
+            self._log.warn("steamcmd 未在运行：命令没有发出")
+            return
+        lines = [ln.strip() for ln in self._input.toPlainText().splitlines()]
+        lines = [ln for ln in lines if ln]  # 空行与纯空白行跳过
+        if not lines:
+            return
+        for ln in lines:
+            if not self.send_command(ln):
+                return  # 失败原因已记日志；保留输入框原文，不误清
+        self._input.clear()
+
 
     def _on_send_login(self) -> None:
         """把设置页里的登录命令原样发给 steamcmd。
