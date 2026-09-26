@@ -151,6 +151,12 @@ def _safe_rmtree(target: Path, expected_root: Path) -> None:
     _assert_inside(target, expected_root)
     shutil.rmtree(target)
 
+def safe_rmtree(target: Path, expected_root: Path) -> None:
+    """_safe_rmtree 的公开别名（删除档案对话框在 core 之外，也要过同一道
+    R4 保险丝）。保险丝逻辑仍只有 _assert_inside / _safe_rmtree 这一份，
+    公开入口只是免于 import 下划线私有——行为完全一致。"""
+    _safe_rmtree(target, expected_root)
+
 
 def _dir_size(path: Path) -> int:
     """目录实际占字节数（备份完成后量真实值入库，不用预估值）。"""

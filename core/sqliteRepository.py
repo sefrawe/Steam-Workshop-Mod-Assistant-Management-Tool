@@ -24,7 +24,10 @@ from pathlib import Path
 from core.models import (
     Alert, Backup, FailedMod, Game, Mod, OperationLog, Snapshot,
 )
-from core.modRepository import ALLOWED_ORDERS, LEDGER_TABLES, ModRepository
+
+from core.modRepository import (ALLOWED_ORDERS, BackupOverviewRow,
+                                GameDeletionSummary, LEDGER_TABLES,
+                                ModRepository)
 
 
 _VALID_STATUSES = frozenset({"tracked", "downloaded", "deleted", "failed"})
@@ -302,6 +305,95 @@ class SQLiteRepository(ModRepository):
         # 档案下还有 mod 时，外键 RESTRICT 会让 SQLite 直接抛
         # IntegrityError——保护逻辑交给数据库本身，这里一行都不用多写
         self._conn.execute("DELETE FROM games WHERE app_id = ?", (app_id,))
+
+    # ---------- 档案删除与备份总览 ----------
+
+    def game_deletion_summary(self, app_id: int) -> GameDeletionSummary:
+        # get_game 查不到返回 None → 这里转成 ValueError（口径同 update_game）
+        if self.get_game(app_id) is None:
+            raise ValueError(f"游戏档案 {app_id} 不存在")
+        mod_total = self._conn.execute(
+            "SELECT COUNT(*) FROM mods WHERE game_id = ?",
+            (app_id,)).fetchone()[0]
+        mod_deleted = self._conn.execute(
+            "SELECT COUNT(*) FROM mods WHERE game_id = ? AND status = 'deleted'",
+            (app_id,)).fetchone()[0]
+        failed = self._conn.execute(
+            "SELECT COUNT(*) FROM failed_mods WHERE game_id = ?",
+            (app_id,)).fetchone()[0]
+        # 备份登记挂在 mod 名下，要经 mods 才能找到所属档案
+        bk = self._conn.execute(
+            """SELECT COUNT(*), COALESCE(SUM(size_bytes), 0)
+               FROM backups WHERE mod_id IN
+                                  (SELECT mod_id FROM mods WHERE game_id = ?)""",
+            (app_id,)).fetchone()
+        paths = [r[0] for r in self._conn.execute(
+            """SELECT backup_path FROM backups WHERE mod_id IN
+                                                     (SELECT mod_id FROM mods WHERE game_id = ?)
+               ORDER BY id""", (app_id,))]
+        return GameDeletionSummary(
+            app_id=app_id, mod_total=mod_total, mod_deleted=mod_deleted,
+            failed_count=failed, backup_count=bk[0], backup_bytes=bk[1],
+            backup_paths=paths)
+
+    def delete_game_deep(self, app_id: int) -> GameDeletionSummary:
+        # 盘点放事务外（纯读）；它顺带完成存在性检查——不存在的档案
+        # 在动手之前就报 ValueError，不进事务
+        summary = self.game_deletion_summary(app_id)
+        with self._atomic():
+            # 子查询形式（IN (SELECT …)）：mod 列表为空也不会出 SQL
+            # 语法问题，也不用分片，一条语句数据库自己解决
+            self._conn.execute(
+                """DELETE FROM special_mod_alerts WHERE mod_id IN
+                                                        (SELECT mod_id FROM mods WHERE game_id = ?)""",
+                (app_id,))
+            self._conn.execute(
+                """DELETE FROM mod_snapshots WHERE mod_id IN
+                                                   (SELECT mod_id FROM mods WHERE game_id = ?)""",
+                (app_id,))
+            # 备份登记是 mods 的 RESTRICT 外键——必须先删干净，否则
+            # 下一步删 mod 会被数据库拦下（这正是闸的工作方式）
+            self._conn.execute(
+                """DELETE FROM backups WHERE mod_id IN
+                                             (SELECT mod_id FROM mods WHERE game_id = ?)""",
+                (app_id,))
+            self._conn.execute(
+                "DELETE FROM mods WHERE game_id = ?", (app_id,))
+            # 失效归档随档案删：mod_id 本来就没外键（证据表），归档
+            # 不会自己消失，必须显式来删
+            self._conn.execute(
+                "DELETE FROM failed_mods WHERE game_id = ?", (app_id,))
+            self._conn.execute(
+                "DELETE FROM games WHERE app_id = ?", (app_id,))
+            # operations_log 刻意不删（见契约注释）。其中 backup_id
+            # 指向刚才删掉的备份，外键 ON DELETE SET NULL 自动置空
+        return summary
+
+    def list_backups_overview(self, game_id: int | None = None
+                              ) -> list[BackupOverviewRow]:
+        sql = """SELECT b.id AS backup_id, b.mod_id, m.title AS mod_title,
+                        m.status AS mod_status, m.game_id,
+                        g.name AS game_name, b.backup_path, b.size_bytes,
+                        b.version_timeupdated, b.manifest, b.created_at,
+                        b.pinned
+                 FROM backups b
+                          JOIN mods m ON b.mod_id = m.mod_id
+                          JOIN games g ON m.game_id = g.app_id"""
+        params: list = []
+        if game_id is not None:
+            sql += " WHERE m.game_id = ?"
+            params.append(game_id)
+        sql += " ORDER BY b.created_at DESC, b.id DESC"
+        return [BackupOverviewRow(
+            backup_id=r["backup_id"], mod_id=r["mod_id"],
+            mod_title=r["mod_title"], mod_status=r["mod_status"],
+            game_id=r["game_id"], game_name=r["game_name"],
+            backup_path=r["backup_path"], size_bytes=r["size_bytes"],
+            version_timeupdated=r["version_timeupdated"],
+            manifest=r["manifest"], created_at=r["created_at"],
+            pinned=bool(r["pinned"]),
+        ) for r in self._conn.execute(sql, params).fetchall()]
+
 
     # ---------- mods ----------
 

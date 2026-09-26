@@ -13,10 +13,11 @@
 """
 import pytest
 import requests
-
 from core.steamApiClient import (
-    COLLECTION_URL, DETAILS_URL, SteamApiError, SteamApiClient,
+    COLLECTION_URL, DETAILS_URL, STORE_APPDETAILS_URL,
+    SteamApiError, SteamApiClient,
 )
+
 
 
 class FakeResponse:
@@ -46,6 +47,16 @@ class FakeSession:
         if isinstance(item, Exception):
             raise item
         if isinstance(item, dict):  # 裸 dict = 成功响应，补上状态码壳
+            item = FakeResponse(200, item)
+        return item
+
+    def get(self, url: str, params: dict | None = None, timeout=None):
+        """appdetails 是 GET 请求：记录口径与 post 完全一致。"""
+        self.calls.append((url, dict(params or {})))
+        item = self._responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        if isinstance(item, dict):
             item = FakeResponse(200, item)
         return item
 
@@ -279,3 +290,119 @@ def test_collection_non_collection_returns_empty():
     client = make_client(session, sleeps)
 
     assert client.query_collection_children(5) == []
+
+# ---------- 游戏名查询（appdetails）----------
+
+def appdetails_payload(app_id: int, name: str | None, *, success: bool = True) -> dict:
+    """appdetails 的响应形状：{ "<appid>": {"success": bool, "data": {...}}}。
+    filters=basic 时 data 只带 name/type 那几个字段，测试只造用得到的。"""
+    entry: dict = {"success": success}
+    if name is not None:
+        entry["data"] = {"type": "game", "name": name}
+    return {str(app_id): entry}
+
+
+def test_app_name_success():
+    session = FakeSession([appdetails_payload(1158310, "Crusader Kings III")])
+
+    def _no_post(*_a, **_k):
+        raise AssertionError("appdetails 是 GET 接口，不许走 post")
+
+    session.post = _no_post  # 钉死动词：实现若误用 post 当场红
+    sleeps: list[float] = []
+    client = make_client(session, sleeps)
+    assert client.query_app_name(1158310) == "Crusader Kings III"
+    url, params = session.calls[0]
+    assert url == STORE_APPDETAILS_URL
+    assert params["appids"] == "1158310"
+    assert params["filters"] == "basic"
+
+
+def test_app_name_unknown_appid_returns_none():
+    # 查无此 AppID（success=false）是商店的正常回答，不是错误——
+    # 调用方据此让用户手输名字，不拦建档
+    session = FakeSession([appdetails_payload(999999, None, success=False)])
+    sleeps: list[float] = []
+    client = make_client(session, sleeps)
+    assert client.query_app_name(999999) is None
+    assert sleeps == []  # 正常回答一次成功，不该有任何重试等待
+
+
+def test_app_name_success_without_data_returns_none():
+    # success=true 却没带 data（商店偶发形态）：同样按"没名字"回答
+    session = FakeSession([{"42": {"success": True}}])
+    sleeps: list[float] = []
+    client = make_client(session, sleeps)
+    assert client.query_app_name(42) is None
+
+
+def test_app_name_data_without_name_returns_none():
+    # data 存在但没有 name 键：按"没名字"回答
+    session = FakeSession([{"7": {"success": True, "data": {"type": "game"}}}])
+    sleeps: list[float] = []
+    client = make_client(session, sleeps)
+    assert client.query_app_name(7) is None
+
+
+def test_app_name_retries_on_429():
+    # 商店接口同样有限流：沿用本类重试口径（429 → 等一个间隔再试）
+    session = FakeSession([FakeResponse(429), appdetails_payload(2, "某游戏")])
+    sleeps: list[float] = []
+    client = make_client(session, sleeps)
+    assert client.query_app_name(2) == "某游戏"
+    assert len(session.calls) == 2
+    assert sleeps == [0.2]
+
+
+def test_app_name_network_error_retried_then_raises():
+    session = FakeSession([requests.ConnectionError("断网")] * 3)
+    sleeps: list[float] = []
+    client = make_client(session, sleeps)
+    with pytest.raises(SteamApiError):
+        client.query_app_name(3)
+    assert len(session.calls) == 3  # max_retries=2 → 共 3 次
+    assert sleeps == [0.2, 0.4]     # 指数退避，第三次失败后不再等
+
+
+def test_app_name_bad_json_is_retried():
+    session = FakeSession([FakeResponse(200, payload=None),
+                           appdetails_payload(4, "游戏四")])
+    sleeps: list[float] = []
+    client = make_client(session, sleeps)
+    assert client.query_app_name(4) == "游戏四"
+
+
+def test_app_name_other_status_raises_immediately():
+    # 404 这类错误重试没有意义：一次请求就报错
+    session = FakeSession([FakeResponse(404)])
+    sleeps: list[float] = []
+    client = make_client(session, sleeps)
+    with pytest.raises(SteamApiError):
+        client.query_app_name(5)
+    assert len(session.calls) == 1
+    assert sleeps == []
+# ---------- 游戏名查询：外层键怪癖（实测回归） ----------
+
+def test_app_name_wrong_outer_key_still_found():
+    # Steam 商店接口实测怪癖（294100 RimWorld）：请求 appids=294100，
+    # 响应外层键却是它某个 DLC 的编号，载荷里 steam_appid=294100、
+    # name=RimWorld。解析必须认载荷、不认外层键
+    session = FakeSession([{
+        "1244270": {"success": True,
+                    "data": {"type": "game", "name": "RimWorld",
+                             "steam_appid": 294100}}}])
+    sleeps: list[float] = []
+    client = make_client(session, sleeps)
+    assert client.query_app_name(294100) == "RimWorld"
+
+
+def test_app_name_foreign_payload_returns_none():
+    # 归属核验：载荷的 steam_appid 与请求不符 → 这是别的游戏的数据，
+    # 宁可"查无此名"，绝不能把名字张冠李戴
+    session = FakeSession([{
+        "294100": {"success": True,
+                   "data": {"type": "game", "name": "来路不明的游戏",
+                            "steam_appid": 12345}}}])
+    sleeps: list[float] = []
+    client = make_client(session, sleeps)
+    assert client.query_app_name(294100) is None

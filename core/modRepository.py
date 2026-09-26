@@ -25,6 +25,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
 from pathlib import Path
+from dataclasses import dataclass
 
 from core.models import (
     Alert, Backup, FailedMod, Game, Mod, OperationLog, Snapshot,
@@ -59,6 +60,48 @@ LEDGER_TABLES: tuple[str, ...] = (
     "games", "mods", "mod_snapshots", "backups",
     "operations_log", "failed_mods", "special_mod_alerts",
 )
+# ---------- 查询结果结构（不是账本行，所以不放 models.py） ----------
+# models.py 存的是"账本里一行"的形状（Game/Mod/Backup…）；下面两个是
+# 查询服务的返回形状（多表聚合 / 联表），只被本契约与其实现使用，
+# 就近定义在契约层（modVerifier 的 VerifyResult 是同样的就近先例）。
+
+@dataclass
+class GameDeletionSummary:
+    """删除档案前的盘点结果。三个用途：
+    1. 删除确认弹窗把数字摆给用户看（"将删除 N 条 mod、M 条备份登记…"）
+    2. backup_paths 是登记过的备份目录完整清单——账删掉之后，磁盘上
+       要不要带走这些文件、带走哪些，由 GUI 层按用户勾选另行处理；
+       repo 只管账本，绝不碰文件系统（与 delete_backup_record 同一分工）
+    3. delete_game_deep 的返回值——删完写日志时报告删了什么
+    """
+    app_id: int
+    mod_total: int           # 档案下 mod 记录总数（含所有状态）
+    mod_deleted: int         # 其中软删除（status='deleted'）条数
+    failed_count: int        # 失效归档（failed_mods）条数
+    backup_count: int        # 备份登记条数
+    backup_bytes: int        # 登记的备份总字节数
+    backup_paths: list[str]  # 备份目录名清单（R1：账本存相对 backup_dir 的
+    # 目录名；拼回完整路径 + 过保险丝是 GUI 层的事）
+
+
+@dataclass
+class BackupOverviewRow:
+    """备份总览页的一行：登记信息 + 归属信息，联表一次取齐。
+    磁盘上文件还在不在，不在本结构里——repo 只管账；GUI 拿到行后
+    逐行 Path.exists() 判定"盘上"状态（与备份页「盘上」列同一分工）。
+    """
+    backup_id: int
+    mod_id: int
+    mod_title: str | None    # mod 记录可能没标题（acf 冷启动、API 未补）
+    mod_status: str          # 所属 mod 的账面状态（软删/失效的备份要能看出来）
+    game_id: int
+    game_name: str
+    backup_path: str
+    size_bytes: int
+    version_timeupdated: int
+    manifest: str | None
+    created_at: int
+    pinned: bool
 
 
 class ModRepository(ABC):
@@ -113,6 +156,43 @@ class ModRepository(ABC):
     def delete_game(self, app_id: int) -> None:
         """删除档案。档案下仍有 mod 时被外键 RESTRICT 拦下 → IntegrityError。
         这是故意的保护：防止误删带 237 个 mod 的档案。"""
+
+    # ============ 档案删除与备份总览（3） ============
+
+    @abstractmethod
+    def game_deletion_summary(self, app_id: int) -> GameDeletionSummary:
+        """删除前的只读盘点：数一数这个档案名下都有什么。
+        给删除确认弹窗用——先看清楚，再决定删不删（数据先可见再动手）。
+        app_id 不存在 → ValueError（口径同 update_game）。"""
+
+    @abstractmethod
+    def delete_game_deep(self, app_id: int) -> GameDeletionSummary:
+        """删档案连同名下全部从属记录（一个事务，要么全清要么原样）。
+
+        与 delete_game 的分工：delete_game 是带 RESTRICT 闸的低层原语
+        （名下有 mod 就拒绝，防误删）；本方法是"用户看清楚之后明确
+        要走"的完整通道，按外键依赖从子到父依次清空：
+          特殊提醒 → 快照 → 备份登记 → mod → 失效归档 → 档案
+        （提醒和快照本有 CASCADE 兜底，仍显式先删——读代码的人不用
+        背外键图也知道发生了什么。）
+
+        范围拍板：
+        - 备份登记删账；磁盘文件是否带走由 GUI 层按用户勾选另行处理
+          （repo 绝不碰文件系统）；删账前 GUI 应先做数据库备份兜底
+        - 失效归档随档案删（证据属于游戏，游戏没了证据无从谈起）
+        - 软删除的 mod 一并物理清除（档案没了没有"等恢复"可言）
+        - operations_log 不删：全局历史，设计上活得比备份久；其中
+          backup_id 指向本批备份的外键是 SET NULL，自动置空不悬空
+
+        返回删除前的盘点（= 删掉了什么，供日志报告）。
+        档案不存在 → ValueError（不进事务，动手之前就拦下）。"""
+
+    @abstractmethod
+    def list_backups_overview(self, game_id: int | None = None) -> list[BackupOverviewRow]:
+        """备份总览页的数据源：全部备份登记联表取齐归属信息。
+        game_id=None 返回全部档案的；传则只看该档案。
+        新→旧排序（同一时刻按 id 倒序，顺序稳定）。只读，不碰磁盘。"""
+
 
     # ============ mods（12） ============
 

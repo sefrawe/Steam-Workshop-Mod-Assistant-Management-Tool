@@ -1,11 +1,13 @@
 """Steam 网络客户端
 """
 """
-封装 Steam 官方的两个查询接口（都不需要 API Key，与旧脚本一致）：
+封装 Steam 官方的三个查询接口（都不需要 API Key，与旧脚本一致）：
 
 - GetPublishedFileDetails：一次最多查 100 个工坊条目的远端信息
   （标题、作者、更新时间、大小、订阅数、收藏数、浏览数、标签、预览图）
 - GetCollectionDetails：查某个"合集"里包含哪些条目
+- appdetails（商店公开接口）：查游戏名（添加档案对话框用）
+
 
 本文件只负责发请求和解析响应，不碰数据库，也不碰界面。
 
@@ -46,6 +48,7 @@ except Exception:  # 没安装 / 环境不支持 → 退回 certifi 默认行为
 
 DETAILS_URL = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
 COLLECTION_URL = "https://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v1/"
+STORE_APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
 
 # 官方接口的单次查询上限：超过 100 个必须自己分批
 _BATCH = 100
@@ -159,6 +162,42 @@ class SteamApiClient:
         return [WorkshopItem.from_api(d) for d in details
                 if isinstance(d, dict)]
 
+    # ---------- 对外：查游戏名 ----------
+
+    def query_app_name(self, app_id: int) -> str | None:
+        """查游戏名（商店公开接口 appdetails，无需 key，GET 请求）。
+
+        返回值三档（与"逐条判定"同一哲学：查询结果不是错误）：
+        - 游戏名 str：success=true 且带非空 name
+        - None：查无此 AppID / 没带 data / name 为空——这是商店的正常
+          回答，调用方（添加档案对话框）据此让用户手输名字，不拦建档
+        - SteamApiError：429/503/断网/坏 JSON 重试耗尽，或 404 等其他
+          状态码立即抛——网络层的失败要让人看见，不该冒充"没这个名字"
+        """
+        data = self._get_json(STORE_APPDETAILS_URL,
+                              {"appids": str(app_id), "filters": "basic"})
+        # 响应形状名义上是 { "<appid>": {"success": bool, "data": {...}} }，
+        # 但外层键不可信——实测查 294100（RimWorld），返回的键是它某个
+        # DLC 的编号，载荷却正是 294100 本尊（data.steam_appid 才是权威，
+        # 浏览器实测为证）。所以先按键取，取不到就按值取（一次只查一个
+        # appid，响应至多一条），最后核验载荷归属，绝不张冠李戴
+        entry = None
+        if isinstance(data, dict) and data:
+            entry = data.get(str(app_id))
+            if not isinstance(entry, dict):
+                entry = next(iter(data.values()), None)
+        if not isinstance(entry, dict) or not entry.get("success"):
+            return None
+        info = entry.get("data")
+        if not isinstance(info, dict):
+            return None
+        # 归属核验：载荷声明属于别的 appid → 宁可"查无此名"，也不报错名字
+        payload_id = info.get("steam_appid")
+        if payload_id is not None and str(payload_id) != str(app_id):
+            return None
+        name = info.get("name")
+        return str(name) if name else None
+
     # ---------- 对外：查合集成员 ----------
 
     def query_collection_children(self, collection_id: int) -> list[int]:
@@ -189,15 +228,21 @@ class SteamApiClient:
 
     # ---------- 内部：带重试的请求 ----------
 
-    def _post_json(self, url: str, form: dict) -> dict:
-        """POST 表单 → 解析 JSON。失败处理分三档：
+    def _request_json(self, url: str,
+                      send: Callable[[], requests.Response]) -> dict:
+        """发一次请求 → 解析 JSON，重试三档（POST/GET 共用这一份逻辑）：
         - 429/503、网络异常、空响应体：值得重试，指数退避（等待翻倍）
         - 其他非 200（如 404）：立刻报错，重试没有意义
-        - 重试用完仍失败：抛 SteamApiError，把最后一次的失败原因带出去"""
+        - 重试用完仍失败：抛 SteamApiError，把最后一次的失败原因带出去
+
+        send 是"怎么发这个请求"的无参函数（POST 还是 GET 由调用方决定），
+        本方法只管"发了之后怎么算失败、失败了怎么办"——重试策略只有
+        这一份，改判定/改退避只动这里，绝不出现两处走样。
+        """
         last_exc: Exception | None = None
         for attempt in range(self._max_retries + 1):  # 首次 + N 次重试
             try:
-                resp = self._session.post(url, data=form, timeout=_TIMEOUT)
+                resp = send()
             except requests.RequestException as exc:
                 last_exc = exc  # 连不上/DNS 失败/超时/证书校验失败等，值得重试
             else:
@@ -216,3 +261,13 @@ class SteamApiClient:
                 self._sleep(self._interval_ms / 1000 * (2 ** attempt))
         raise SteamApiError(
             f"请求多次失败（共 {self._max_retries + 1} 次）：{last_exc}")
+
+    def _post_json(self, url: str, form: dict) -> dict:
+        """POST 表单查询（两个官方接口的发送方式），重试逻辑见 _request_json。"""
+        return self._request_json(
+            url, lambda: self._session.post(url, data=form, timeout=_TIMEOUT))
+
+    def _get_json(self, url: str, params: dict) -> dict:
+        """GET 查询（商店接口的发送方式），重试逻辑见 _request_json。"""
+        return self._request_json(
+            url, lambda: self._session.get(url, params=params, timeout=_TIMEOUT))

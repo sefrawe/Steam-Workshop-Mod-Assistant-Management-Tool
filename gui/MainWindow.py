@@ -31,6 +31,7 @@ from core.appSettings import AppSettings
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
 from gui.addModPage import AddModPage
+from gui.backupOverviewPage import BackupOverviewPage
 from gui.backupPage import BackupPage
 from gui.batchDownloadController import BatchDownloadController
 from gui.browserTabPage import BrowserTabPage
@@ -51,6 +52,7 @@ from gui.welcomePage import WelcomePage
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根统一从 appPaths 定位（源码=项目根\data，打包=exe 旁\data）
 
 _NAV_WIDTH = 210
+_IDX_BACKUP_OVERVIEW = 13  # 备份总览页栈下标 = _pages 末尾 append 后落位（决策 13 模式）
 
 # 日常更新一条龙的两个开关键名（值一律 "1"/"0"，经 get_int 读）。
 # 与 console_auto_show 同款口径：界面就地开关，只进 appSettings.DEFAULTS，
@@ -81,6 +83,7 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
     ]),
     ("备份管理", [
         ("备份与恢复", 2),
+        ("备份总览", _IDX_BACKUP_OVERVIEW),
     ]),
     ("设置", 3),
 ]
@@ -143,6 +146,7 @@ class MainWindow(QMainWindow):
                                       log=self._log)
 
         self._switcher.current_game_changed.connect(self._on_game_changed)
+        self._switcher.overview_requested.connect(self._on_overview_requested)
         side_layout.addWidget(self._switcher)
 
         self._nav = QTreeWidget(side)
@@ -190,6 +194,9 @@ class MainWindow(QMainWindow):
             AddModPage(self._repo, self._settings, self._stack, log=self._log),  # 10 功能模块：加入新 mod
             BrowserTabPage(self._stack, log=self._log),  # 11 基础功能：从浏览器取网址
             DailyUpdatePage(self._repo, self._settings, self._stack, log=self._log),  # 12 功能模块：日常更新
+            BackupOverviewPage(self._repo, self._settings, self._stack,
+                               log=self._log),  # 13 备份总览（跨档案大盘）
+
         ]
 
         for page in self._pages:
@@ -302,8 +309,10 @@ class MainWindow(QMainWindow):
         # 只剩"切换游戏"下拉）。三个档案相关项无档案时置灰，
         # 置灰统一走 _on_game_changed
         m_game = self.menuBar().addMenu("游戏(&G)")
-        act_add_game = QAction("添加游戏档案（临时）…", self)
-        act_add_game.setToolTip("正式建档向导做好前的临时建档入口")
+        act_add_game = QAction("添加游戏档案…", self)
+        act_add_game.setToolTip("输入 AppID 一屏建档：自动查名、查重、"
+                                "下载目录按 steamcmd 位置推导并可预览")
+
         act_add_game.triggered.connect(self._switcher.add_game_dialog)
         m_game.addAction(act_add_game)
         m_game.addSeparator()
@@ -325,6 +334,14 @@ class MainWindow(QMainWindow):
             "先预演能对回多少条，确认后只改档案字段，不动文件")
         self._act_relocate.triggered.connect(self._switcher.open_relocate)
         m_game.addAction(self._act_relocate)
+        m_game.addSeparator()
+        self._act_delete = QAction("删除当前档案…", self)
+        self._act_delete.setToolTip(
+            "删除当前游戏档案名下的全部账目（mod 记录、版本快照、备份登记、"
+            "失效归档）。清账前自动生成数据库快照兜底；磁盘备份文件默认"
+            "保留、可勾选一并删除。content 下载目录与游戏目录不受影响")
+        self._act_delete.triggered.connect(self._switcher.open_delete)
+        m_game.addAction(self._act_delete)
 
         # 视图(&V)（T19⑭⑮）：两块面板的显隐开关，checkable 状态即现状。
         # 与控制台显隐同口径——不记忆跨重启（要记的话往 appSettings
@@ -367,6 +384,16 @@ class MainWindow(QMainWindow):
         index = current.data(0, Qt.ItemDataRole.UserRole)
         if isinstance(index, int):
             self._stack.setCurrentIndex(index)
+            if index == _IDX_BACKUP_OVERVIEW:
+                # 备份总览的数据源是全局账本，且没有 set_game——每次切
+                # 进来重读一遍，别让别的页删改后这里显示旧账
+                self._pages[index].refresh()
+
+    def _on_overview_requested(self, app_id: int) -> None:
+        """删除对话框「先去备份总览看看」→ 跳总览页并按该档案过滤。"""
+        self._goto_page(_IDX_BACKUP_OVERVIEW)
+        self._pages[_IDX_BACKUP_OVERVIEW].set_filter_game(app_id)
+
 
     def _on_nav_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         if item.childCount():
@@ -378,7 +405,6 @@ class MainWindow(QMainWindow):
         # 决策 36⑦：确认清单归属"检测那一刻"的档案——切档案即自动
         # 关掉还开着的清单，防止旧档案的条目被执行到新档案头上
         self._close_update_dialog()
-
         if game is None:
             self._status_game.setText("当前游戏：（无）—— 请先添加档案")
         else:
@@ -386,14 +412,13 @@ class MainWindow(QMainWindow):
         for page in self._pages:
             if hasattr(page, "set_game"):
                 page.set_game(game)
-        # 无档案时三个档案入口没有操作对象；添加档案不在其列——空库也能加
+        # 无档案时档案入口没有操作对象；添加档案不在其列——空库也能加
         has_game = game is not None
         self._act_edit.setEnabled(has_game)
         self._act_link.setEnabled(has_game)
         self._act_relocate.setEnabled(has_game)
+        self._act_delete.setEnabled(has_game)
         self._act_share_out.setEnabled(has_game)  # 分享包按当前档案导出
-
-
 
     def _on_imported(self, count: int) -> None:
         self._nav.setCurrentItem(self._nav_items[0])  # 跳到 mod 库页

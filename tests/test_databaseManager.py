@@ -365,3 +365,85 @@ def test_composite_rolled_back_with_outer(repo):
             raise RuntimeError("boom")
     assert repo.get_mod(1).status == "tracked"  # 全部回滚
     assert repo.list_failed(GID) == []
+
+# ---------- 档案删除与备份总览 ----------
+
+def make_full_scene(r: SQLiteRepository) -> int:
+    """一个"满员"档案（id=1）+ 一个无辜档案（id=2）。
+    返回满员档案的备份登记 id——级联测试和总览测试共用这套场景。"""
+    make_game(r, 1)
+    make_mod(r, 101, game_id=1, title="常规")
+    make_mod(r, 102, game_id=1, title="已软删")
+    r.mark_deleted(102, {"local_size": 1})
+    make_mod(r, 103, game_id=1, title="有备份的")
+    r.add_snapshot(103, time_updated=100, snapshot_at=1)
+    r.add_alert(103, remote_time_updated=100)
+    b = r.add_backup(103, r"D:\bk\103_v100", 500, 100)
+    make_mod(r, 104, game_id=1, title="已失效")
+    r.mark_failed(104, "result=9")
+    # 无辜档案：同样带 mod 和备份，用来证明深删不殃及邻里
+    make_game(r, 2)
+    make_mod(r, 201, game_id=2, title="邻居的mod")
+    r.add_backup(201, r"D:\bk\201_v1", 60, 1)
+    return b.id
+
+
+def test_game_deletion_summary(repo):
+    make_full_scene(repo)
+    s = repo.game_deletion_summary(1)
+    assert (s.app_id, s.mod_total, s.mod_deleted) == (1, 4, 1)
+    assert (s.failed_count, s.backup_count, s.backup_bytes) == (1, 1, 500)
+    assert s.backup_paths == [r"D:\bk\103_v100"]
+    with pytest.raises(ValueError):
+        repo.game_deletion_summary(999)
+
+
+def test_delete_game_deep_cleans_all(repo):
+    bid = make_full_scene(repo)
+    op = repo.add_operation("steamcmd +workshop_download_item …", backup_id=bid)
+    summary = repo.delete_game_deep(1)
+    # 返回的盘点 = 删掉了的东西
+    assert summary.mod_total == 4 and summary.backup_count == 1
+    # 满员档案账面全清：档案、mod、快照、提醒、备份登记、失效归档
+    assert repo.get_game(1) is None
+    assert repo.list_mods(1) == []
+    assert repo.list_snapshots(103) == []
+    assert repo.list_alerts(103) == []
+    assert repo.get_backup(bid) is None
+    assert repo.list_failed(1) == []
+    # 无辜档案毫发无损
+    assert repo.get_game(2) is not None
+    assert repo.get_mod(201).title == "邻居的mod"
+    assert [r.backup_path for r in repo.list_backups_overview(2)] == [r"D:\bk\201_v1"]
+    # 操作日志保留（全局历史），backup_id 被外键自动置空、不悬空
+    logs = repo.list_operations()
+    assert len(logs) == 1 and logs[0].id == op and logs[0].backup_id is None
+
+
+def test_delete_game_deep_empty_game(repo):
+    # 空档案（名下什么都没有）也能走完整通道，不报错
+    make_game(repo, 3)
+    s = repo.delete_game_deep(3)
+    assert s.mod_total == 0 and s.backup_count == 0
+    assert repo.get_game(3) is None
+
+
+def test_delete_game_deep_nonexistent(repo):
+    with pytest.raises(ValueError):
+        repo.delete_game_deep(999)
+
+
+def test_list_backups_overview(repo):
+    bid = make_full_scene(repo)
+    repo.set_pinned(bid, True)
+    rows = repo.list_backups_overview()
+    assert len(rows) == 2
+    assert rows[0].backup_path == r"D:\bk\201_v1"  # 新→旧（同刻按 id 倒序）
+    by_path = {r.backup_path: r for r in rows}
+    row103 = by_path[r"D:\bk\103_v100"]
+    assert row103.mod_title == "有备份的" and row103.mod_status == "tracked"
+    assert row103.game_name == "Crusader Kings III" and row103.pinned is True
+    assert by_path[r"D:\bk\201_v1"].game_id == 2
+    # 按档案筛
+    assert [r.backup_path for r in repo.list_backups_overview(2)] == [r"D:\bk\201_v1"]
+    assert repo.list_backups_overview(999) == []  # 不存在的档案 → 空清单，不报错
