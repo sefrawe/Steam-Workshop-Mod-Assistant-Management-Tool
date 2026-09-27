@@ -26,6 +26,8 @@ import sys
 import threading
 
 from gui.browserPickDialog import BrowserPickDialog
+from gui.rescuePage import RescuePage
+from gui.shareListPage import ShareListPage
 
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
@@ -62,6 +64,8 @@ from gui.firstUsePage import FirstUsePage
 from gui.gameSwitcher import GameSwitcher
 from gui.importPage import ImportPage
 from gui.modListPage import ModListPage
+from gui.migrationPage import MigrationPage
+
 from gui.settingsPage import SettingsPage
 from gui.statsPage import StatsPage
 from gui.updateCheckPage import UpdateCheckPage
@@ -74,6 +78,10 @@ DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根统一从 appPaths 定位
 _NAV_WIDTH = 210
 _IDX_BACKUP_OVERVIEW = 13  # 备份总览页栈下标 = _pages 末尾 append 后落位（决策 13 模式）
 _IDX_FIRST_USE = 14        # 首次使用模块页 = _pages 末尾 append 后落位（同决策 13 模式）
+_IDX_RESCUE = 15  # 功能模块：恢复旧版本 = _pages 末尾 append 后落位（决策 13 模式）
+_IDX_SHARE = 16   # 功能模块：分享清单 = 同上
+_IDX_MIGRATION = 17  # 功能模块：换机迁移 = _pages 末尾 append 后落位（决策 13 模式）
+
 
 # 日常更新一条龙的两个开关键名（值一律 "1"/"0"，经 get_int 读）。
 # 与 console_auto_show 同款口径：界面就地开关，只进 appSettings.DEFAULTS，
@@ -99,6 +107,11 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
         # 改判不退役：模块走转调、入口留给熟手直达（两条路一本账）
         ("日常更新", 12),  # T22：检测 → 确认清单 → 批量下载 → 复扫 的引导壳
         ("删除 mod", None),  # 待做：软删除/恢复/清理编排
+        ("恢复旧版本", _IDX_RESCUE),  # 决策 34 第二档：备份恢复的引导壳（零新引擎）
+        ("换机迁移", _IDX_MIGRATION),  # 决策 34 第二档：账本+目录推导+联接+重定位 的编排壳
+
+        ("分享清单", _IDX_SHARE),  # 决策 34 第二档：文件菜单两项的第二入口 + 收尾引导
+
     ]),
     ("mod 库", 0),
     ("统计", 8),
@@ -226,6 +239,10 @@ class MainWindow(QMainWindow):
             DailyUpdatePage(self._repo, self._settings, self._stack, log=self._log),  # 12 功能模块：日常更新
             BackupOverviewPage(self._repo, self._settings, self._stack, log=self._log),  # 13 备份总览（跨档案大盘）
             FirstUsePage(self._repo, self._settings, self._stack, log=self._log),  # 14 功能模块：首次使用（决策 54）
+            RescuePage(self._repo, self._settings, self._stack, log=self._log),  # 15 功能模块：恢复旧版本
+            ShareListPage(self._repo, self._settings, self._stack, log=self._log),  # 16 功能模块：分享清单
+            MigrationPage(self._repo, self._settings, self._stack, log=self._log),  # 17 功能模块：换机迁移
+
         ]
         for page in self._pages:
             self._stack.addWidget(page)
@@ -277,6 +294,41 @@ class MainWindow(QMainWindow):
         # （树高亮同步包含在内，别裸调 stack）
         self._pages[0].advanced_results_requested.connect(
             lambda: self._goto_page(0))
+        # —— 功能模块「恢复旧版本」（决策 34 第二档）：引导壳，零新引擎 ——
+        # ②去备份页：备份页是唯一恢复入口（R8 前置备份在那里内置）
+        self._pages[_IDX_RESCUE].go_backup_requested.connect(
+            lambda: self._goto_page(2))
+        # ③扫描确认：转调 mod 库页 quiet 扫描链（与"加入新 mod"第④步
+        # 同一条链）；归属=当前档案（恢复动作发生在此档案名下）
+        self._pages[_IDX_RESCUE].rescan_requested.connect(
+            self._on_rescue_rescan)
+        # —— 功能模块「分享清单」：文件菜单同款动作的第二入口 ——
+        # 直接转调既有方法：确认弹窗、防呆、日志、状态栏回执全在原处
+        self._pages[_IDX_SHARE].share_out_requested.connect(
+            self._export_sharepack)
+        self._pages[_IDX_SHARE].share_in_requested.connect(
+            self._import_sharepack)
+        self._pages[_IDX_SHARE].open_update_requested.connect(
+            lambda: self._goto_page(4))
+        # —— 功能模块「换机迁移」（决策 34 第二档）：七个转调，零新引擎 ——
+        # ①②账本进出（破坏性确认、批次拒绝都在 _import_ledger 原处）
+        self._pages[_IDX_MIGRATION].export_requested.connect(
+            self._export_ledger)
+        self._pages[_IDX_MIGRATION].import_requested.connect(
+            self._import_ledger)
+        # ③设置页 ④编辑档案 ⑥连接指引/重定位（后两个与「游戏」菜单同源）
+        self._pages[_IDX_MIGRATION].open_settings_requested.connect(
+            lambda: self._goto_page(3))
+        self._pages[_IDX_MIGRATION].open_edit_requested.connect(
+            self._switcher.open_edit)
+        self._pages[_IDX_MIGRATION].open_link_requested.connect(
+            self._switcher.open_link_guide)
+        self._pages[_IDX_MIGRATION].open_relocate_requested.connect(
+            self._switcher.open_relocate)
+        # ⑦扫描确认：转调 mod 库页 quiet 扫描链（与"恢复旧版本"③同一条链）
+        self._pages[_IDX_MIGRATION].rescan_requested.connect(
+            self._on_migration_rescan)
+
 
         self._nav.setCurrentItem(self._nav_items[9])  # 启动默认落「欢迎」页
 
@@ -528,6 +580,28 @@ class MainWindow(QMainWindow):
         game = self._repo.get_game(app_id)
         self._pages[0].scan_local_quiet(game)
         self._pages[10].on_scan_confirmed()
+
+    def _on_rescue_rescan(self) -> None:
+        """功能模块「恢复旧版本」第③步【扫描确认】：转调 mod 库页的
+        quiet 扫描链（与"加入新 mod"第④步同一条链）。恢复动作发生在
+        当前界面档案名下，就扫当前档案——无档案时页面按钮本就置灰，
+        这里双保险直接返回。"""
+        game = self._current_game
+        if game is None:
+            return
+        self._pages[0].scan_local_quiet(game)
+        self._pages[_IDX_RESCUE].on_rescan_done(game.name)
+    def _on_migration_rescan(self) -> None:
+        """功能模块「换机迁移」第⑦步【扫描确认】：转调 mod 库页的
+        quiet 扫描链，扫当前档案（迁移按档案逐个推进）。无档案时
+        页面按钮本就置灰，这里双保险直接返回。与 _on_rescue_rescan
+        同链不同回叫对象，各留各的语义。"""
+        game = self._current_game
+        if game is None:
+            return
+        self._pages[0].scan_local_quiet(game)
+        self._pages[_IDX_MIGRATION].on_rescan_done(game.name)
+
 
     def _on_daily_check_requested(self) -> None:
         """「日常更新」模块页第②步【开始检测】：不跳页。检测链仍
