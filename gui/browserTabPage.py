@@ -92,10 +92,10 @@ class BrowserTabPage(QWidget):
         # 第二采集路线：实时采集（键盘自动化，1.5 转正版）
         self._btn_collect = QPushButton("实时采集 Edge 标签页…", self)
         self._btn_collect.setToolTip(
-            "用键盘自动化逐个读取 Edge 当前打开的标签页（旧 1.5 脚本的"
-            "内置版）。采集期间占用鼠标键盘：别动，窗口自己切。中断方式："
-            "按 Esc、Alt+Tab 回本工具点【停止采集】、或鼠标甩到屏幕左上角。"
-            "首次使用会弹窗引导安装依赖，装完需重启本工具")
+            "用键盘自动化逐个读取 Edge 当前打开的标签页（程序自己切窗口，"
+            "期间占用鼠标键盘：别动）。中断方式：按 Esc、Alt+Tab 回本工具"
+            "点【停止采集】、或鼠标甩到屏幕左上角。首次使用会弹窗引导安装"
+            "依赖，装完需重启本工具")
 
         self._btn_collect.clicked.connect(self._on_collect_clicked)
         btns.addWidget(self._btn_collect)

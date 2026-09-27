@@ -51,6 +51,13 @@ def main() -> int:
         QMessageBox.critical(None, "无法启动：数据目录不可写", problem)
         return 1
 
+    # ---- 决策 70：会话记忆落点切到软件文件夹（config/），并迁移注册表旧键 ----
+    # 必须赶在 MainWindow 之前：主窗口构造期就有 QSettings 读写（面板显隐、
+    # 导航折叠），落点先定下来这些记忆才能落到文件夹里。放在写路径守卫
+    # 之后——config/ 刚被守卫确认可写，迁移才有落点。
+    from gui.sessionStore import startup as session_startup
+    session_startup()
+
     from gui.theme import apply_theme  # 失败自动降级，见 theme.py 注释
     apply_theme(app)
 

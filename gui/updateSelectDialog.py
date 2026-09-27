@@ -116,9 +116,12 @@ class UpdateSelectDialog(QDialog):
 
         bottom = QHBoxLayout()
         btn_all = QPushButton("全选", self)
+        btn_all.setToolTip("勾选全部条目（打开时默认已全选）")
         btn_all.clicked.connect(lambda: self._set_all_checked(True))
         btn_none = QPushButton("全不选", self)
+        btn_none.setToolTip("取消全部勾选——不勾选的条目不会被处理")
         btn_none.clicked.connect(lambda: self._set_all_checked(False))
+
         bottom.addWidget(btn_all)
         bottom.addWidget(btn_none)
         self._combo_action = QComboBox(self)

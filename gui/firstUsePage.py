@@ -214,6 +214,9 @@ class FirstUsePage(QWidget):
 
         row_dir.addWidget(self._dir_edit, 1)
         self._btn_browse = QPushButton("浏览…", self)
+        self._btn_browse.setToolTip("打开系统目录选择窗口，选 Steam 客户端库目录")
+        self._btn_browse.clicked.connect(self._on_browse)
+
         self._btn_browse.clicked.connect(self._on_browse)
         row_dir.addWidget(self._btn_browse)
         box4.addLayout(row_dir)
@@ -223,8 +226,8 @@ class FirstUsePage(QWidget):
                                      "与当前档案账本对表；只读不写")
         self._btn_preview.clicked.connect(self._on_preview)
         self._btn_intake = QPushButton("纳入账本", self)
-        self._btn_intake.setToolTip("把预览出的"+"待纳入/待补线索"+"两桶写进"
-                                    "账本；只补缺不覆盖，写前有确认弹窗")
+        self._btn_intake.setToolTip("把预览出的「待纳入」「待补版本线索」"
+                                    "两类条目写进账本；只补缺不覆盖，写前有确认弹窗")
         self._btn_intake.setEnabled(False)
         self._btn_intake.clicked.connect(self._on_intake)
         self._btn_copy = QPushButton("复制下载命令", self)

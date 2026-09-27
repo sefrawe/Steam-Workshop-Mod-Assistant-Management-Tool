@@ -73,6 +73,7 @@ from gui.updateSelectDialog import UpdateSelectDialog
 from gui.verifyPage import VerifyPage
 from gui.welcomePage import WelcomePage
 from gui.deletePage import DeletePage
+from gui.uninstallPage import UninstallPage
 
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根统一从 appPaths 定位（源码=项目根\data，打包=exe 旁\data）
 
@@ -83,6 +84,8 @@ _IDX_RESCUE = 15  # 功能模块：恢复旧版本 = _pages 末尾 append 后落
 _IDX_SHARE = 16   # 功能模块：分享清单 = 同上
 _IDX_MIGRATION = 17  # 功能模块：换机迁移 = _pages 末尾 append 后落位（决策 13 模式）
 _IDX_DELETE = 18   # 功能模块：清理与删除 = _pages 末尾 append 后落位（决策 13 模式）
+_IDX_UNINSTALL = 19 # 功能模块：卸载与清理 = _pages 末尾 append 后落位（决策 13 模式）
+
 
 
 # 日常更新一条龙的两个开关键名（值一律 "1"/"0"，经 get_int 读）。
@@ -118,6 +121,7 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
         ("换机迁移", _IDX_MIGRATION),  # 决策 34 第二档：账本+目录推导+联接+重定位 的编排壳
 
         ("分享清单", _IDX_SHARE),  # 决策 34 第二档：文件菜单两项的第二入口 + 收尾引导
+        ("卸载与清理", _IDX_UNINSTALL),  # 决策 70：便携形态的收尾——记忆迁移/注册表指引/盘点
 
     ]),
     ("mod 库", 0),
@@ -256,6 +260,8 @@ class MainWindow(QMainWindow):
             ShareListPage(self._repo, self._settings, self._stack, log=self._log),  # 16 功能模块：分享清单
             MigrationPage(self._repo, self._settings, self._stack, log=self._log),  # 17 功能模块：换机迁移
             DeletePage(self._repo, self._settings, self._stack, log=self._log),  # 18 功能模块：清理与删除（决策 69）
+            UninstallPage(self._repo, self._settings, self._stack, log=self._log),  # 19 功能模块：卸载与清理（决策 70）
+
 
         ]
         for page in self._pages:
@@ -534,6 +540,10 @@ class MainWindow(QMainWindow):
                 # 「首次使用」每次进页重读设置刷新四张卡（典型场景：从
                 # 设置页填完 steamcmd 回来即最新）。页面内部有守卫——
                 # 空目录框才回填设置值，不会抢走用户正在输入的内容
+                self._pages[index].refresh()
+            if index == _IDX_UNINSTALL:
+                # 进页重查会话文件/注册表状态：三张卡的文案随现状变化
+                # （典型：在别处用过界面记忆后回来看，状态是新的）
                 self._pages[index].refresh()
 
     def _on_overview_requested(self, app_id: int) -> None:
