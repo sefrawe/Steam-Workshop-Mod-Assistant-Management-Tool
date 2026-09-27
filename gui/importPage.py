@@ -19,10 +19,8 @@ from PySide6.QtWidgets import (
     QPushButton, QVBoxLayout, QWidget,
 )
 from core.models import Game, Mod
-from core.urlParser import parse_lines
 from gui.consolePanel import LogBus
-
-_URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
+from core.urlParser import WORKSHOP_URL_TEMPLATE, parse_lines
 
 class ImportPage(QWidget):
     """imported(int)：成功导入后发射，主窗口借此跳转 mod 库页并刷新。"""
@@ -186,7 +184,7 @@ class ImportPage(QWidget):
                     self._repo.add_mod(Mod(
                         mod_id=mid,
                         game_id=game.app_id,
-                        url=_URL_TEMPLATE.format(mid),
+                        url=WORKSHOP_URL_TEMPLATE.format(mid),
                         status="tracked",
                         first_tracked_at=now,
                     ))

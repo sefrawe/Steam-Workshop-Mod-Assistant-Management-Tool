@@ -273,6 +273,10 @@ class MainWindow(QMainWindow):
         # 第④步不需要接线：预览/纳入/复制命令都在页面内闭环；
         # set_game 广播由 _on_game_changed 的 hasattr 循环自动覆盖；
         # 进页刷新在 _on_nav_changed 里单独处理（见下）
+        # 高级筛选对话框的「到 mod 库查看结果」：跨页跳转走 _goto_page
+        # （树高亮同步包含在内，别裸调 stack）
+        self._pages[0].advanced_results_requested.connect(
+            lambda: self._goto_page(0))
 
         self._nav.setCurrentItem(self._nav_items[9])  # 启动默认落「欢迎」页
 
@@ -415,6 +419,18 @@ class MainWindow(QMainWindow):
         act_pop.setToolTip("控制台开着但不在前台时，把它拉到最前")
         act_pop.triggered.connect(self._pop_console)
         m_console.addAction(act_pop)
+        # 高级筛选（T12 决策 63 修订）：独立菜单栏顶级项 = 全局搜索按钮。
+        # QMenuBar.addAction 不带子菜单——点了就触发，天然是长在菜单栏
+        # 上的按钮；软件任意页面一键唤出（非模态，实例归 mod 库页持有防 GC）
+        act_adv = self.menuBar().addAction("高级筛选(&S)")
+        act_adv.setToolTip(
+            "按标题/备注/编号/大小/远端更新时间/标签组合筛选 mod 库；\n"
+            "对话框里实时显示命中数，可一键跳到 mod 库看结果；\n"
+            "与顶栏筛选叠加生效，条件生效期间库页工具条出现指示按钮")
+        act_adv.triggered.connect(self._pages[0].open_advanced_search)
+
+
+
 
     def _build_status_bar(self) -> None:
         self._status_game = QLabel(self)

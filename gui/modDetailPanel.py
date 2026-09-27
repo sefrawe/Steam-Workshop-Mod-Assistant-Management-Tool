@@ -112,11 +112,10 @@ class ModDetailPanel(QWidget):
             raw=None) -> None:
         match kind:
             case "size":
-                text = f"{value}（{fmt_size(value)}）" if value is not None else "—"
+                # 可读值前置：先看"13.7 MiB"，需要核对库内原值再看括号
+                text = f"{fmt_size(value)}（{value}）" if value is not None else "—"
             case "ts":
-                text = f"{value}（{abs_time(value)}）" if value else "—"
-            # case "size":
-            #     text = f"{value}（{fmt_size(value)}）" if value is not None else "—"
+                text = f"{abs_time(value)}（{value}）" if value else "—"
             case "json":
                 text = json.dumps(value, ensure_ascii=False) if value else "—"
             case "bool":

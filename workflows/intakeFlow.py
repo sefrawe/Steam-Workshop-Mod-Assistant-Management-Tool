@@ -36,11 +36,7 @@ from dataclasses import dataclass, field
 from core.localScanner import LocalItem
 from core.models import Mod
 from core.modRepository import ModRepository
-
-# 工坊条目页地址模板（公开常量：批量打开工坊页 gui/batchOpenDialog 也用它）。
-# addModFlow / importPage / localScanner 里还有多份同文现状（历史原因），
-# 这里是收敛起点——改模板请全局搜，几处一起改。
-WORKSHOP_URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
+from core.urlParser import WORKSHOP_URL_TEMPLATE  # 模板唯一定义点 = core/urlParser
 
 
 

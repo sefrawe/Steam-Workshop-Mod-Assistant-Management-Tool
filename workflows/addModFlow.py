@@ -45,14 +45,7 @@ from typing import Iterable
 
 from core.commandBuilder import build_copy_text
 from core.models import Mod
-from core.urlParser import parse_lines
-
-# 工坊条目页地址模板。与 gui/importPage 的 _URL_TEMPLATE、
-# core/localScanner 的对应常量是同一个字符串的多份现状（历史原因）。
-# 规划：网址导入页将来改调本模块入库后，界面那份随之消失；在那之前
-# 改模板，请全局搜这个字符串，几处一起改。
-_URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
-
+from core.urlParser import WORKSHOP_URL_TEMPLATE, parse_lines
 
 @dataclass
 class ParsePreview:
@@ -141,7 +134,7 @@ def register_mods(repo, app_id: int, mod_ids: Iterable[int]) -> int:
             repo.add_mod(Mod(
                 mod_id=mid,
                 game_id=app_id,
-                url=_URL_TEMPLATE.format(mid),
+                url=WORKSHOP_URL_TEMPLATE.format(mid),
                 status="tracked",
                 first_tracked_at=now,
             ))

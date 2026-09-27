@@ -20,6 +20,11 @@
 import re
 from dataclasses import dataclass, field
 from typing import Iterable
+# 工坊条目页地址模板——全项目唯一定义点（收官轮 A 收敛，决策 61④ 落地）。
+# 网址格式的知识属于解析器：本模块认"含 steamcommunity.com 且带 id 参数"
+# 的网址，模板就住在这里。此前 intakeFlow / addModFlow / importPage /
+# localScanner 各持一份同文，已全部改为引用本常量——改模板只动这一行。
+WORKSHOP_URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
 
 _ID_PARAM = re.compile(r"[?&]id=(\d+)")
 # 下载命令片段：workshop_download_item <游戏AppID> <mod编号>

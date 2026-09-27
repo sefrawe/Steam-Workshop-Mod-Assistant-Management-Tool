@@ -215,14 +215,35 @@ class ModRepository(ABC):
                   special_only: bool = False, color_tag: str | None = None,
                   search: str | None = None,
                   order_by: str = "time_updated DESC",
-                  limit: int | None = None) -> list[Mod]:
+                  limit: int | None = None,
+                  title_contains: str | None = None,
+                  note_contains: str | None = None,
+                  mod_id: int | None = None,
+                  size_min: int | None = None,
+                  size_max: int | None = None,
+                  updated_from: int | None = None,
+                  updated_to: int | None = None,
+                  tags_all: Iterable[str] | None = None) -> list[Mod]:
         """mod 列表页的万能查询（GUI 与导出共用）。
         status: None=全部 / 'tracked' / 'downloaded' / 'deleted' / 'failed'
         special_only: True 时只返回 is_special=1
         color_tag: 精确匹配
         search: 对 title / note 做 LIKE %xx%（SQLite LIKE 对 ASCII 不分大小写）
         order_by: 必须取自 ALLOWED_ORDERS，否则 ValueError
-        limit: None=不限制"""
+        limit: None=不限制（有标签筛时改为筛完再切，见下）
+        —— 以下为 T12 高级筛选新增，条件之间全部 AND 叠加，
+           None / 空 = 不限；老调用方一个字都不用改 ——
+        title_contains / note_contains: 只对 title / note 各自做 LIKE %xx%。
+          与 search 的分工：search 是两处合查的快筛，这两个分开指定
+        mod_id: 精确编号
+        size_min / size_max: 字节数。口径与列表页"大小"列一致——
+          本地 local_size 优先，acf 缺失退 API file_size；两者都缺的
+          条目不落在任何区间里（大小未知 ≠ 大小为 0）
+        updated_from / updated_to: 远端版本时间范围（epoch 秒，闭区间）；
+          time_updated 为 NULL（从没查过远端）的条目不命中任何范围
+        tags_all: 标签精确匹配、须同时全有。标签存 JSON 文本（schema
+          约定 3：数据库不做 JSON 结构化查询），实现层取回后在 Python
+          里比对——limit 因此在筛完之后生效"""
 
     @abstractmethod
     def update_api_metadata(self, mod_id: int, *, title: str | None = None,

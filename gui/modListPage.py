@@ -1,10 +1,15 @@
 """mod 库页
 """
+from gui.advancedSearchDialog import AdvancedSearchDialog
+
 r"""后端调试主战场。
 
 布局：顶部筛选条（搜索 / 状态 / 特别关注 / 排序下拉 /统计见统计页/
 下载 / 备份选中项；"刷新"与"扫描本地"收进【刷新 ▾】下拉）+
 水平分割（左表格 / 右详情）。
+
+ 高级筛选（T12）：菜单栏「控制台(C)」弹出非模态对话框，与顶栏筛选
+ 叠加生效；条件生效期间工具条出现"高级筛选 ✕"指示，点它一键清空。
 
 右键菜单：repo 已支持的直接可用；"获取下载命令"发信号给 MainWindow
 跳到命令生成页并聚焦该 mod；"手动备份"已点亮——调 core.backupManager
@@ -67,11 +72,11 @@ from core import localScanner, steamPaths
 from core.appSettings import AppSettings
 from core.backupManager import BackupManager, steamcmd_running
 from core.models import Game
+from gui.manualConfirm import confirm_one
 from gui.consolePanel import LogBus
 from gui.formatters import fmt_size
 from gui.modDetailPanel import ModDetailPanel
 from gui.modListModel import _SORT_MAP, ModListModel
-from gui.manualConfirm import confirm_one
 
 # 颜色标记：库里存 hex（将来徽标着色直接可用），右键菜单里显示中文名
 _COLORS = {
@@ -125,6 +130,9 @@ class ModListPage(QWidget):
     # MainWindow 接线到备份页的 backup_ids_for——与 download_requested
     # 同一套信号模式，勾选列一处投入、下载/备份两处收益
     backup_requested = Signal(int, list)
+    # 高级筛选对话框【到 mod 库查看结果】→ MainWindow 跳到本页。
+    # 对话框的信号在本页转一手（与 command_gen_requested 同款契约）
+    advanced_results_requested = Signal()
 
     def __init__(self, repo, settings: AppSettings, parent: QWidget | None = None,
                  log: LogBus | None = None) -> None:
@@ -141,8 +149,23 @@ class ModListPage(QWidget):
         self._order_by = "time_updated DESC"  # 默认按远端版本新 → 旧
         self._sort_col = 4               # 表头箭头停在"远端版本"列
         self._selected_mod_id: int | None = None  # 重新载入后恢复选中用
+        # 高级筛选对话框（T12）：非模态、页面持有实例防 GC（决策 36⑦
+        # 同款——局部变量 + show() 出作用域会把包装回收，经典闪退）。
+        # 必须先于 _build_ui 创建：工具条上的"生效指示"按钮要连它的
+        # 构造即创建不显示；关窗即清空条件（对话框 done() 统一漏斗，
+        # Esc / X / 关闭按钮三路全覆盖），重开为干净状态。
+
+        # 再次打开还在。条件防抖后广播 → 本页 _reload 重查；_reload
+        # 里再喂标签清单给对话框（set_available_tags 内部 blockSignals，
+        # 不会回环触发）
+        self._adv_dialog = AdvancedSearchDialog(self)
+        self._adv_dialog.conditions_changed.connect(self._reload)
+        # 对话框要跳页：转成页面级信号发出去，跳转归 MainWindow
+        self._adv_dialog.go_to_results.connect(
+            self.advanced_results_requested.emit)
 
         self._build_ui()
+
 
     # ---------- UI 构建 ----------
 
@@ -294,6 +317,18 @@ class ModListPage(QWidget):
 
         self._checked_label = QLabel("", row)
         h.addWidget(self._checked_label)
+        # 高级筛选生效指示（T12）：条件生效期间才出现；
+        # 点击 = 一键清空高级条件（clear_all 内部会广播刷新，
+        # 本按钮随 _reload 自动隐藏）。悬浮显示条件摘要——
+        # 不打开对话框也知道现在筛着什么
+        self._adv_indicator = QToolButton(row)
+        self._adv_indicator.setText("高级筛选 ✕")
+        self._adv_indicator.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._adv_indicator.setToolTip("高级筛选条件生效中；点击全部清除")
+        self._adv_indicator.clicked.connect(self._adv_dialog.clear_all)
+        self._adv_indicator.setVisible(False)
+        h.addWidget(self._adv_indicator)
 
         bar_layout.addWidget(row)
         root.addWidget(bar)
@@ -368,6 +403,7 @@ class ModListPage(QWidget):
         if self._game is None:
             self._model.set_rows([])
             self._count_label.setText("请先在左上角选择游戏档案")
+            self._adv_dialog.set_hit_count(None)  # 没档案就没有"命中"可言
 
             return
         rows = self._repo.list_mods(
@@ -376,7 +412,22 @@ class ModListPage(QWidget):
             special_only=self._special_check.isChecked(),
             search=self._search or None,
             order_by=self._order_by,
+            **self._advanced_kwargs(),
         )
+        # 喂标签清单给对话框：来自当前显示的 mod 的并集；已勾选的
+        # 标签对话框自己会保留（哪怕清单收窄也悄悄丢条件不发生）
+        tag_pool = sorted({t for m in rows for t in (m.tags or [])})
+        self._adv_dialog.set_available_tags(tag_pool)
+        # 高级筛选生效指示：条件生效才显示，悬浮给出人话摘要
+        adv_now = self._adv_dialog.conditions()
+        self._adv_indicator.setVisible(adv_now is not None)
+        if adv_now is not None:
+            self._adv_indicator.setToolTip(
+                "高级筛选生效中，点击全部清除：\n" + adv_now.describe())
+        # 命中数回填给对话框（rows 已含高级条件的过滤结果）
+        self._adv_dialog.set_hit_count(
+            len(rows) if adv_now is not None else None)
+
         self._model.set_rows(rows)
         self._count_label.setText(f"共 {len(rows)} 个 mod")
 
@@ -392,6 +443,35 @@ class ModListPage(QWidget):
                     break
 
     # ---------- 列显隐与统计（T19⑯ / T19⑱） ----------
+    # ---------- 高级筛选（T12，决策 63） ----------
+
+    def _advanced_kwargs(self) -> dict:
+        """把对话框当前条件摊平成 list_mods 的关键字参数。
+        全空（conditions() 返回 None）→ 空 dict：查询路径与没有
+        高级筛选时完全一致。core 层不 import 对话框类——GUI→repo
+        单向依赖，"翻译"住在本页，不倒挂。"""
+        f = self._adv_dialog.conditions()
+        if f is None:
+            return {}
+        return {
+            "title_contains": f.title_contains,
+            "note_contains": f.note_contains,
+            "mod_id": f.mod_id,
+            "size_min": f.size_min,
+            "size_max": f.size_max,
+            "updated_from": f.updated_from,
+            "updated_to": f.updated_to,
+            "tags_all": list(f.tags_all) or None,
+        }
+
+    def open_advanced_search(self) -> None:
+        """控制台菜单「mod 库高级筛选…」的落点：非模态弹出——
+        show() 不 exec()，开着不影响主窗口继续操作（边查边改）。
+        已开着时置前，不重开双份。"""
+        self._adv_dialog.show()
+        self._adv_dialog.raise_()
+        self._adv_dialog.activateWindow()
+
 
     def _apply_col_visibility(self) -> None:
         """按设置页的列开关显隐（T19⑯）。值 "0" = 隐藏；

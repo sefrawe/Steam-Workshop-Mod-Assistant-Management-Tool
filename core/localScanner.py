@@ -54,8 +54,7 @@ import vdf
 
 from core.models import Mod
 from core.modRepository import ModRepository
-
-_WORKSHOP_URL = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
+from core.urlParser import WORKSHOP_URL_TEMPLATE
 
 # 质量谓词拦下的跳过原因统一用这个前缀（决策 23）：
 # ScanResult.interrupted 靠它把"疑似下载中断"和"格式不完整"分开算数
@@ -302,7 +301,7 @@ def apply(repo: ModRepository, plan: ScanPlan) -> ScanApplyReport:
                 mod_id=ins.item.mod_id,
                 game_id=plan.game_id,
                 status="downloaded",
-                url=_WORKSHOP_URL.format(ins.item.mod_id),
+                url=WORKSHOP_URL_TEMPLATE.format(ins.item.mod_id),
                 local_timeupdated=ins.item.timeupdated,
                 manifest=ins.item.manifest,
                 local_size=ins.item.size,

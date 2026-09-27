@@ -35,8 +35,8 @@ from PySide6.QtWidgets import (
 from core.modRepository import ModRepository
 from core.urlParser import parse_lines
 from gui.consolePanel import LogBus
-from workflows.intakeFlow import WORKSHOP_URL_TEMPLATE
 
+from core.urlParser import WORKSHOP_URL_TEMPLATE
 
 @dataclass
 class OpenPagesReport:

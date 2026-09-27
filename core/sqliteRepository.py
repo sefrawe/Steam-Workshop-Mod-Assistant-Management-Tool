@@ -449,12 +449,27 @@ class SQLiteRepository(ModRepository):
                   special_only: bool = False, color_tag: str | None = None,
                   search: str | None = None,
                   order_by: str = "time_updated DESC",
-                  limit: int | None = None) -> list[Mod]:
+                  limit: int | None = None,
+                  title_contains: str | None = None,
+                  note_contains: str | None = None,
+                  mod_id: int | None = None,
+                  size_min: int | None = None,
+                  size_max: int | None = None,
+                  updated_from: int | None = None,
+                  updated_to: int | None = None,
+                  tags_all: Iterable[str] | None = None) -> list[Mod]:
+        """（T12 扩展）参数语义见契约层 docstring。实现分工：
+        SQL 能表达的条件全部下推给 SQLite（值只走 ? 参数绑定，无注入）；
+        标签是唯一例外——tags 存 JSON 文本，schema.sql 文件头约定 3
+        "数据库不做 JSON 结构化查询"，取回后在 Python 里精确比对。"""
         if order_by not in ALLOWED_ORDERS:
             raise ValueError(
                 f"order_by 必须取自 ALLOWED_ORDERS，收到：{order_by!r}")
+
         where = ["game_id = ?"]
         params: list = [game_id]
+
+        # ---- 既有简单筛选（原样保留）----
         if status is not None:
             where.append("status = ?")
             params.append(status)
@@ -470,13 +485,66 @@ class SQLiteRepository(ModRepository):
             where.append("(title LIKE ? ESCAPE '\\' "
                          "OR note LIKE ? ESCAPE '\\')")
             params += [f"%{safe}%", f"%{safe}%"]
+
+        # ---- T12 高级筛选：SQL 可表达的全部下推 ----
+        # 标题/备注分开指定，同一套转义：用户输入里的 % _ \ 都当字面量
+        if title_contains:
+            safe = (title_contains.replace("\\", "\\\\")
+                    .replace("%", "\\%").replace("_", "\\_"))
+            where.append("title LIKE ? ESCAPE '\\'")
+            params.append(f"%{safe}%")
+        if note_contains:
+            safe = (note_contains.replace("\\", "\\\\")
+                    .replace("%", "\\%").replace("_", "\\_"))
+            where.append("note LIKE ? ESCAPE '\\'")
+            params.append(f"%{safe}%")
+        if mod_id is not None:
+            where.append("mod_id = ?")
+            params.append(mod_id)
+        if size_min is not None:
+            # 大小口径与列表页"大小"列完全一致（模型显示 local_size or
+            # file_size）：本地优先、acf 缺失或为 0 退 API。NULLIF 把 0
+            # 变 NULL 交给 COALESCE 退到 file_size——SQL 一行复刻 or 语义
+            where.append("COALESCE(NULLIF(local_size, 0), file_size) >= ?")
+            params.append(size_min)
+        if size_max is not None:
+            where.append("COALESCE(NULLIF(local_size, 0), file_size) <= ?")
+            params.append(size_max)
+        if updated_from is not None:
+            # time_updated 为 NULL（从没查过远端）→ 比较结果 NULL → 不命中。
+            # "更新时间在某范围"对"不知道更新时间"的条目没有答案，
+            # 排除是正确语义，不是漏网
+            where.append("time_updated >= ?")
+            params.append(updated_from)
+        if updated_to is not None:
+            where.append("time_updated <= ?")
+            params.append(updated_to)
+
+        # ---- 标签：唯一不下推的条件（原因见 docstring）----
+        # 去重、去空、排序——顺序稳定，行为可预期
+        want_tags = sorted({t for t in (tags_all or []) if t}) or None
+
         sql = (f"SELECT * FROM mods WHERE {' AND '.join(where)} "
                f"ORDER BY {order_by}")
-        if limit is not None:
+        # LIMIT 与标签后筛的先后：SQL 先 LIMIT 再在 Python 里筛会把
+        # 结果截少，所以有标签筛时 LIMIT 延后到筛完再切；没有标签筛
+        # 时维持 SQL LIMIT（让数据库先截，省内存）
+        sql_limit = limit is not None and want_tags is None
+        if sql_limit:
             sql += " LIMIT ?"
             params.append(limit)
-        return [self._mod(r)
+
+        mods = [self._mod(r)
                 for r in self._conn.execute(sql, params).fetchall()]
+
+        if want_tags is not None:
+            wanted = set(want_tags)
+            # _mod() 已把 JSON 文本转回 list——这里只做集合比较，
+            # 不碰存储格式（文件头约定 2：边界转换只在读写发生）
+            mods = [m for m in mods if m.tags and wanted <= set(m.tags)]
+            if limit is not None:
+                mods = mods[:limit]
+        return mods
 
     def update_api_metadata(self, mod_id: int, *, title: str | None = None,
                             creator: str | None = None,
