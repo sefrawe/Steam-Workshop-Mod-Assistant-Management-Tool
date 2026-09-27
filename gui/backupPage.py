@@ -1180,6 +1180,10 @@ class BackupPage(QWidget):
         if self._game is None:
             QMessageBox.information(self, "备份搬家", "当前未选择游戏档案。")
             return
-        dlg = BackupMoveDialog(self._game, self._settings, self)
+        # T15 批 3：补传 log=self._log——对话框里点「复制」后，
+        # 运行日志多一行回执（与上面 _relocate 的重定位对话框同一套约定）
+        dlg = BackupMoveDialog(self._game, self._settings, self,
+                               log=self._log)
         dlg.exec()
         self._reload()
+

@@ -1,7 +1,6 @@
 """备份目录重定位对话框
 """
-r"""
-T21④ 的界面半件：备份记录失联后的"指认新位置"对话框。
+r"""T21④ 的界面半件：备份记录失联后的"指认新位置"对话框。
 
 分工：core/backupRelocate 引擎只读预演命中率（唯一判定依据，
 本文件不重复实现"对上/对不上"）；本对话框做四件事——展示现状、
@@ -18,6 +17,7 @@ games.backup_dir 一个字段）。全程不动任何备份文件、不改任何
 - gameSwitcher 第三按钮（主动修复；那边没有 LogBus 可注入，
   成功反馈由本对话框自己的弹窗兜底——决策 22③ 的可见反馈不断）
 - backupPage 工具行按钮（看到失联记录顺手修；传入页面 LogBus）
+
 两处确认成功后各自刷新：gameSwitcher.reload() 重播 set_game，
 backupPage._reload()。本对话框只在写库成功后 accept()，
 调用方拿到 Accepted 即可放心刷新，无需判断细节。
@@ -25,21 +25,17 @@ backupPage._reload()。本对话框只在写库成功后 accept()，
 候选框预填 = 按当前 steamcmd 位置推导的默认备份位置
 （backup_root_default）——最常见情形"steamcmd 挪走、备份跟着
 搬"直接命中；搬去了别处就手动改。
+
+【T15 批 3 审计补齐】决策 22①：浏览/确认两个按钮补 tooltip；
+确认弹窗显式默认"否"（决策 69⒋ 口径：默认按钮永远保守——
+与备份总览页批量确认框同款）。其余零改动。
 """
 import os
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
+    QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel,
+    QLineEdit, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
 from core import backupRelocate, steamPaths
@@ -64,8 +60,8 @@ class BackupRelocateDialog(QDialog):
     """备份目录重定位：现状 → 新位置 → 实时预演 → 确认写库。"""
 
     def __init__(self, repo, game: Game, settings,
-                 parent: QWidget | None = None, *,
-                 log: LogBus | None = None) -> None:
+                 parent: QWidget | None = None,
+                 *, log: LogBus | None = None) -> None:
         super().__init__(parent)
         self._repo = repo
         self._game = game
@@ -74,9 +70,8 @@ class BackupRelocateDialog(QDialog):
         # 备份记录的相对路径清单：与 backupPage._reload 同款过滤
         # （先取本档案 mod 集合，再从全量备份里挑本档案的）
         ids = {m.mod_id for m in self._repo.list_mods(game.app_id)}
-        self._rels = [b.backup_path
-                      for b in self._repo.list_backups(oldest_first=True)
-                      if b.mod_id in ids]
+        self._rels = [b.backup_path for b in self._repo.list_backups(
+            oldest_first=True) if b.mod_id in ids]
         self._current = (game.backup_dir or "").strip()
         self._last: backupRelocate.RelocatePreview | None = None
         self._ok_enabled = False
@@ -112,6 +107,8 @@ class BackupRelocateDialog(QDialog):
         self._edit = QLineEdit(row)
         self._edit.textChanged.connect(self._update_preview)
         browse = QPushButton("浏览…", row)
+        # T15 批 3：补 tooltip（决策 22①）
+        browse.setToolTip("打开系统目录选择窗口，选中备份文件夹现在所在的位置")
         browse.clicked.connect(self._browse)
         h.addWidget(self._edit, 1)
         h.addWidget(browse)
@@ -135,17 +132,18 @@ class BackupRelocateDialog(QDialog):
             | QDialogButtonBox.StandardButton.Cancel, self)
         self._ok_btn = bb.button(QDialogButtonBox.StandardButton.Ok)
         self._ok_btn.setText("确认重定位")
-
+        # T15 批 3：补 tooltip（决策 22①）
+        self._ok_btn.setToolTip(
+            "把档案记录的备份目录改为上面填的位置（只改记录，不动文件）；"
+            "预演对不上时不可确认")
         self._ok_btn.setEnabled(False)
         bb.setCenterButtons(True)
         bb.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
-
         bb.accepted.connect(self._confirm)
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
 
         self.resize(580, 340)
-
         # 预填默认推导位置（steamcmd 未配置则为空，预演区会说清）
         steamcmd_exe = (self._settings.get("steamcmd_path")
                         if self._settings else "")
@@ -186,16 +184,16 @@ class BackupRelocateDialog(QDialog):
                         " 份备份记录。")
             if rep.all_hit:
                 color = _C_OK
-                lines.append("✓ " + hit_line
-                             + "全部记录都能在这个位置找到。")
+                lines.append("✓ " + hit_line + "全部记录都能在这个位置找到。")
                 ok = True
             elif rep.any_hit:
                 color = _C_WARN
                 lines.append("△ " + hit_line + "部分对不上，例如：")
                 for s in rep.missed_samples:
-                    lines.append(f"　　找不到：{s}")
+                    lines.append(f"   找不到：{s}")
                 if rep.missed > len(rep.missed_samples):
-                    lines.append(f"　　……以及另外 {rep.missed - len(rep.missed_samples)} 条")
+                    lines.append(
+                        f"   ……以及另外 {rep.missed - len(rep.missed_samples)} 条")
                 lines.append("部分命中 = 位置像新家但不完整。确认前想清楚："
                              "指认错了会让记录离真相更远。")
                 ok = True
@@ -224,7 +222,9 @@ class BackupRelocateDialog(QDialog):
             " 份备份记录。\n\n"
             "只修改档案的备份目录一个字段，不动任何备份文件；\n"
             "确认后备份页的「盘上」列会按新位置重新核对。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            # T15 批 3：默认"否"——回车不会误触发（决策 69⒋ 口径）
+            QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
             return
         self._repo.update_game(self._game.app_id,

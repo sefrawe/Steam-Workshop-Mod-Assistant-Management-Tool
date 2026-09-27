@@ -17,53 +17,51 @@ r"""gui/backupMoveDialog.py · 把备份目录整体搬到新位置的命令生�
   档案字段一个不动
 - 【重定位备份目录】：盘上已经找不到备份（记录失联），指认新位置，
   只改档案字段、不动文件
-- 【编辑档案】（规划中）：建档前预设位置、日常修正
+- 【编辑档案】：建档前预设位置、日常修正
 
 本对话框全程只读，不做任何盘上写操作；所有命令由用户自己在 cmd 里执行
 （与连接指引 linkGuideDialog 同一套约定，决策 22③ 反馈靠状态显示）。
+
 判定逻辑就地实现、不复用 steamPaths.junction_state：那里判的是
 "游戏目录 ↔ 下载目录"一对路径的关系，这里只看旧位置单侧的形态
 （普通目录/空目录/联接/文件/不存在），问题不同，硬套反而绕。
 
 界面上生成、用户手动执行的主流程五步：
-  1. robocopy 复制（失败重试 2 次、16 线程，与备份引擎同口径）
-  2. ren 旧目录改名让路（改名而不是删除——出错改回名字就回到原样）
-  3. mklink /J 原地建联接指到新位置（不需要管理员权限）
-  4. 回本工具验收（「盘上」列 + 做一次小备份）
-  5. 用几天确认无误后，用户自行删除改名保留的旧目录——这步的命令
-     故意不给复制按钮：百 GB 级的删除，手打一遍等于多一道闸门
+1. robocopy 复制（失败重试 2 次、16 线程，与备份引擎同口径）
+2. ren 旧目录改名让路（改名而不是删除——出错改回名字就回到原样）
+3. mklink /J 原地建联接指到新位置（不需要管理员权限）
+4. 回本工具验收（「盘上」列 + 做一次小备份）
+5. 用几天确认无误后，用户自行删除改名保留的旧目录——这步的命令
+   故意不给复制按钮：百 GB 级的删除，手打一遍等于多一道闸门
+
+【T15 批 3 审计补齐】决策 22①③：检测/目录选择/复制三个按钮补
+tooltip；复制动作给可见反馈（按钮短暂"已复制 ✓"）+ 控制台日志。
+新增可选 log 参数（不传也照常工作——自建 LogBus 至少写文件旁路；
+backupPage 调用处传 log 后控制台可见，与重定位对话框同一套约定）。
 """
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QApplication,
-    QDialog,
-    QDialogButtonBox,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPlainTextEdit,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
+    QApplication, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout,
+    QLabel, QLineEdit, QPlainTextEdit, QPushButton, QScrollArea,
+    QVBoxLayout, QWidget,
 )
 
 from core import steamPaths
 from core.models import Game
+from gui.consolePanel import LogBus
 
 # appSettings 里 steamcmd 程序路径的键名（与 backupPage._make_manager 用的
 # 是同一个；设置页改键名时这里要跟着动）
 _KEY_STEAMCMD = "steamcmd_path"
 
 # robocopy 的参数，与备份引擎同口径（R5）：
-#   /E        连空子目录一起复制
-#   /XJ       不钻进联接里复制（防联接环把复制变成无底洞）
-#   /R:2 /W:5 失败重试 2 次、每次等 5 秒（robocopy 默认重试一百万次，会卡死人）
-#   /MT:16    16 线程并行复制
+# /E 连空子目录一起复制
+# /XJ 不钻进联接里复制（防联接环把复制变成无底洞）
+# /R:2 /W:5 失败重试 2 次、每次等 5 秒（robocopy 默认重试一百万次，会卡死人）
+# /MT:16 16 线程并行复制
 # 结束码 0~7 都算成功、8 起才是失败，步骤文案里以"Failed 为 0"表述
 _ROBOCOPY_ARGS = "/E /XJ /R:2 /W:5 /MT:16"
 
@@ -80,17 +78,20 @@ _STATE_LOOKS = {
 class BackupMoveDialog(QDialog):
     """备份搬家指引。构造时确定档案与设置，生命周期内不变。"""
 
-    def __init__(self, game: Game, settings, parent: QWidget | None = None) -> None:
+    def __init__(self, game: Game, settings, parent: QWidget | None = None,
+                 *, log: LogBus | None = None) -> None:
         super().__init__(parent)
         self._game = game
         self._settings = settings
+        # T15 批 3：可选日志通道。不传时自建一条（照样写文件旁路，
+        # 只是控制台看不见）——与备份重定位对话框同一套约定
+        self._log = log or LogBus()
         self.setWindowTitle(f"备份搬家 — {game.name}（{game.app_id}）")
         self.setMinimumWidth(700)
         self._build_ui()
         self._show_idle()
 
     # ---------- UI 构建 ----------
-
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -125,13 +126,15 @@ class BackupMoveDialog(QDialog):
         if stored:
             info_lines.append(f"它记录的备份目录：{stored}")
         info = QLabel("\n".join(info_lines), self)
-        info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        info.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
         v.addWidget(info)
 
         hint = QLabel(
             "旧位置默认预填所有游戏共用的备份根目录——一次搬家，所有游戏的备份"
             "一起过去；只想搬当前游戏的备份，就把旧位置改成它自己的备份目录"
-            "（上面那行）。", self)
+            "（上面那行）。",
+            self)
         hint.setWordWrap(True)
         hint.setStyleSheet("color: gray;")
         v.addWidget(hint)
@@ -158,13 +161,16 @@ class BackupMoveDialog(QDialog):
             "旧位置（备份现在在哪）：", guess,
             "选择备份现在的位置", self._old_input))
         v.addWidget(self._make_path_row(
-            "新位置（想搬去哪）：", "",
-            "选择新位置", self._new_input))
+            "新位置（想搬去哪）：", "", "选择新位置", self._new_input))
 
         btn_row = QWidget(body)
         bh = QHBoxLayout(btn_row)
         bh.setContentsMargins(0, 0, 0, 0)
         self._check_btn = QPushButton("检测并生成命令", btn_row)
+        # T15 批 3：补 tooltip（决策 22①）
+        self._check_btn.setToolTip(
+            "按新旧两个位置的现状判定该走哪种搬法，"
+            "把要执行的命令一条条列在下方（本对话框只出命令，不代执行）")
         self._check_btn.clicked.connect(self._on_check)
         bh.addWidget(self._check_btn)
         bh.addStretch(1)
@@ -173,7 +179,6 @@ class BackupMoveDialog(QDialog):
         self._state_label = QLabel("", body)
         self._state_label.setWordWrap(True)
         v.addWidget(self._state_label)
-
         self._detail_label = QLabel("", body)
         self._detail_label.setWordWrap(True)
         v.addWidget(self._detail_label)
@@ -209,14 +214,22 @@ class BackupMoveDialog(QDialog):
             line.setText(preset)
         line.textEdited.connect(self._on_edited)
         btn = QPushButton("目录选择…", row)
-        btn.clicked.connect(lambda _=False, l=line, t=dialog_title: self._pick(l, t))
+        # T15 批 3：补 tooltip（决策 22①）
+        btn.setToolTip("打开系统目录选择窗口")
+        btn.clicked.connect(
+            lambda _=False, l=line, t=dialog_title: self._pick(l, t))
         h.addWidget(btn, 0, Qt.AlignmentFlag.AlignLeft)
         h.addWidget(line, 1)
         return row
 
-    def _make_cmd_block(self, parent: QWidget) -> tuple[QWidget, QLabel, QPlainTextEdit]:
+    def _make_cmd_block(self, parent: QWidget
+                        ) -> tuple[QWidget, QLabel, QPlainTextEdit]:
         """造一个命令块（标题 + 命令文本 + 复制按钮），初始隐藏。
-        复制按钮用默认参数把文本框本体绑进闭包，点击时取当前内容。"""
+
+        复制按钮用默认参数把文本框本体绑进闭包，点击时取当前内容；
+        T15 批 3 起同时带上按钮与标题——复制后按钮短暂显示"已复制 ✓"、
+        控制台记一行日志（决策 22③：用户动作要有反馈）。
+        """
         box = QWidget(parent)
         w = QVBoxLayout(box)
         w.setContentsMargins(0, 0, 0, 0)
@@ -226,6 +239,8 @@ class BackupMoveDialog(QDialog):
         title.setStyleSheet("font-weight: 600;")
         btn = QPushButton("复制", box)
         btn.setFixedWidth(64)
+        # T15 批 3：补 tooltip（决策 22①）
+        btn.setToolTip("复制这条命令到剪贴板，粘贴到 cmd 里执行")
         head.addWidget(title, 1)
         head.addWidget(btn)
         w.addLayout(head)
@@ -233,15 +248,18 @@ class BackupMoveDialog(QDialog):
         edit.setReadOnly(True)
         edit.setFixedHeight(56)
         w.addWidget(edit)
-        btn.clicked.connect(lambda _=False, e=edit: self._copy(e.toPlainText()))
+        btn.clicked.connect(
+            lambda _=False, e=edit, b=btn, t=title:
+            self._copy(e.toPlainText(), b, t))
         box.setVisible(False)
         return box, title, edit
 
     # ---------- 待判定 / 输入变动 ----------
-
     def _show_idle(self) -> None:
         """初始 / 输入被改动后的待判定状态：清空结论、藏起命令。
-        改了路径还挂着上一条的结论是会出事的，必须立刻清掉。"""
+
+        改了路径还挂着上一条的结论是会出事的，必须立刻清掉。
+        """
         self._state_label.setText("填好新旧两个位置后点【检测并生成命令】。")
         self._state_label.setStyleSheet("color: gray;")
         self._detail_label.setText("")
@@ -259,15 +277,27 @@ class BackupMoveDialog(QDialog):
             # 程序设值不触发 textEdited，手动回到待判定状态
             self._show_idle()
 
-    def _copy(self, text: str) -> None:
+    def _copy(self, text: str, btn=None, title_label=None) -> None:
+        """复制命令文本到剪贴板 + 可见反馈。
+
+        T15 批 3：按钮文字短暂变成"已复制 ✓"（1.5 秒后复原），
+        控制台记一行日志。btn/title_label 是可选的（防御式：
+        万一有调用点没带，复制本身照常生效）。
+        """
         QApplication.clipboard().setText(text)
+        if btn is not None:
+            btn.setText("已复制 ✓")
+            QTimer.singleShot(1500, lambda: btn.setText("复制"))
+        if title_label is not None:
+            step = title_label.text().split("（")[0]  # 去掉括号里的附注
+            self._log.ok(f"已复制命令：{step}（粘贴到 cmd 执行）")
+        else:
+            self._log.ok("已复制命令到剪贴板（粘贴到 cmd 执行）")
 
     # ---------- 检测与分派 ----------
-
     def _on_check(self) -> None:
         old = self._old_input.text().strip().strip('"').strip()
         new = self._new_input.text().strip().strip('"').strip()
-
         # 两个框没填齐：说清"还差什么"，不出命令
         if not old or not new:
             self._show_idle()
@@ -279,11 +309,9 @@ class BackupMoveDialog(QDialog):
                 msg = "还差新位置（想搬去哪里）。"
             self._state_label.setText(msg)
             return
-
         if old.casefold() == new.casefold():
             self._note("新旧位置是同一个地方，无需搬家。", "#e5484d")
             return
-
         # 嵌套拦截：新位置在旧位置里面（或反过来）时，复制会变成
         # "把目录复制进它自己的子目录"，永远复制不完，必须拦下。
         # 先 resolve 归一化再 casefold 比较（Windows 路径大小写不敏感，R14）
@@ -291,10 +319,9 @@ class BackupMoveDialog(QDialog):
         n = str(Path(new).resolve()).rstrip("\\/").casefold()
         if n.startswith(o + "\\") or o.startswith(n + "\\"):
             self._note(
-                "新位置不能放在旧位置里面（或反过来）——两层套着的目录没法互相复制。",
-                "#e5484d")
+                "新位置不能放在旧位置里面（或反过来）——"
+                "两层套着的目录没法互相复制。", "#e5484d")
             return
-
         new_path = Path(new)
         if new_path.exists() and not new_path.is_dir():
             self._note("新位置被一个普通文件占用，换一个目录。", "#e5484d")
@@ -304,7 +331,8 @@ class BackupMoveDialog(QDialog):
         except OSError:
             pass  # 不是联接，正常
         else:
-            self._note("新位置本身是个联接——请填它指向的最终实体目录。", "#e5484d")
+            self._note("新位置本身是个联接——请填它指向的最终实体目录。",
+                       "#e5484d")
             return
 
         # ---- 新位置检查完毕，判旧位置的形态 ----
@@ -323,37 +351,35 @@ class BackupMoveDialog(QDialog):
                 state = "linked"
                 resolved = os.path.realpath(old)
                 if resolved.casefold() == new.casefold():
-                    self._note("新位置就是旧联接现在指的地方——已经搬过了，无需操作。",
-                               "#46a758")
+                    self._note("新位置就是旧联接现在指的地方——"
+                               "已经搬过了，无需操作。", "#46a758")
                     return
         elif old_path.exists():
             state = "file"
         else:
             state = "missing"
-
         self._refresh(state, old, new, resolved)
 
-    def _refresh(self, state: str, old: str, new: str, resolved: str) -> None:
+    def _refresh(self, state: str, old: str, new: str,
+                 resolved: str) -> None:
         """按旧位置的形态分派：结论颜色、说明行、命令块、步骤文案。
-        形态 → 行动的对照就铺在这一个方法里。"""
+
+        形态 → 行动的对照就铺在这一个方法里。
+        """
         color, text = _STATE_LOOKS.get(state, ("gray", f"未知形态：{state}"))
         self._state_label.setText(text)
         self._state_label.setStyleSheet(f"color: {color}; font-weight: 600;")
-
         detail = ""
         cmds: list[tuple[str, str]] = []
         steps = ""
-
         # 新位置已有内容时的通用提醒（复制是合并，不是清空）
         extra = ""
         np = Path(new)
         if np.is_dir() and next(np.iterdir(), None) is not None:
             extra = "\n（提示：新位置已有内容，复制会把两边合并，已有文件不会被删除。）"
-
         # ren 命令的第二个参数不能带路径，只能是要改成的名字——
         # 所以取旧路径的最后一段来拼
         tail = Path(old).name or "旧目录"
-
         if state == "real_dir":
             detail = f"旧位置：{old}"
             cmds = [
@@ -420,7 +446,6 @@ class BackupMoveDialog(QDialog):
                 "旧位置被一个普通文件占用（不是目录）。先弄清这个文件是什么、"
                 "处理妥当后再点【检测并生成命令】。本对话框不会动任何东西。"
             )
-
         self._detail_label.setText(detail + extra)
         self._put_commands(cmds)
         self._steps_label.setText(steps)
@@ -430,16 +455,3 @@ class BackupMoveDialog(QDialog):
         self._state_label.setText(msg)
         self._state_label.setStyleSheet(f"color: {color}; font-weight: 600;")
         self._detail_label.setText("")
-        self._steps_label.setText("")
-        self._put_commands([])
-
-    def _put_commands(self, commands: list[tuple[str, str]]) -> None:
-        """把 (标题, 命令) 列表填进三个命令块，用不上的块隐藏。"""
-        for i, (box, title_label, edit) in enumerate(self._blocks):
-            if i < len(commands):
-                title, cmd = commands[i]
-                title_label.setText(title)
-                edit.setPlainText(cmd)
-                box.setVisible(True)
-            else:
-                box.setVisible(False)

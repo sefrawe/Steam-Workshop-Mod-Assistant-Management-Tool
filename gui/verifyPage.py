@@ -1,57 +1,57 @@
 """账实核验页
 """
-"""
-对当前档案做两份只读对账（同步执行：只做目录列表、存在性检查和 readlink，
-毫秒级，不值得开线程——与"扫描本地"同理）：
+r"""对当前档案做两份只读对账（同步执行：只做目录列表、存在性检查和
+readlink，毫秒级，不值得开线程——与"扫描本地"同理）：
 
 1. 账本 ↔ 磁盘（core/modVerifier.verify）：库说已下载但盘上没有、
    盘上有目录但账本没记、来历不明的残留文件
-2. 账本 ↔ 游戏侧链接（core/modVerifier.verify_junctions）：已下载的 mod
-   在游戏侧 mods 目录里是否正确建了 junction——链接缺失/指错时
-   游戏里根本看不到这个 mod，其他对账都测不出来
+2. 账本 ↔ 游戏侧链接（core/modVerifier.verify_junctions）：已下载
+   的 mod 在游戏侧 mods 目录里是否正确建了 junction——链接缺失/
+   指错时游戏里根本看不到这个 mod，其他对账都测不出来
 
-流程：先按 steamcmd 现位置核对下载目录（死路径重推导并写回，与扫描
-本地复用同一套路），再依次跑两份对账。本页绝不删任何文件；写库只限
-三处：死路径重推导写回、设置游戏侧目录、用户在"修复三选"里主动
-选择的动作（确认入账 / 标记为已移除）。
+流程：先按 steamcmd 现位置核对下载目录（死路径重推导并写回，与
+扫描本地复用同一套路），再依次跑两份对账。本页绝不删任何文件；
+写库只限三处：死路径重推导写回、设置游戏侧目录、用户在"修复三选"
+里主动选择的动作（确认入账 / 标记为已移除）。
 
 修法提示口径（与 core 的分桶一一对应）：
 - 盘上缺失/空目录 → 点【修复…】三选（双击行 = 快捷的普通重下）：
-    ① 重新下载（增量）：生成普通下载命令——manifest 保证只补差异
-    ② 校验重下（validate）：命令末尾加 validate，逐文件核对 manifest，
-       被改动过的文件冲回原版；文件夹缺失/为空时等同完整重下
-       （怀疑文件损坏时用它；日常更新命令【不加】validate）
-    ③ 标记为已移除：账本记为「已删除」，本工具不再为它生成下载命令——
-       破"已删 mod 复活"循环的本工具侧动作；其他前端（如 RimSort）
-       清单里还有它的话仍可能被下回来，需在那些工具里一并移除
+  ① 重新下载（增量）：生成普通下载命令——manifest 保证只补差异
+  ② 校验重下（validate）：命令末尾加 validate，逐文件核对 manifest，
+    被改动过的文件冲回原版；文件夹缺失/为空时等同完整重下
+    （怀疑文件损坏时用它；日常更新命令【不加】validate）
+  ③ 标记为已移除：账本记为「已删除」，本工具不再为它生成下载命令——
+    破"已删 mod 复活"循环的本工具侧动作；其他前端（如 RimSort）
+    清单里还有它的话仍可能被下回来，需在那些工具里一并移除
 - 游戏侧缺链接 → 重建链接（重下无效！重下只恢复 content 侧）
 - 指错目标/真实目录/多余条目 → 只报不动，人工确认（R4 精神）
 
 勾选确认（"账未记"桶）：早期手动下载的 mod（库记「已收录」、盘上有
 内容、acf 永无记录）在第一列勾选，点【确认勾选的已下载】批量入账——
 勾哪几行确认哪几行；行数多时用旁边的【全选】。
+
+【T15 批 3 审计补齐】
+- 账本状态列换 gui/formatters.status_zh 单源（踩坑㉔：四个状态的
+  中文别各写各的，本页原有一份重复映射已删）；st 为 None（盘上有、
+  库里没这条编号）仍按本页语境显示「未入账」；
+- 游戏侧 mods 目录标签开自动换行（踩坑⑨：长路径会把窗口撑宽）；
+- 「问题明细」空结果自动收起（v2.31 空桶同款：0 行的 500px 空框
+  没有信息量），死路径短路分支同样收起；
+- 三个分区的折叠记忆（T19⑤ 收官）：共享件新增 expand_changed
+  信号，本页把它逐节写进 QSettings 的 session/ 命名空间（与主窗口
+  面板显隐同款口径：值一律 "1"/"0" 字符串），启动时恢复最后一态。
+  核验本身"按结果重设收展"的既有规矩不变（手工收展只在两次核验
+  之间有效）；MainWindow 零改动——核验页没有后台线程，不需要
+  shutdown 钩子。
 """
 import os
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import (
-    QApplication,
-    QAbstractItemView,
-    QCheckBox,
-    QFileDialog,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QListWidget,
-    QMessageBox,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-    QScrollArea,
-
+    QApplication, QAbstractItemView, QCheckBox, QFileDialog,
+    QHBoxLayout, QHeaderView, QLabel, QListWidget, QMessageBox,
+    QPushButton, QTableWidget, QTableWidgetItem, QToolButton,
+    QVBoxLayout, QWidget, QScrollArea,
 )
 
 from core import modVerifier, steamPaths
@@ -60,17 +60,17 @@ from core.commandBuilder import build_validate_copy_text
 from core.models import Game
 from gui.consolePanel import LogBus
 from gui.manualConfirm import confirm_batch
-from gui.collapsibleSection import CollapsibleSection as _Section  # 页内类上收共享件（T15 批 3）：核验页与清理页同一种折叠手感，实现单源
-
+from gui.collapsibleSection import CollapsibleSection as _Section
+from gui.formatters import status_zh
+from PySide6.QtCore import Signal
 _COLUMNS = ["选", "编号", "账本状态", "盘上情况", "建议", "操作"]
 
-# 账本状态 → 界面中文（None = 盘上有、库里没有的编号）
-_STATUS_LABELS = {
-    "tracked": "已收录",
-    "downloaded": "已下载",
-    "deleted": "已删除",
-    "failed": "已失败",
-}
+# 折叠记忆的三个键（T19⑤）：QSettings 的 session/ 命名空间——
+# 会话状态≠用户配置，与主窗口面板显隐同款口径；值一律 "1"/"0" 字符串
+_SES_SEC_TABLE = "session/verify_sec_table"   # 问题明细
+_SES_SEC_NN = "session/verify_sec_nn"         # 非数字明细
+_SES_SEC_JUNC = "session/verify_sec_junc"     # 链接巡检明细
+
 
 class VerifyPage(QWidget):
     # 双击"缺失/空目录"行（或修复三选里选"重新下载"）时发出，
@@ -89,6 +89,7 @@ class VerifyPage(QWidget):
         # itemChanged，不挡住的话计数函数会被空跑几十次
         self._filling: bool = False
         self._build_ui()
+        self._restore_fold_memory()  # T19⑤：三节折叠状态跨启动记忆
 
     # ---------- UI 构建 ----------
     def _build_ui(self) -> None:
@@ -108,14 +109,15 @@ class VerifyPage(QWidget):
         title = QLabel("账实核验", self)
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
         root.addWidget(title)
-
         self._game_label = QLabel(self)
         root.addWidget(self._game_label)
 
         # 游戏侧 mods 目录配置行：junction 巡检的前提。
         # 按钮在"开始核验"同排（用户反馈：操作入口不该分居两处）
         self._jcfg_label = QLabel("", self)
-        self._jcfg_label.setWordWrap(False)  # 踩坑 ④
+        # T15 批 3：开自动换行（踩坑⑨）——路径长了换行显示，
+        # 别把整个窗口撑宽
+        self._jcfg_label.setWordWrap(True)
         root.addWidget(self._jcfg_label)
 
         tip = QLabel(
@@ -133,15 +135,12 @@ class VerifyPage(QWidget):
         btn_row = QWidget(self)
         h = QHBoxLayout(btn_row)
         h.setContentsMargins(0, 0, 0, 0)
-
         self._jcfg_btn = QPushButton("设置游戏侧目录…", btn_row)
         self._jcfg_btn.clicked.connect(self._set_game_mod_dir)
         h.addWidget(self._jcfg_btn)
-
         self._verify_btn = QPushButton("开始核验", btn_row)
         self._verify_btn.clicked.connect(self._start_verify)
         h.addWidget(self._verify_btn)
-
         # 全选开关：只影响"有勾选框"的行（已收录 + 盘上有内容）。
         # 初次迁移几十上百行时不用一个个点
         self._check_all_box = QCheckBox("全选", btn_row)
@@ -151,14 +150,12 @@ class VerifyPage(QWidget):
             "只对第一列有勾选框的行生效")
         self._check_all_box.toggled.connect(self._on_check_all_toggled)
         h.addWidget(self._check_all_box)
-
         # 桶级确认（勾选粒度版）：勾哪几行确认哪几行，数字实时跟随勾选
         self._confirm_all_btn = QPushButton("确认勾选的已下载…", btn_row)
         self._confirm_all_btn.setVisible(False)
         self._confirm_all_btn.setEnabled(False)
         self._confirm_all_btn.clicked.connect(self._confirm_checked)
         h.addWidget(self._confirm_all_btn)
-
         h.addStretch(1)
         root.addWidget(btn_row)
 
@@ -179,10 +176,11 @@ class VerifyPage(QWidget):
         for col, width in ((0, 36), (1, 110), (2, 90), (3, 150), (5, 120)):
             self._table.setColumnWidth(col, width)
         # 两个信号各管各的：双击跳命令页；勾选变化刷新按钮数字。
-        # connect 行是高危区（踩坑 ㉒）——本次新增的 itemChanged 是独立一行，
+        # connect 行是高危区（踩坑 ㉒）——itemChanged 是独立一行，
         # 没有覆盖任何旧连接
         self._table.cellDoubleClicked.connect(self._on_row_double_clicked)
         self._table.itemChanged.connect(self._on_item_changed)
+
         # 问题明细改可折叠（T19㉑）：表格与全部配置/信号不动，
         # 只是挂进分区；上方摘要行常驻
         self._sec_table = _Section("问题明细", self)
@@ -205,9 +203,20 @@ class VerifyPage(QWidget):
         self._sec_junc.set_content(self._junc_list, 300)
         root.addWidget(self._sec_junc)
 
+        # 折叠记忆（T15 批 3 / T19⑤ 收官）：三节收展一变即落盘。
+        # 含程序性 set_expanded——核验按结果重设、切档案清空的收展
+        # 也会被记住，存的是"屏幕上最后一态"；启动恢复见
+        # _restore_fold_memory
+        self._sec_table.expand_changed.connect(
+            lambda ex: self._save_fold(_SES_SEC_TABLE, ex))
+        self._sec_nn.expand_changed.connect(
+            lambda ex: self._save_fold(_SES_SEC_NN, ex))
+        self._sec_junc.expand_changed.connect(
+            lambda ex: self._save_fold(_SES_SEC_JUNC, ex))
+
         self._verify_btn.setToolTip(
             "只读对账：账本↔磁盘实况 + 游戏侧链接；除\"修复三选\"里"
-                                                            "用户主动选择的动作外，不写库、不删任何文件")
+            "用户主动选择的动作外，不写库、不删任何文件")
         self._jcfg_btn.setToolTip(
             "选择游戏读取 mod 的目录，启用链接布局巡检；单目录布局无需配置")
         self._confirm_all_btn.setToolTip(
@@ -215,10 +224,29 @@ class VerifyPage(QWidget):
             "（早期手动下载，acf 永无记录，扫描无法确认）；"
             "确认后版本留空——备份将拒、更新检测列「版本未知」；"
             "重下并扫描可恢复")
-        root.addStretch(1)  # 剩余空间留在页尾：分区保持自然高度，不跟着拉伸
+        root.addStretch(1)
+        # 剩余空间留在页尾：分区保持自然高度，不跟着拉伸
 
+    # ---------- 折叠记忆（T15 批 3 / T19⑤ 收官）----------
+    def _save_fold(self, key: str, expanded: bool) -> None:
+        """一节收展一变即落盘。用户点击与程序性 set_expanded 都会
+        走到这（expand_changed 两种来源都发）——存下的永远是
+        "屏幕上最后一态"。QSettings 析构时自动同步，无需攒批。"""
+        QSettings().setValue(key, "1" if expanded else "0")
 
-    # ---------- 对外（MainWindow 调用） ----------
+    def _restore_fold_memory(self) -> None:
+        """启动时恢复三节上次的收展。无记录（首次运行）= 维持
+        默认展开，与主窗口面板显隐同一口径。恢复动作本身也会触发
+        expand_changed → 把同一个值原样写回去，无害。"""
+        q = QSettings()
+        for key, sec in ((_SES_SEC_TABLE, self._sec_table),
+                         (_SES_SEC_NN, self._sec_nn),
+                         (_SES_SEC_JUNC, self._sec_junc)):
+            raw = q.value(key)
+            if raw is not None:
+                sec.set_expanded(str(raw) != "0")
+
+    # ---------- 对外（MainWindow 调用）----------
     def set_game(self, game: Game | None) -> None:
         self._game = game
         self._table.setRowCount(0)
@@ -230,7 +258,6 @@ class VerifyPage(QWidget):
         # 下次【开始核验】按新结果重新收展
         self._sec_nn.set_expanded(False)
         self._sec_junc.set_expanded(False)
-
         self._summary.setText("")
         self._pending_confirm_ids = []
         self._refresh_confirm_ui()  # 连带收起勾选按钮/全选框
@@ -277,14 +304,14 @@ class VerifyPage(QWidget):
     def _start_verify(self) -> None:
         if self._game is None:
             return
-
         # 第一步：下载目录死路径重推导——与扫描本地完全同款的核对
         effective_dir, changed = steamPaths.refresh_download_dir(
             self._game.download_dir,
             self._settings.get("steamcmd_path"),
             self._game.app_id)
         if changed:
-            self._repo.update_game(self._game.app_id, download_dir=effective_dir)
+            self._repo.update_game(self._game.app_id,
+                                   download_dir=effective_dir)
             self._game = self._repo.get_game(self._game.app_id)  # 内存同步
             self._log.info(
                 f"下载目录已按当前 steamcmd 位置重新推导：{effective_dir}")
@@ -294,7 +321,6 @@ class VerifyPage(QWidget):
 
         # 第二步：账本 ↔ 磁盘（纯读盘对账，不动文件）
         result = modVerifier.verify(self._game.download_dir, status_by_id)
-
         if result.dead_root:
             # 短路口径与 core 一致：逐条对账全是误报，不如说清原因
             self._table.setRowCount(0)
@@ -306,9 +332,10 @@ class VerifyPage(QWidget):
             # （防止按钮还在但旧数据已失效）
             self._pending_confirm_ids = []
             self._refresh_confirm_ui()
+            # T15 批 3：明细已清空，三个分区一并收回，不留空框
+            self._sec_table.set_expanded(False)
             self._sec_nn.set_expanded(False)
             self._sec_junc.set_expanded(False)
-
             self._summary.setStyleSheet("color: #e5484d;")
             self._summary.setText(
                 "下载目录不存在，逐条对账没有意义（会满屏误报）。\n"
@@ -320,10 +347,8 @@ class VerifyPage(QWidget):
         # "已收录 + 盘上有内容"的行可勾选确认——先收齐编号给按钮计数用
         self._pending_confirm_ids = [
             mid for mid, st in result.untracked_content if st == "tracked"]
-
         self._fill_table(result)
         self._fill_non_numeric(result)
-
         n_bad = len(result.missing) + len(result.empty)
         self._summary.setStyleSheet(
             "color: #46a758;" if n_bad == 0 else "color: #f76b15;")
@@ -332,10 +357,8 @@ class VerifyPage(QWidget):
             f"｜盘上缺失 {len(result.missing)}｜空目录 {len(result.empty)}"
             f"｜盘上有而账未记 {len(result.untracked_content)}"
             f"｜非数字内容 {len(result.non_numeric)}")
-
         # 勾选按钮/全选框的显示与计数（内部读当前表格的勾选状态）
         self._refresh_confirm_ui()
-
         self._log.ok(
             f"账实核验完成（{self._game.name}）：相符 {result.healthy}，"
             f"缺失 {len(result.missing)}，空目录 {len(result.empty)}，"
@@ -356,7 +379,6 @@ class VerifyPage(QWidget):
         """
         # (mid, 状态文案, 盘上文案, 建议文案, 可双击重下, 可勾选确认)
         rows: list[tuple[int, str, str, str, bool, bool]] = []
-
         for mid in result.missing:
             rows.append((mid, "已下载", "目录不存在",
                          "双击本行重下；或点【修复…】选修复方式", True, False))
@@ -365,7 +387,9 @@ class VerifyPage(QWidget):
                          "疑似中断残留：双击重下；或点【修复…】；"
                          "也可手动删除空目录", True, False))
         for mid, st in result.untracked_content:
-            label = _STATUS_LABELS.get(st, "未入账")
+            # 账本状态中文走 status_zh 单源（踩坑㉔补课）；
+            # st 为 None = 盘上有、库里根本没这条编号，本页语境固定叫「未入账」
+            label = "未入账" if st is None else status_zh(st)
             if st is None:
                 rows.append((mid, label, "盘上有目录",
                              "本工具之外的内容：点【扫描本地】尝试入账",
@@ -378,8 +402,7 @@ class VerifyPage(QWidget):
                 # 文案两条路都摆出来，先推荐代价小的那条
                 rows.append((mid, label, "盘上已有内容",
                              "先试【扫描本地】自动确认；不行（acf 无记录）"
-                             "就在第一列勾选，点上方按钮批量确认",
-                             False, True))
+                             "就在第一列勾选，点上方按钮批量确认", False, True))
             else:
                 # deleted / failed：软删除和失败记录本来就保留文件，正常
                 rows.append((mid, label, "盘上仍有内容",
@@ -402,18 +425,15 @@ class VerifyPage(QWidget):
                     self._table.setItem(r, 0, chk)
                 else:
                     self._table.setItem(r, 0, QTableWidgetItem(""))
-
                 # 第二列：编号。塞进 UserRole 供双击取用；
                 # 可行动标记放 UserRole+1（供双击判断是否响应）
                 mid_item = QTableWidgetItem(str(mid))
                 mid_item.setData(Qt.ItemDataRole.UserRole, mid)
                 mid_item.setData(Qt.ItemDataRole.UserRole + 1, actionable)
                 self._table.setItem(r, 1, mid_item)
-
                 self._table.setItem(r, 2, QTableWidgetItem(status))
                 self._table.setItem(r, 3, QTableWidgetItem(disk))
                 self._table.setItem(r, 4, QTableWidgetItem(advice))
-
                 # 操作列：缺失/空目录给【修复…】三选按钮
                 if actionable:
                     btn = QPushButton("修复…", self._table)
@@ -429,14 +449,18 @@ class VerifyPage(QWidget):
         finally:
             self._filling = False
 
-    # ---------- 勾选确认（T20a：勾哪几行确认哪几行） ----------
+        # 「问题明细」空桶自动收起（v2.31 空桶同款）：0 行的 500px
+        # 空框没有信息量；有问题自动摊开。与 nn/巡检两节同一规矩——
+        # 每次核验按本轮结果重设收展，手工收展只在两次核验之间有效
+        self._sec_table.set_expanded(self._table.rowCount() > 0)
+
+    # ---------- 勾选确认（T20a：勾哪几行确认哪几行）----------
     def _checked_ids(self) -> list[int]:
         """从表格第一列收出当前勾选的 mod id（按界面顺序）。"""
         ids: list[int] = []
         for r in range(self._table.rowCount()):
             chk = self._table.item(r, 0)
-            if chk is None or not (chk.flags()
-                                   & Qt.ItemFlag.ItemIsUserCheckable):
+            if chk is None or not (chk.flags() & Qt.ItemFlag.ItemIsUserCheckable):
                 continue  # 本行没有勾选框（不可确认的行）
             if chk.checkState() != Qt.CheckState.Checked:
                 continue
@@ -466,8 +490,7 @@ class VerifyPage(QWidget):
         灌表期间（_filling）不响应。"""
         if self._filling:
             return
-        if item.column() == 0 and (item.flags()
-                                   & Qt.ItemFlag.ItemIsUserCheckable):
+        if item.column() == 0 and (item.flags() & Qt.ItemFlag.ItemIsUserCheckable):
             self._refresh_confirm_ui()
 
     def _on_check_all_toggled(self, checked: bool) -> None:
@@ -479,8 +502,8 @@ class VerifyPage(QWidget):
                 if chk is None or not (chk.flags()
                                        & Qt.ItemFlag.ItemIsUserCheckable):
                     continue
-                chk.setCheckState(Qt.CheckState.Checked if checked
-                                  else Qt.CheckState.Unchecked)
+                chk.setCheckState(
+                    Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         finally:
             self._filling = False
         self._refresh_confirm_ui()
@@ -489,12 +512,12 @@ class VerifyPage(QWidget):
         """把勾选的行批量确认入账；成功后重跑核验刷新全部数字
         （核验只读、毫秒级）。"""
         ids = self._checked_ids()
-        if not ids:
-            return  # 按钮无勾选时应为禁用态，这里是双保险
+        if not ids:  # 按钮无勾选时应为禁用态，这里是双保险
+            return
         if confirm_batch(self, self._repo, self._log, ids):
             self._start_verify()
 
-    # ---------- 修复三选（T11a：重下 / 校验重下 / 标记为已移除） ----------
+    # ---------- 修复三选（T11a：重下 / 校验重下 / 标记为已移除）----------
     def _repair_row(self, mod_id: int) -> None:
         """缺失/空目录行的修复入口：三个修法摆在一起，各写清后果。
         双击行 = 直接走选项①（普通重下），是这里的快捷方式。"""
@@ -519,11 +542,9 @@ class VerifyPage(QWidget):
             "标记为已移除", QMessageBox.ButtonRole.DestructiveRole)  # 红色警示
         box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
         box.exec()
-
         clicked = box.clickedButton()
         if clicked is b_redownload:
-            self._log.info(
-                f"跳转命令生成页并勾选 {mod_id}（普通重下修复）")
+            self._log.info(f"跳转命令生成页并勾选 {mod_id}（普通重下修复）")
             self.command_gen_requested.emit([mod_id])
         elif clicked is b_validate:
             self._show_validate_dialog(mod_id)
@@ -547,14 +568,14 @@ class VerifyPage(QWidget):
             "注意：validate 会把被改动过的文件冲回原版；"
             "文件夹缺失或为空时等同完整重下。"
             "执行完回到本页点【开始核验】即可看到结果。")
-        b_copy = box.addButton(
-            "复制命令", QMessageBox.ButtonRole.ActionRole)
+        b_copy = box.addButton("复制命令", QMessageBox.ButtonRole.ActionRole)
         box.addButton("关闭", QMessageBox.ButtonRole.RejectRole)
         box.exec()
         if box.clickedButton() is b_copy:
             QApplication.clipboard().setText(text)
             self._log.info(
                 f"已复制 mod {mod_id} 的校验重下命令，请粘贴到 steamcmd 执行")
+
     def _mark_removed(self, mod_id: int) -> None:
         """标记为已移除（修复三选选项③）：软删除——与 mod 库页右键
         「软删除…」走同一条路（repo.mark_deleted），不是裸改状态：
@@ -589,11 +610,9 @@ class VerifyPage(QWidget):
         last_state = {"title": mod.title, "url": mod.url,
                       "time_updated": mod.time_updated,
                       "local_timeupdated": mod.local_timeupdated,
-                      "manifest": mod.manifest,
-                      "local_size": mod.local_size,
+                      "manifest": mod.manifest, "local_size": mod.local_size,
                       "note": mod.note, "color_tag": mod.color_tag,
-                      "is_special": mod.is_special,
-                      "local_path": mod.local_path}
+                      "is_special": mod.is_special, "local_path": mod.local_path}
         try:
             self._repo.mark_deleted(mod_id, last_state)
         except ValueError as exc:
@@ -613,7 +632,6 @@ class VerifyPage(QWidget):
     def _fill_non_numeric(self, result: modVerifier.VerifyResult) -> None:
         self._nn_list.clear()
         n = len(result.non_numeric)
-
         self._nn_label.setText(
             f"非数字内容桶（{n} 项）——来历不明的目录/文件，"
             "本工具不代删，请人工确认后自行处理：")
@@ -626,24 +644,20 @@ class VerifyPage(QWidget):
         # 每次核验都按本轮结果重设收展——手工收展只在两次核验之间有效
         self._sec_nn.set_expanded(n > 0)
 
-
     # ---------- junction 巡检 ----------
     def _run_junction_check(self, status_by_id: dict[int, str]) -> None:
         """账本 ↔ 游戏侧链接巡检。
 
         T19㉒ 第 2 步：动手逐条查之前，先用判定单源
         （core/steamPaths.junction_state）认一次拓扑——
-
         - 反向拓扑健康（下载目录本身是联接、指对游戏侧目录）：
           游戏侧每条都是真实目录，逐条巡检会把每个已下载 mod 都报成
           "实为目录"，满屏同一句误报。改为一行绿字收工；各 mod 在不在
           盘上，上方账实对账透过联接已经查过（联接两侧是同一份内容）。
-
         - 反向联接指错目标 / 指对了位置但游戏目录已不在（悬空）：
           反向环境此前没有任何检查能逮住的情况——联接一坏，steamcmd
           写入就静默落空。给一行红字 + 指路连接指引，同样不逐条查
           （逐条查只会刷屏"实为目录"，没有信息量）。
-
         - 其余一切情况（下载目录不是联接）：维持既有逐条巡检——
           正向根联接、正向逐 mod 联接、单目录布局、未配置等，
           由 modVerifier.verify_junctions 与下面的分支照旧处理。
@@ -651,7 +665,6 @@ class VerifyPage(QWidget):
         assert self._game is not None
         self._junc_list.clear()
         self._junc_label.setText("")
-
         game_dir = str(self._game.game_mod_dir or "").strip().strip('"').strip()
         if game_dir:
             # 拓扑探针：junction_state(下载目录, 游戏目录)。状态名按参数
@@ -668,8 +681,7 @@ class VerifyPage(QWidget):
                         "（反向布局下游戏直接读真实目录，无需逐条链接；"
                         "各 mod 是否在盘上，已由上方账实对账覆盖）")
                     self._junc_label.setStyleSheet("color: #46a758;")
-                    self._log.ok(
-                        f"junction 巡检：反向拓扑正常（{game_dir}）")
+                    self._log.ok(f"junction 巡检：反向拓扑正常（{game_dir}）")
                 else:
                     # 联接指对了位置但目标不存在（悬空）。不赌
                     # junction_state 把这种情况归到哪个状态名，用
@@ -702,9 +714,7 @@ class VerifyPage(QWidget):
             # 其余状态（下载目录是真实目录等）→ 落到下面的既有逐条巡检
 
         result = modVerifier.verify_junctions(
-            self._game.download_dir,
-            self._game.game_mod_dir,
-            status_by_id)
+            self._game.download_dir, self._game.game_mod_dir, status_by_id)
         if result is None:
             # None 有两种来路：未配置；或单目录布局（游戏侧=下载目录，
             # 本就没有链接可查）。文案把两种都说清，不吓唬人
@@ -716,6 +726,7 @@ class VerifyPage(QWidget):
             self._sec_junc.set_expanded(False)
             # 没跑巡检，没有明细可看
             return
+
         if result.dead_root:
             self._junc_label.setText(
                 f"junction 巡检：目录不存在（{result.game_mod_dir}），"
@@ -725,6 +736,7 @@ class VerifyPage(QWidget):
             self._sec_junc.set_expanded(False)
             # 目录都没有，明细无意义
             return
+
         # 逐桶翻人话。注意修法差异：
         # - 缺链接 → 重建链接（重下无效！重下只恢复 content 侧，
         #   游戏侧链接不会自己长出来）
@@ -743,6 +755,7 @@ class VerifyPage(QWidget):
             lines.append(f"{name}：游戏侧多余条目——人工确认后自行处理")
         for line in lines:
             self._junc_list.addItem(line)
+
         n_bad = len(lines)
         self._junc_label.setText(
             f"junction 巡检：正常 {result.ok}"
@@ -760,7 +773,7 @@ class VerifyPage(QWidget):
         # 有问题自动摊开（缺链接等需要你看），全正常自动收起
         self._sec_junc.set_expanded(bool(lines))
 
-    # ---------- 跳转命令生成页（双击行的快捷重下） ----------
+    # ---------- 跳转命令生成页（双击行的快捷重下）----------
     def _on_row_double_clicked(self, row: int, _col: int) -> None:
         item = self._table.item(row, 1)  # 编号列（第 0 列现在是勾选框）
         if item is None:

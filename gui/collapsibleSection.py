@@ -12,12 +12,21 @@ r"""gui/collapsibleSection.py · 一行「箭头＋标题」开关 + 明细区�
   （页面总高度交给整页滚动管）；
 - set_expanded(...)：程序性收展（空桶自动收起用）；
 - set_title(...)：换标题（带实时计数）。
+
+【T15 批 3 审计补齐】新增 expand_changed(bool) 信号：无论用户点
+箭头还是页面程序性收展（set_expanded），状态一变就发——账实核验
+页靠它把三个分区的折叠状态记进 QSettings（T19⑤ 收官的折叠记忆，
+与主窗口面板显隐同一套 session/ 口径）。已有的使用方（清理与
+删除页）不连这个信号就完全不受影响：没人监听的信号是空操作。
 """
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QToolButton, QVBoxLayout, QWidget
 
 
 class CollapsibleSection(QWidget):
+    # 收展状态变化（True=展开）。用户点击与程序性 set_expanded 都会发
+    expand_changed = Signal(bool)
+
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         v = QVBoxLayout(self)
@@ -40,14 +49,17 @@ class CollapsibleSection(QWidget):
         self._toggle.clicked.connect(self._on_toggle)
 
     def _on_toggle(self, expanded: bool) -> None:
+        """收展的唯一出口：用户点箭头走这里，程序性 set_expanded
+        也手动调这里——所以对外信号只需要在这一处发。"""
         self._toggle.setArrowType(
             Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
         self._body.setVisible(expanded)
+        self.expand_changed.emit(expanded)  # T15 批 3：折叠记忆用
 
     def set_expanded(self, expanded: bool) -> None:
-        """程序性收展（空桶自动收起用）。setChecked 只发 toggled 不发
-        clicked，而我们连的是 clicked——所以外观同步要手动调一次
-        _on_toggle，不存在信号环路。"""
+        """程序性收展（空桶自动收起用）。setChecked 只发 toggled
+        不发 clicked，而我们连的是 clicked——所以外观同步要手动调
+        一次 _on_toggle，不存在信号环路。"""
         self._toggle.setChecked(expanded)
         self._on_toggle(expanded)
 
