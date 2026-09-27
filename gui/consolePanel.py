@@ -89,6 +89,10 @@ class ConsolePanel(QWidget):
         # 中间用弹簧撑开，视觉上各占一头不打架）
         bottom_row = QHBoxLayout()
         clear = QPushButton("清空", log_page)
+        clear.setToolTip(
+            "清空运行日志的显示内容；不影响 operations_log 表"
+            "（那是给程序读的操作史，两层分开）")
+
         clear.setFixedWidth(80)
         clear.clicked.connect(self._log_view.clear)
         bottom_row.addWidget(clear)

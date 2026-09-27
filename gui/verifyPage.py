@@ -60,6 +60,7 @@ from core.commandBuilder import build_validate_copy_text
 from core.models import Game
 from gui.consolePanel import LogBus
 from gui.manualConfirm import confirm_batch
+from gui.collapsibleSection import CollapsibleSection as _Section  # 页内类上收共享件（T15 批 3）：核验页与清理页同一种折叠手感，实现单源
 
 _COLUMNS = ["选", "编号", "账本状态", "盘上情况", "建议", "操作"]
 
@@ -70,57 +71,6 @@ _STATUS_LABELS = {
     "deleted": "已删除",
     "failed": "已失败",
 }
-
-class _Section(QWidget):
-    """可折叠分区（T19㉑）：一行"箭头＋标题"的开关，下面挂明细区。
-    摘要/说明不进分区（常驻可见），收起后页面只剩摘要数字行；
-    默认展开，与旧版行为一致。"""
-
-    def __init__(self, title: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        v = QVBoxLayout(self)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(2)
-
-        self._toggle = QToolButton(self)
-        self._toggle.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self._toggle.setCheckable(True)
-        self._toggle.setChecked(True)  # 默认展开
-        self._toggle.setArrowType(Qt.ArrowType.DownArrow)
-        self._toggle.setText(title)
-        self._toggle.setFixedHeight(22)
-        v.addWidget(self._toggle)
-
-        self._body = QWidget(self)
-        self._body_v = QVBoxLayout(self._body)
-        self._body_v.setContentsMargins(0, 0, 0, 0)
-        v.addWidget(self._body)
-
-        # clicked(bool) 对 checkable 按钮传的就是新状态，直接用
-        self._toggle.clicked.connect(self._on_toggle)
-
-    def _on_toggle(self, expanded: bool) -> None:
-        self._toggle.setArrowType(
-            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
-        self._body.setVisible(expanded)
-
-    def set_expanded(self, expanded: bool) -> None:
-        """程序性收展（空桶自动收起用）。setChecked 只发 toggled
-        不发 clicked，而我们连的是 clicked——所以外观同步要
-        手动调一次 _on_toggle，不存在信号环路。"""
-        self._toggle.setChecked(expanded)
-        self._on_toggle(expanded)
-
-
-
-    def set_content(self, widget: QWidget, height: int) -> None:
-        """挂明细区（每分区只调一次）。height = 明细区固定高度：
-        收起/展开都占同样高度，内容多时靠控件内部滚动——
-        分区高度不随内容涨，页面总高度交给整页滚动管。"""
-        widget.setFixedHeight(height)
-        self._body_v.addWidget(widget)
-
 
 class VerifyPage(QWidget):
     # 双击"缺失/空目录"行（或修复三选里选"重新下载"）时发出，

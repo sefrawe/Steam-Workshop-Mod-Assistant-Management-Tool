@@ -59,13 +59,23 @@ class ImportPage(QWidget):
         h = QHBoxLayout(btn_row)
         h.setContentsMargins(0, 0, 0, 0)
         load_btn = QPushButton("从文本文件读入…", btn_row)
+        load_btn.setToolTip(
+            "从 txt 文件读入网址/编号清单（自动兼容记事本的 BOM 头），"
+            "追加到输入框并立即解析预览")
+
         load_btn.clicked.connect(self._on_load_file)
         clear_btn = QPushButton("清空", btn_row)
+        clear_btn.setToolTip("清空输入框与解析结果（还没导入的解析结果一并作废）")
+
         clear_btn.clicked.connect(self._on_clear)
         h.addWidget(load_btn)
         h.addWidget(clear_btn)
         h.addStretch(1)
         parse_btn = QPushButton("解析预览", btn_row)
+        parse_btn.setToolTip(
+            "解析输入框里的工坊网址/纯数字编号，与库内对表：报出可导入多少、"
+            "已在库跳过多少。解析结果只属于当前选中的档案，切档案即作废")
+
         parse_btn.clicked.connect(self._on_parse)
         h.addWidget(parse_btn)
         root.addWidget(btn_row)
@@ -73,6 +83,10 @@ class ImportPage(QWidget):
         self._report.setWordWrap(True)
         root.addWidget(self._report)
         self._import_btn = QPushButton("导入（0 个）", self)
+        self._import_btn.setToolTip(
+            "把预览出的新编号整批登记为「已收录」；一个事务，失败整体回滚；"
+            "已在库的编号自动跳过")
+
         self._import_btn.setEnabled(False)
         self._import_btn.clicked.connect(self._on_import)
         root.addWidget(self._import_btn)

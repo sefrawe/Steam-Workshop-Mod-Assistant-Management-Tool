@@ -301,6 +301,25 @@ class ModRepository(ABC):
         """软删除三连（一个事务内）：status→'deleted' + deleted_at=now +
         末态 dict 序列化进 deleted_last_state。last_state 由 flow 层组装
         （哪些字段值得留末态是业务决定，repo 只管存取）。"""
+    @abstractmethod
+    def purge_mod(self, mod_id: int, *, purge_backups: bool = False) -> int:
+        """物理清除一条 mod 记录（「彻底清账」，决策 69）。
+
+        与 mark_deleted 的分工：软删除是"等恢复"的存放态；本方法是
+        用户看清盘点、明确要走之后的完整出口。规则：
+        - purge_backups=False（默认）且名下还有备份登记 → ValueError：
+          RESTRICT 闸的显式版——备份是用户资产和唯一旧版本来源，
+          必须先经处置决策（清理页的勾选/备份总览页正门）才许过闸；
+        - purge_backups=True：先删该 mod 的备份登记，再删 mod 行
+          （快照与特殊提醒随之消失；显式先删，与 delete_game_deep
+          同款纪律——读代码的人不用背外键图）；
+        - 刻意存活的：failed_mods 证据行（无外键证据表，旧 id 复活的
+          查询线索）与 operations_log（全局历史）；其他归档行的
+          replaced_by 指向本 id 时由外键自动置空；
+        - 本方法绝不碰文件系统——磁盘上的 content 目录、备份文件
+          归 flow/GUI 层按用户勾选另行处置（与 delete_game_deep 同一分工）。
+        返回随账清除的备份登记份数（供执行报告说数）。
+        mod_id 不存在 → ValueError。"""
 
     # ============ mod_snapshots（2） ============
 

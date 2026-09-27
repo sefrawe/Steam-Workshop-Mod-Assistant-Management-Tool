@@ -72,6 +72,7 @@ from gui.updateCheckPage import UpdateCheckPage
 from gui.updateSelectDialog import UpdateSelectDialog
 from gui.verifyPage import VerifyPage
 from gui.welcomePage import WelcomePage
+from gui.deletePage import DeletePage
 
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根统一从 appPaths 定位（源码=项目根\data，打包=exe 旁\data）
 
@@ -81,6 +82,7 @@ _IDX_FIRST_USE = 14        # 首次使用模块页 = _pages 末尾 append 后落
 _IDX_RESCUE = 15  # 功能模块：恢复旧版本 = _pages 末尾 append 后落位（决策 13 模式）
 _IDX_SHARE = 16   # 功能模块：分享清单 = 同上
 _IDX_MIGRATION = 17  # 功能模块：换机迁移 = _pages 末尾 append 后落位（决策 13 模式）
+_IDX_DELETE = 18   # 功能模块：清理与删除 = _pages 末尾 append 后落位（决策 13 模式）
 
 
 # 日常更新一条龙的两个开关键名（值一律 "1"/"0"，经 get_int 读）。
@@ -96,6 +98,8 @@ _SES_DETAIL = "session/detail_visible"
 _SES_CONSOLE = "session/console_visible"
 _SES_GEOM = "session/window_geometry"  # 窗口大小与位置（QByteArray）
 _SES_STATE = "session/window_state"    # 停靠窗布局（控制台位置/高度等）
+_SES_NAV = "session/nav_expanded"  # 导航树组折叠状态（展开的组名逗号串，T19⑤ 收官项）
+
 
 # 左导航树：整数 = 页面栈下标（真实页面）；None = 未完成模块，灰色"开发中"。
 # 完成模块时：在 _pages 末尾 append 新页面（栈顺序不再需要和导航一致），
@@ -108,7 +112,8 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
         # 建档/连接转调 gameSwitcher 既有对话框——原"临时入口届时退役"
         # 改判不退役：模块走转调、入口留给熟手直达（两条路一本账）
         ("日常更新", 12),  # T22：检测 → 确认清单 → 批量下载 → 复扫 的引导壳
-        ("删除 mod", None),  # 待做：软删除/恢复/清理编排
+        ("清理与删除", _IDX_DELETE),  # 决策 69：盘点→处置（软删除残留/彻底清账/孤儿目录）；恢复走 mod 库页右键
+
         ("恢复旧版本", _IDX_RESCUE),  # 决策 34 第二档：备份恢复的引导壳（零新引擎）
         ("换机迁移", _IDX_MIGRATION),  # 决策 34 第二档：账本+目录推导+联接+重定位 的编排壳
 
@@ -222,6 +227,12 @@ class MainWindow(QMainWindow):
             self._nav.addTopLevelItem(group)
         self._nav.currentItemChanged.connect(self._on_nav_changed)
         self._nav.itemClicked.connect(self._on_nav_clicked)
+        # 组折叠记忆（T19⑤）：点组名/箭头展开收起即落盘；启动恢复在
+        # _restore_panels → _restore_nav_state。建树时的 setExpanded(True)
+        # 发生在接线之前不会触发保存——无记录时维持"默认全展开"。
+        self._nav.itemExpanded.connect(self._save_nav_state)
+        self._nav.itemCollapsed.connect(self._save_nav_state)
+
         side_layout.addWidget(self._nav, 1)
 
         self._stack = QStackedWidget(central)
@@ -244,6 +255,7 @@ class MainWindow(QMainWindow):
             RescuePage(self._repo, self._settings, self._stack, log=self._log),  # 15 功能模块：恢复旧版本
             ShareListPage(self._repo, self._settings, self._stack, log=self._log),  # 16 功能模块：分享清单
             MigrationPage(self._repo, self._settings, self._stack, log=self._log),  # 17 功能模块：换机迁移
+            DeletePage(self._repo, self._settings, self._stack, log=self._log),  # 18 功能模块：清理与删除（决策 69）
 
         ]
         for page in self._pages:
@@ -330,6 +342,15 @@ class MainWindow(QMainWindow):
         # ⑦扫描确认：转调 mod 库页 quiet 扫描链（与"恢复旧版本"③同一条链）
         self._pages[_IDX_MIGRATION].rescan_requested.connect(
             self._on_migration_rescan)
+        # —— 功能模块「清理与删除」（决策 69）：孤儿认领的两条跳转 ——
+        self._pages[_IDX_DELETE].goto_ledger_requested.connect(
+            lambda: self._goto_page(0))   # mod 库页：扫描本地自动认领 / 右键手动确认
+        self._pages[_IDX_DELETE].goto_import_requested.connect(
+            lambda: self._goto_page(1))   # 网址批量导入：登记网址认领
+        self._pages[_IDX_DELETE].ledger_changed.connect(
+            self._on_cleanup_ledger_changed)
+
+
 
 
         self._nav.setCurrentItem(self._nav_items[9])  # 启动默认落「欢迎」页
@@ -401,6 +422,8 @@ class MainWindow(QMainWindow):
         act_quit = QAction("退出", self)
         act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         act_quit.triggered.connect(self.close)
+        m_file.setToolTipsVisible(True)  # QMenu 默认不显示动作悬浮说明（T19⑩ 同款坑）——账本/分享包四项的说明此前一直没展示过
+
         m_file.addAction(act_quit)
 
         # 游戏(&G)：原侧栏四颗按钮的操作收进这里（按钮撤出后侧栏
@@ -445,6 +468,8 @@ class MainWindow(QMainWindow):
             "保留、可勾选一并删除。content 下载目录与游戏目录不受影响")
         self._act_delete.triggered.connect(self._switcher.open_delete)
         m_game.addAction(self._act_delete)
+        m_game.setToolTipsVisible(True)  # 同上：编辑/连接/重定位/删除四项的说明一直没展示过
+
 
         # 视图(&V)（T19⑭⑮）：两块面板的显隐开关，checkable 状态即现状。
         # 与控制台显隐同口径——不记忆跨重启（要记的话往 appSettings
@@ -473,6 +498,8 @@ class MainWindow(QMainWindow):
         act_pop.setToolTip("控制台开着但不在前台时，把它拉到最前")
         act_pop.triggered.connect(self._pop_console)
         m_console.addAction(act_pop)
+        m_console.setToolTipsVisible(True)  # 同上：「弹出控制台并置前」的说明
+
         # 高级筛选（T12 决策 63 修订）：独立菜单栏顶级项 = 全局搜索按钮。
         # QMenuBar.addAction 不带子菜单——点了就触发，天然是长在菜单栏
         # 上的按钮；软件任意页面一键唤出（非模态，实例归 mod 库页持有防 GC）
@@ -593,6 +620,13 @@ class MainWindow(QMainWindow):
             return
         self._pages[0].scan_local_quiet(game)
         self._pages[_IDX_RESCUE].on_rescan_done(game.name)
+
+    def _on_cleanup_ledger_changed(self) -> None:
+        """清理页处置落账后，强制 mod 库页重读（同 _on_checks_finished
+        的先例）——软删除/彻底清账的结果不该等用户自己点刷新才看见。"""
+        self._pages[0].set_game(self._switcher.current_game())
+
+
     def _on_migration_rescan(self) -> None:
         """功能模块「换机迁移」第⑦步【扫描确认】：转调 mod 库页的
         quiet 扫描链，扫当前档案（迁移按档案逐个推进）。无档案时
@@ -970,6 +1004,32 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     # ---------- 面板显隐的会话记忆（T19⑤ 轻量子集） ----------
+    def _save_nav_state(self, *_item) -> None:
+        """导航树组折叠落盘（T19⑤）。信号带变化的那一条目，统一吞掉——
+        要记的永远是"全部组的现状"，逐条传参反而不便。"""
+        q = QSettings()
+        expanded = [
+            self._nav.topLevelItem(i).text(0)
+            for i in range(self._nav.topLevelItemCount())
+            if self._nav.topLevelItem(i).childCount() > 0
+               and self._nav.topLevelItem(i).isExpanded()
+        ]
+        q.setValue(_SES_NAV, ",".join(expanded))
+
+    def _restore_nav_state(self) -> None:
+        """启动恢复组折叠（_restore_panels 调用，T19⑤）。无记录（首次
+        运行）→ 直接返回，维持建树默认全展开；有记录 → 名单里的展开、
+        其余收起——与关窗那一刻一模一样。"""
+        q = QSettings()
+        raw = q.value(_SES_NAV)
+        if raw is None:
+            return
+        want = {s for s in str(raw).split(",") if s}
+        for i in range(self._nav.topLevelItemCount()):
+            it = self._nav.topLevelItem(i)
+            if it.childCount() > 0:
+                it.setExpanded(it.text(0) in want)
+
     def _restore_panels(self) -> None:
         """启动时恢复三块面板的上次显隐。侧栏/详情走菜单 QAction
         （setChecked 触发既有 toggled 处理，不重写逻辑）；控制台
@@ -987,6 +1047,8 @@ class MainWindow(QMainWindow):
         self._act_side.setChecked(str(q.value(_SES_SIDE, "1")) != "0")
         self._act_detail.setChecked(str(q.value(_SES_DETAIL, "1")) != "0")
         self._console_dock.setVisible(str(q.value(_SES_CONSOLE, "1")) != "0")
+        self._restore_nav_state()  # 导航组折叠（T19⑤ 收官）
+
 
     def _save_panel_state(self) -> None:
         """退出前落盘当前显隐（closeEvent 调用；QSettings 析构时也会

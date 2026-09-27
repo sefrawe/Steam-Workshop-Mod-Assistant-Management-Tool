@@ -362,8 +362,14 @@ class AdvancedSearchDialog(QDialog):
         同样进 closeEvent 转 reject）——最终全部汇入 done()。
         在这里清一次，三条路都覆盖、也只清一次。clear_all 会立即
         广播"条件已变"→ mod 库页重查恢复全量、工具条上的
-        "高级筛选 ✕"指示消失。主窗口退出时本窗体随父对象一起销毁，
-        不经过 done()，不会在退出路上多查一次库。"""
+        "高级筛选 ✕"指示消失。
+        ★ 勘误（实测）：本文档曾断言"主窗口退出时本窗体随父对象
+        一起销毁，不经过 done()"——错。主窗口退出时本对话框会被
+        联动关闭，走的是与 Esc/× 完全相同的 closeEvent → reject →
+        done() 路径，clear_all 照样广播；彼时数据库已关闭，mod 库页
+        _reload 即撞 ProgrammingError。修法在消费侧：modListPage.
+        shutdown() 在退出路上先摘除 conditions_changed → _reload 的
+        连接（断链），本漏斗一行不改——正常使用的关窗清空照常生效。"""
         self.clear_all()
         super().done(result)
 

@@ -638,6 +638,32 @@ class SQLiteRepository(ModRepository):
         })
         self._require(rc, f"mod {mod_id} 不存在")
 
+    def purge_mod(self, mod_id: int, *, purge_backups: bool = False) -> int:
+        # 实现口径见契约 docstring。一个事务：要么全清要么原样
+        with self._atomic():
+            self._require_mod(mod_id)
+            n_backups = self._conn.execute(
+                "SELECT COUNT(*) FROM backups WHERE mod_id = ?",
+                (mod_id,)).fetchone()[0]
+            if n_backups and not purge_backups:
+                # 闸：备份去留必须先有明确决策，不许顺手带走
+                raise ValueError(
+                    f"mod {mod_id} 名下有 {n_backups} 份备份登记："
+                    "彻底清账须先处置备份（在清理页勾选备份选项，"
+                    "或到备份总览页逐份处理）")
+            if n_backups:
+                self._conn.execute(
+                    "DELETE FROM backups WHERE mod_id = ?", (mod_id,))
+            # 快照与提醒本有 CASCADE 兜底，仍显式先删——同 delete_game_deep
+            self._conn.execute(
+                "DELETE FROM mod_snapshots WHERE mod_id = ?", (mod_id,))
+            self._conn.execute(
+                "DELETE FROM special_mod_alerts WHERE mod_id = ?", (mod_id,))
+            self._conn.execute("DELETE FROM mods WHERE mod_id = ?", (mod_id,))
+            # failed_mods 证据行刻意不动（无外键证据表）；operations_log 不动
+            return n_backups
+
+
     # ---------- mod_snapshots ----------
 
     def add_snapshot(self, mod_id: int, *, time_updated: int | None = None,

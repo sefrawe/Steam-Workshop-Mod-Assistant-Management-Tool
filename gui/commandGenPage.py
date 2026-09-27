@@ -168,10 +168,9 @@ class CommandGenPage(QWidget):
 
     def _reload(self):
         """从数据库重读当前游戏的 mod，按三组重建勾选框。"""
-        if self._game is None:
-            # 重新载入按钮在没有档案时可点但无事可做——给句反馈，别让按钮"哑"掉
-            self._log.warn("还没有选择游戏，无法载入清单：请先在左上角添加或选择档案")
+        if not self._require_game():
             return
+
         # 游戏主键就是 app_id（与 mod 库页同款调用）
         mods = self._repo.list_mods(self._game.app_id)
         groups = group_mods(mods)
@@ -281,22 +280,39 @@ class CommandGenPage(QWidget):
             return None
         return build_copy_text(self._game.app_id, self._checked_ids())
 
+    def _require_game(self) -> bool:
+        """动作入口的公共守卫（T15 批 2）：没选档案时弹窗指路，不只写
+        底部日志——控制台可能关着，"点了没反应"比日志更常见。
+        与 mod 库页 v2.29 同一口径。"""
+        if self._game is not None:
+            return True
+        QMessageBox.information(
+            self, "请先选择档案",
+            "命令按当前游戏档案生成——请先在左上角添加或选择游戏档案。")
+        return False
+
+
     # ---------------- 三个动作 ----------------
 
     def _on_copy_login(self):
         """复制设置页里的登录命令，原样进剪贴板（我们不解析、不拼装内容）。"""
         cmd = str(self._settings.get(_LOGIN_CMD_KEY) or "").strip()
         if not cmd:
-            self._log.warn("设置里还没填登录命令：设置页 → steamcmd 登录命令")
+            QMessageBox.information(
+                self, "还没填登录命令",
+                "设置页 → steamcmd 登录命令 还没有填写。\n"
+                "填好后回来点【复制登录命令】即可。")
+            self._log.warn("登录命令为空：未复制，请先到设置页填写")
+
             return
         QApplication.clipboard().setText(cmd)
         self._log.ok("已复制登录命令，打开 steamcmd 后先粘贴这条回车")
 
     def _on_copy(self):
         """把勾选的下载命令复制进剪贴板。"""
-        if self._game is None:
-            self._log.warn("还没有选择游戏，无法生成命令")
+        if not self._require_game():
             return
+
         ids = self._checked_ids()
         if not ids:
             QMessageBox.information(self, "提示", "还没勾选任何 mod。")
@@ -308,8 +324,7 @@ class CommandGenPage(QWidget):
 
     def _on_save(self):
         """把勾选的下载命令另存为 txt 文件，内容与复制到剪贴板的完全一致。"""
-        if self._game is None:
-            self._log.warn("还没有选择游戏，无法生成命令")
+        if not self._require_game():
             return
         ids = self._checked_ids()
         if not ids:

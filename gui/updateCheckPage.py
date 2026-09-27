@@ -51,9 +51,7 @@ from core.steamApiClient import SteamApiError, SteamApiClient, WorkshopItem
 from gui.formatters import fmt_size, relative_time
 from gui.modListModel import ModListModel
 from gui.consolePanel import LogBus
-
-# 与导入页保持一致（双方都用官方网页里的标准链接格式）
-_URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={}"
+from core.urlParser import WORKSHOP_URL_TEMPLATE  # 模板单源（决策 61④ 归一收尾）
 
 # 「发现更新后自动开始下载」在设置里的键名（与 appSettings.DEFAULTS 同名，
 # 决策 12）。界面就地开关，不进设置页 _FIELDS（console_auto_show 同款）
@@ -207,7 +205,15 @@ class UpdateCheckPage(QWidget):
         h.setContentsMargins(0, 0, 0, 0)
         self._start_btn = QPushButton("开始检测", btn_row)
         self._start_btn.clicked.connect(self._start_check)
+        self._start_btn.setToolTip(
+            "批量查询当前档案全部 mod 的远端信息：补全标题、判定需不需要更新、"
+            "给特别关注的 mod 记提醒。可中途【停止】；已删除的 mod 不查询")
+
         self._stop_btn = QPushButton("停止", btn_row)
+        self._stop_btn.setToolTip(
+            "请求停止本次检测：正在查的这一批做完后收场，已查到的数据"
+            "全部丢弃不写入——重新点【开始检测】即可重来")
+
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_check)
         # 日常更新一条龙的自动开关（决策 26）：勾了就不询问直接下载。
@@ -638,7 +644,8 @@ class UpdateCheckPage(QWidget):
             for mid in new_ids:
                 self._repo.add_mod(Mod(
                     mod_id=mid, game_id=game.app_id,
-                    url=_URL_TEMPLATE.format(mid),
+                    url=WORKSHOP_URL_TEMPLATE.format(mid),
+
                     status="tracked", first_tracked_at=now))
         self._log.ok(f"合集 {collection_id} 展开：新登记 {len(new_ids)} 个条目")
         QMessageBox.information(
