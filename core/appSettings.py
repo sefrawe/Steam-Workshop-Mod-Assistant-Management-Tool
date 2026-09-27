@@ -43,9 +43,11 @@ DEFAULTS: dict[str, str] = {
     "api_max_retries": "3",        # 被限流（429/503）时的自动重试上限
     "slow_update_days": "180",      # 距上次已知更新超过 N 天，检测结果里标红提醒
     "snapshot_keep": "5",          # 每个 mod 保留的历史快照条数（滚动淘汰）
-    "backup_keep_per_mod": "1",    # 每个 mod 保留的备份份数（超出淘汰最旧，钉住豁免）
-    "backup_total_quota_gb": "100",  # 全部备份合计的容量上限 GB（超出从最旧清腾）
+    "backup_keep_per_mod": "3",    # 每个 mod 保留的备份份数（超出淘汰最旧，钉住豁免）
+    "backup_total_quota_gb": "10",  # 全部备份合计的容量上限 GB（超出从最旧清腾）
     "console_auto_show": "1",  # 控制台被关闭时来了新日志要不要自动弹出
+    "theme_mode": "auto",  # 界面主题三态：auto=跟随系统 / dark / light（决策 66）
+
     # ↓ 两个"日常更新一条龙"开关（决策 26）：界面就地开关，不进设置页
     "auto_rescan_after_batch": "1",  # 批次下载结束后自动扫描本地入账（下载成功的判定时刻，决策 23⑤）
     "auto_download_after_check": "0",  # 检测到新版本后跳过询问直接下载（默认关=每次弹窗确认；勾选框在更新检测页）

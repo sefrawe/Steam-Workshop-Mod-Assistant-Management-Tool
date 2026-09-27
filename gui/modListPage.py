@@ -76,17 +76,12 @@ from gui.manualConfirm import confirm_one
 from gui.consolePanel import LogBus
 from gui.formatters import fmt_size
 from gui.modDetailPanel import ModDetailPanel
-from gui.modListModel import _SORT_MAP, ModListModel
+from gui.modListModel import (_SORT_MAP, COLOR_CHOICES, ModListModel,
+                              normalize_color_tag)
 
-# 颜色标记：库里存 hex（将来徽标着色直接可用），右键菜单里显示中文名
-_COLORS = {
-    "红": "#e5484d",
-    "橙": "#f76b15",
-    "黄": "#f5d90a",
-    "绿": "#46a758",
-    "蓝": "#0091ff",
-    "紫": "#8e4ec6",
-}
+# 颜色标记：色表唯一源在 modListModel.COLOR_CHOICES（v2.25 上收），
+# 这里留旧名做本地别名——右键菜单与颜色筛选都从它取
+_COLORS = COLOR_CHOICES
 
 # 列显隐开关（T19⑯）：设置键 → 列号。勾选/编号/标题三列是批量操作
 # 与主键/标题的结构列，不提供开关（编号与标题永远显示）
@@ -198,6 +193,28 @@ class ModListPage(QWidget):
         ):
             self._status_combo.addItem(label, val)
         h.addWidget(self._status_combo)
+        # 颜色筛选下拉（v2.25）：与状态下拉同款模式——显示中文名，
+        # currentData 存比对值（None=全部 / "none"=无标记 / hex）。
+        # 颜色不是库查询条件（repo 无此参数），在页面层对取回的行做
+        # 内存过滤——几百行量级成本可忽略；归一化与表格渲染共用
+        # normalize_color_tag 单源，库里遗留脏值的行也能按归一后的
+        # 颜色筛到
+        # 颜色筛选四态（v2.26 按拍板重构）：不筛选=不过滤（默认）；
+        # 全部颜色=只看上过色的（排除"—"无标记行）；无标记=只看"—"；
+        # 具体颜色=只看该色。显示中文名，currentData 存比对值
+        self._color_combo = QComboBox(row)
+        self._color_combo.addItem("不筛选", None)
+        self._color_combo.addItem("全部颜色", "any")
+        self._color_combo.addItem("无标记", "none")
+        for _name, _hex in _COLORS.items():
+            self._color_combo.addItem(_name, _hex)
+        self._color_combo.setToolTip(
+            "不筛选：不做颜色过滤；\n"
+            "全部颜色：只看上过色的条目（排除\"—\"）；\n"
+                                             "无标记：只看没上色（\"—\"）的条目；\n"
+                                                                  "选具体颜色：只看该颜色的条目")
+        self._color_combo.currentIndexChanged.connect(self._reload)
+        h.addWidget(self._color_combo)
 
         self._special_check = QCheckBox("特别关注", row)
         h.addWidget(self._special_check)
@@ -341,7 +358,11 @@ class ModListPage(QWidget):
         self._table.setModel(self._model)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setAlternatingRowColors(True)
+        # 斑马纹（v2.27）：关闭 view 级交替行——qdarktheme 的 QSS 会在
+        # 交替行盖掉模型背景（颜色标记奇偶位显隐的元凶）；斑马纹改由
+        # 模型在 BackgroundRole 返回调色板色，观感不变、样式插不了手
+        self._table.setAlternatingRowColors(False)
+
         self._table.setWordWrap(False)
         self._table.verticalHeader().setVisible(False)
 
@@ -414,6 +435,29 @@ class ModListPage(QWidget):
             order_by=self._order_by,
             **self._advanced_kwargs(),
         )
+        # 颜色筛选（v2.25）：放在取数之后、其余一切（标签池 / 计数 /
+        # 高级筛选命中数 / 喂表）之前——"共 N 个"与命中数看到的都是
+        # 筛后口径，与状态/搜索下拉同一漏斗
+        # 诊断（v2.26）：库里"非空但无法归一"的颜色值正常应为 0 条；
+        # 大于 0 说明还有没见过的遗留格式，报数定位（UI 没接就落文件）
+        _bad = [m.mod_id for m in rows
+                if m.color_tag and normalize_color_tag(m.color_tag) is None]
+        if _bad:
+            self._log.warn(f"颜色标记无法识别 {len(_bad)} 条"
+                           f"（按无标记显示）：{_bad[:10]}")
+        # 颜色筛选四态（v2.26）：归一化与表格渲染共用 normalize 单源，
+        # 拍平后的色值（不透明小写 hex）与下拉里的比对值直接相等
+        _color_sel = self._color_combo.currentData()
+        if _color_sel == "any":
+            rows = [m for m in rows
+                    if normalize_color_tag(m.color_tag) is not None]
+        elif _color_sel == "none":
+            rows = [m for m in rows
+                    if normalize_color_tag(m.color_tag) is None]
+        elif _color_sel is not None:
+            rows = [m for m in rows
+                    if normalize_color_tag(m.color_tag) == _color_sel]
+
         # 喂标签清单给对话框：来自当前显示的 mod 的并集；已勾选的
         # 标签对话框自己会保留（哪怕清单收窄也悄悄丢条件不发生）
         tag_pool = sorted({t for m in rows for t in (m.tags or [])})

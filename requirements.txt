@@ -1,18 +1,21 @@
 PySide6>=6.6
 requests>=2.31
 loguru>=0.7
-pyqtdarktheme>=2.1
+pyqtdarktheme-fork>=2.3.2
 pyinstaller>=6.0
 vdf>=4.0
 pytest>=8.0
 truststore
 psutil
 pywinpty
+
 # —— 实时采集（决策 35）：pywinauto 走 UIA 遍历窗口，
-#    pyautogui 发热键，pyperclip 管剪贴板；core 侧惰性导入，
-#    缺包只影响采集功能，其他功能照常 ——
+# pyautogui 发热键，pyperclip 管剪贴板；core 侧惰性导入，
+# 缺包只影响采集功能，其他功能照常 ——
 pywinauto
 pyautogui
 pyperclip
-# 说明：M1 是纯后端，PySide6/pyqtdarktheme 本阶段用不到，但现在装好省事；
-# 若日后 pyqtdarktheme 与新版 PySide6 冲突，换 pyqtdarktheme-fork 或手写 QSS。
+
+# 说明：M1 是纯后端，PySide6 / pyqtdarktheme-fork 本阶段用不到，但现在装好省事。
+# 原版 pyqtdarktheme（2022-12 的 2.1.0）已停更，改用社区接管的 pyqtdarktheme-fork
+# （兼容新版 Python/PySide6）；两版 import 名一致都是 qdarktheme，代码不区分。

@@ -44,8 +44,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QVBoxLayout,
-    QWidget,
+    QWidget, QComboBox,
 )
+from gui.theme import reapply_theme
 
 from core.appSettings import DEFAULTS, AppSettings
 from core.steamPaths import ensure_steamcmd_exe
@@ -134,6 +135,9 @@ class SettingsPage(QWidget):
         self._statuses: dict[str, QLabel] = {}
         self._build_ui()
         self._load_to_ui()
+        # 切换信号在初始值就位后再接：_load 里 setCurrentIndex 不会
+        # 触发落盘与重应用（构造期不空跑一次主题）
+        self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
 
     # ---------- UI ----------
 
@@ -214,6 +218,22 @@ class SettingsPage(QWidget):
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
 
+        # 界面主题三态（决策 66）：独立于 _FIELDS 校验体系（无需校验、
+        # 且即时生效不走"保存"），一行横排放按钮区上方
+        theme_row = QHBoxLayout()
+        theme_row.addWidget(QLabel("界面主题："))
+        self._theme_combo = QComboBox()
+        self._theme_combo.addItem("跟随系统", "auto")
+        self._theme_combo.addItem("深色", "dark")
+        self._theme_combo.addItem("亮色", "light")
+        self._theme_combo.setToolTip(
+            "跟随系统：Windows 深浅色切换时软件跟着变（推荐）；\n"
+            "深色 / 亮色：固定配色，切换即时生效并记住")
+        theme_row.addWidget(self._theme_combo)
+        theme_row.addStretch(1)
+        root.addLayout(theme_row)
+
+
         # 按钮与反馈行在滚动区外：保存动作和它的结果永远可见
         btn_row = QWidget()
         h = QHBoxLayout(btn_row)
@@ -261,6 +281,11 @@ class SettingsPage(QWidget):
         # 记住打开时的开关状态：保存时对比，才知道"这次有没有动列显示"
         self._bools_at_load = {k: cb.isChecked()
                                for k, cb in self._checks.items()}
+        # 主题三态初始值（缺键/非法值回落 auto）
+        mode = str(self._settings.get("theme_mode") or "auto").strip()
+        i = self._theme_combo.findData(mode)
+        self._theme_combo.setCurrentIndex(max(i, 0))
+
 
 
     @staticmethod
@@ -351,6 +376,19 @@ class SettingsPage(QWidget):
             msg += "\n列显示有改动：回 mod 库页点【刷新】生效"
         self._saved_label.setText(msg)
         self._saved_label.setStyleSheet("color: #46a758;")
+
+    def _on_theme_changed(self) -> None:
+        """主题三态（决策 66）：改动即落盘并重应用——qdarktheme 支持
+        运行中切换，不必重启。它不属于"点保存才生效"的字段体系（那套
+        面向要校验的配置项），这里给即时反馈；_save/_reset 不碰它。"""
+        mode = self._theme_combo.currentData()
+        self._settings.set("theme_mode", mode)
+        self._settings.save()
+        reapply_theme()
+        self._saved_label.setText(
+            f"主题已切换为「{self._theme_combo.currentText()}」并保存")
+        self._saved_label.setStyleSheet("color: #46a758;")
+
 
     def _reset(self) -> None:
         # 数字填回默认值，而不是留空（留空虽然也能被读取层兜底，

@@ -56,6 +56,24 @@ _C_INFO = "#d4d4d4"    # 进行中
 _C_MUTED = "#8a8a8f"   # 说明文字 / 等待
 _ID_LIMIT = 20         # 编号最多原样列出多少个，超出折成"…"
 
+# —— 安装引导卡文案（决策 65）：内容待填，改文案只动下面四个常量，
+# 布局与接线不用碰。顺序=先 steamcmd（本工具一切功能的地基），后
+# Watt Toolkit（原 Steam++；浏览器访问工坊页的前置，网址批量导入、
+# 从浏览器取网址都吃它的加速）。本页不检测装没装——第三方软件
+# 检测不了，也不该装作能检测；两张卡是纯说明，永远显示
+_GUIDE_STEAMCMD_TITLE = "准备 · 安装 steamcmd"
+_GUIDE_STEAMCMD = (
+    "【待填：steamcmd 安装引导】\n"
+    "建议写清：官方下载地址、解压到哪个目录、第一次运行 steamcmd.exe "
+    "让它自更新完成；装好后回下方第①步填路径。"
+)
+_GUIDE_WATT_TITLE = "推荐 · Watt Toolkit（原 Steam++）"
+_GUIDE_WATT = (
+    "【待填：Watt Toolkit 推荐语】\n"
+    "建议写清：它是什么（本地网络加速 Steam 访问）、去哪下载、"
+    "勾选 Steam 相关加速后浏览器才能正常打开工坊页。"
+)
+
 
 class FirstUsePage(QWidget):
     # 三个转调信号：主窗口接线——设置页跳转 / 建档对话框 / 连接指引，
@@ -116,6 +134,14 @@ class FirstUsePage(QWidget):
         self._cards_box.setContentsMargins(0, 4, 0, 4)
         self._cards_box.setSpacing(6)
         root.addWidget(host)
+        # —— 安装引导区（决策 65）：两张纯说明卡，置于四步之前——
+        # 先有 steamcmd 才谈得上"定位"；Watt Toolkit 是浏览器访问
+        # 工坊页的推荐前置。静态卡：不参与 _refresh_all，内容即常量
+        _d_prep1 = self._make_card("prep_steamcmd", _GUIDE_STEAMCMD_TITLE)[0]
+        _d_prep1.setText(_GUIDE_STEAMCMD)
+        _d_prep2 = self._make_card("prep_watt", _GUIDE_WATT_TITLE)[0]
+        _d_prep2.setText(_GUIDE_WATT)
+
 
         # ① steamcmd 卡：状态 + 去设置页 + 重新检查
         self._d1, box1 = self._make_card("step1", "① 定位 steamcmd")

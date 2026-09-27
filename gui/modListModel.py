@@ -11,10 +11,14 @@ mod_id 记在模型里（不按行号）——列表每次筛选/排序都会整
 set_rows 时顺手剪掉已不在清单里的 id，集合不积灰。
 """
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
-from PySide6.QtGui import QColor
 
 from core.models import Mod
 from gui.formatters import fmt_size, relative_time, status_zh
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QColor
+
+from gui.theme import zebra_colors
 
 COLUMNS = ["选", "编号", "标题", "状态", "远端版本", "本地版本", "更新",
            "大小", "标签", "关注", "备注"]
@@ -33,6 +37,36 @@ _SORT_MAP: dict[int, tuple[str, str | None]] = {
 
 
 _CHECK_COL = 0  # 勾选列号：data/flags/setData 里反复用到，收拢成常量
+# 颜色标记的唯一色表（v2.25 从 modListPage 上收）：右键取色器、
+# 顶栏颜色筛选、渲染归一化全从这里取，不再两处各抄一份
+COLOR_CHOICES = {
+    "红": "#e5484d", "橙": "#f76b15", "黄": "#f5d90a",
+    "绿": "#46a758", "蓝": "#0091ff", "紫": "#8e4ec6",
+}
+
+
+def normalize_color_tag(value: str | None) -> str | None:
+    """把库里的 color_tag 归一成可用 hex；不可用 → None（= 无标记）。
+
+    亮色主题修障（v2.25）：右键取色器如今只写 hex，但库里存有更早
+    版本的遗留值（中文单字、手误字符串）——QColor 解析失败时 Qt 会
+    静默跳过背景绘制，而"按底色亮度选黑/白字"的逻辑会从无效色读到
+    全 0 分量 → 恒选白字：深色主题下白字落深底看不出异常（问题被
+    掩盖的原因），亮色主题下就成了白字白底。别名表把旧版中文名
+    救回成 hex；彻底无效的值按无标记渲染。显示与筛选两个消费端
+    共用本函数（mod 库页的颜色筛选也从这里 import），单源不漂移。
+    """
+    if not value:
+        return None
+    v = str(value).strip()
+    if v in COLOR_CHOICES:
+        return COLOR_CHOICES[v]
+    # v2.26 修订：isValid 通过 ≠ 可见——八位 #AARRGGBB（含全透明）与
+    # 大写 hex 都算"合法"，但透明填充画不出底色、亮度读 0 恒选白字
+    # （深色主题看着像普通行，亮色主题白字白底）。name() 一并拍平：
+    # 转不透明 rgb、转小写，显示与筛选两侧比对从此大小写/透明度无关
+    c = QColor(v)
+    return c.name() if c.isValid() else None
 
 
 class ModListModel(QAbstractTableModel):
@@ -102,25 +136,28 @@ class ModListModel(QAbstractTableModel):
             if m.note:
                 tip += f"\n备注：{m.note}"
             return tip
-        if role == Qt.ItemDataRole.BackgroundRole and col == 6:
-            if self._update_state(m) == "需更新":
-                return QColor(220, 60, 60, 46)  # 半透明红，深浅主题下都不刺眼
-        if role == Qt.ItemDataRole.ForegroundRole and col == 5 and m.version_unknown:
-            return QColor(128, 128, 128)
-        # 颜色标记（v2.21 升级）：色点太小扫不出来（真机反馈），改为
-        # 编号 + 标题两格整格底色；文字按底色亮度自动黑/白，黄底也不糊。
-        # 代价：这两格的选中高亮被底色盖住——选中与否看行首勾选列与
-        # 右侧详情面板，可接受。双色分别设置（编号一色标题一色）需加
-        # 库字段+界面，不做
-        if m.color_tag and col in (1, 2):
-            if role == Qt.ItemDataRole.BackgroundRole:
-                return QColor(m.color_tag)
-            if role == Qt.ItemDataRole.ForegroundRole:
-                c = QColor(m.color_tag)
-                lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
-                return QColor(0, 0, 0) if lum > 140 else QColor(235, 235, 235)
-
-        return None
+        # —— 背景与文字色（v2.27 重排收口）——
+        # 修复案卷（v2.25→v2.27）：标记"时显时隐"的真正元凶在渲染层——
+        # qdarktheme 的 QSS 接管 item 绘制后，交替行上的样式规则盖掉
+        # 模型 BackgroundRole，同一标记色在斑马纹两色行上一显一隐
+        # （实测规律：深浅位置决定显示）。v2.25/26 的 normalize（拍平
+        # 透明/大写 hex）是真实防御，保留，但非本案主因。
+        # 解法：view 关闭 alternatingRowColors（modListPage 侧），斑马纹
+        # 改由模型对每格返回调色板色——:alternate 伪类不再命中，背景
+        # 统一走 backgroundBrush 路径。副产品：更新列的半透明红此前
+        # 在交替行同样会被盖掉，一并修复。
+        if role == Qt.ItemDataRole.BackgroundRole:
+            tag = normalize_color_tag(m.color_tag)
+            if tag and col in (1, 2):
+                return QColor(tag)
+            if col == 6 and self._update_state(m) == "需更新":
+                return QColor(220, 60, 60, 46)  # 半透明红，深浅主题都不刺眼
+            # 斑马纹（v2.28）：色源 = gui/theme.zebra_colors() 自持双色——
+            # QSS 主题库下 app.palette() 与样式表脱节（亮色下 Base 残留
+            # 深色、AlternateBase 已换浅色，混血实证），palette 不再作
+            # 颜色事实源；QSS 未生效返回 None → 无斑马纹，宁可不画不猜色
+            _zebra = zebra_colors()
+            return QColor(_zebra[index.row() & 1]) if _zebra else None
 
     def setData(self, index: QModelIndex, value,
                 role=Qt.ItemDataRole.EditRole) -> bool:

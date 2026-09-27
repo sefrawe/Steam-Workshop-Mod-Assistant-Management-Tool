@@ -94,6 +94,8 @@ _KEY_AUTO_RESCAN = "auto_rescan_after_batch"      # 批次结束后自动扫描�
 _SES_SIDE = "session/side_visible"
 _SES_DETAIL = "session/detail_visible"
 _SES_CONSOLE = "session/console_visible"
+_SES_GEOM = "session/window_geometry"  # 窗口大小与位置（QByteArray）
+_SES_STATE = "session/window_state"    # 停靠窗布局（控制台位置/高度等）
 
 # 左导航树：整数 = 页面栈下标（真实页面）；None = 未完成模块，灰色"开发中"。
 # 完成模块时：在 _pages 末尾 append 新页面（栈顺序不再需要和导航一致），
@@ -973,6 +975,15 @@ class MainWindow(QMainWindow):
         （setChecked 触发既有 toggled 处理，不重写逻辑）；控制台
         停靠窗直接 setVisible。全默认 = 全显示（老用户无感）。"""
         q = QSettings()
+        # 先恢复几何与停靠布局（saveState 含 dock 位置与高度），再由
+        # 下面的三个显隐键覆盖可见性——几何归新键、显隐归老键，双源不打架
+        geom = q.value(_SES_GEOM)
+        if geom:
+            self.restoreGeometry(geom)
+        state = q.value(_SES_STATE)
+        if state:
+            self.restoreState(state)
+
         self._act_side.setChecked(str(q.value(_SES_SIDE, "1")) != "0")
         self._act_detail.setChecked(str(q.value(_SES_DETAIL, "1")) != "0")
         self._console_dock.setVisible(str(q.value(_SES_CONSOLE, "1")) != "0")
@@ -985,6 +996,8 @@ class MainWindow(QMainWindow):
         q.setValue(_SES_DETAIL, "1" if self._act_detail.isChecked() else "0")
         q.setValue(_SES_CONSOLE,
                    "1" if self._console_dock.isVisible() else "0")
+        q.setValue(_SES_GEOM, self.saveGeometry())
+        q.setValue(_SES_STATE, self.saveState())
 
 
     # ---------- 全局异常兜底 ----------
