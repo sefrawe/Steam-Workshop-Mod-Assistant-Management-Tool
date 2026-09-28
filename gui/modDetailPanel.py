@@ -14,6 +14,7 @@ Steam 数据（订阅/收藏/浏览/标签/预览图）单独成节垫后。
 就没有"；补全路径 = steamcmd 重下后扫描（决策 24 的界面表达）。
 """
 import json
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -50,11 +51,16 @@ class ModDetailPanel(QWidget):
         self.set_mod(None)
 
     # ---------- 对外 ----------
-    def set_mod(self, m: Mod | None) -> None:
+    def set_mod(self, m: Mod | None, download_dir: str | None = None) -> None:
+        """download_dir（v2.43.2 可选）：当前档案的下载目录。
+        本地路径按"下载目录 + 编号"现推显示（决策 21③：steamcmd 下载
+        位置恒定，acf 不记录每条路径），不读库里恒空的 local_path 字段
+        ——显示层推导、不落库，steamcmd 挪窝也不会留死路径。"""
         self._clear()
         if m is None:
             self._form.addRow(QLabel("点击左侧列表查看 mod 详情"))
             return
+
         self._section("基本档案")
         self._kv("标题", "title", m.title)
         self._kv("Mod 编号", "mod_id", m.mod_id)
@@ -74,7 +80,14 @@ class ModDetailPanel(QWidget):
         self._kv("本地安装时间", "local_timeupdated", m.local_timeupdated, "ts")
         self._kv("清单号", "manifest", m.manifest)
         self._kv("本地大小", "local_size", m.local_size, "size")
-        self._kv("本地路径", "local_path", m.local_path)
+        if m.status == "downloaded" and download_dir:
+            # 已下载才显示（未下载的"将来位置"不是事实）；
+            # 标签就地注明推导来源（决策 22：事实进提示）
+            self._kv("本地路径（下载目录+编号推导）", "local_path",
+                     str(Path(download_dir) / str(m.mod_id)))
+        else:
+            self._kv("本地路径", "local_path", m.local_path)
+
         self._kv("远端更新时间", "time_updated", m.time_updated, "ts")
         self._kv("上次远端更新", "last_time_updated", m.last_time_updated, "ts")
         self._kv("远端大小", "file_size", m.file_size, "size")

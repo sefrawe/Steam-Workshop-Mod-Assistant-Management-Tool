@@ -5,8 +5,7 @@ r"""gui/statsPage.py · 当前档案 mod 库的统计快照（T19⑲）。
 定位：mod 库页顶部统计条瘦身后（只留筛选结果数），"一眼扫"升级成
 "一页看全"——状态分布、容量、标签、更新节奏、失效归档都在这里。
 全部数字由现有 repo 接口在 Python 端聚合（几百条规模毫秒级），
-零新 SQL、零新契约方法；需更新数复用 ModListModel._update_state，
-与列表「更新」列同一判定单源。
+零新 SQL、零新契约方法；需更新数复用 ModListModel._update_state。
 
 口径（每节注明，避免"数字对不上"的错觉）：
 - 概览含已删除（软删除也是库内事实）；
@@ -14,13 +13,39 @@ r"""gui/statsPage.py · 当前档案 mod 库的统计快照（T19⑲）。
 - 标签与更新节奏不含已删除（看的是"现役库"的构成与节奏）；
 - 备份总占用是全部档案合计（sum_backup_bytes 没有档案维度）。
 
-刷新时机：切换档案自动刷；右上【刷新】手动刷
-（扫描/检测等其他页面改了数据后回来点一下即可）。
+【v2.43 图表化】概览 / 标签 Top 10 / 更新节奏 三节加 QtCharts 横条图
+（用户拍板可加依赖）。图表是可选件：缺 PySide6-Addons 时自动降级为
+纯文字，其余功能不受影响——与 core 侧"缺包只影响采集"同一哲学。
+文字行保留：数字可选中复制的用途不丢（T19⑳ 立项理由），图表管
+"比例感"，文字管"精确值"。容量 Top10 与失效归档刻意不画：
+列表本身已直观 / 0 条画空图反而难看。
+
+刷新时机：切换档案自动刷；右上【刷新】手动刷。
 """
 import time
 from collections import Counter
 
-from PySide6.QtCore import Qt
+try:
+    # 可选件：缺 PySide6-Addons 只降级为纯文字，不拦启动
+    from PySide6.QtCharts import (
+        QAbstractBarSeries,
+        QBarCategoryAxis,
+        QBarSet,
+        QChart,
+        QChartView,
+        QHorizontalBarSeries,
+        QValueAxis,
+    )
+    _HAS_CHARTS = True
+except ImportError:  # pragma: no cover - 环境差异路径
+    _HAS_CHARTS = False
+
+from PySide6.QtCore import QMargins, Qt
+from PySide6.QtGui import  QPalette
+from PySide6.QtGui import QPainter
+
+from gui.theme import current_mode
+
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -33,11 +58,29 @@ from PySide6.QtWidgets import (
 from core.models import Game
 from gui.formatters import fmt_size
 from gui.modListModel import ModListModel
+from PySide6.QtGui import QPainter
+
+from gui.theme import current_mode
 
 _DAY = 86400
+_RHYTHM_BUCKETS = [("7 天内", 7), ("30 天内", 30), ("90 天内", 90),
+                   ("1 年内", 365)]
 
-_RHYTHM_BUCKETS = [("7 天内", 7), ("30 天内", 30), ("90 天内", 90), ("1 年内", 365)]
-
+def _system_prefers_dark() -> bool:
+    """auto 档判断系统深浅：读注册表 AppsUseLightTheme（0=深色）。
+    与 backupPage._system_prefers_dark 同源同款（决策 66⑧：与换肤
+    引擎 pyqtdarktheme-fork 的 auto 同源）——别问 Qt 调色板，QSS
+    主题库下 palette 与样式表脱节（踩坑51）。读不到按亮色算。"""
+    try:
+        import winreg
+        with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return value == 0
+    except Exception:
+        return False
 
 class StatsPage(QWidget):
     """统计页：无可写状态，set_game 即重算。"""
@@ -99,9 +142,26 @@ class StatsPage(QWidget):
         alive = [m for m in rows if m.status != "deleted"]
 
         self._add_section("概览", self._overview_lines(rows))
+        per = Counter(m.status for m in rows)
+        self._add_chart(self._make_hbar(
+            ["已下载", "已收录", "已删除", "已失败"],
+            [per["downloaded"], per["tracked"],
+             per["deleted"], per["failed"]]))
+
         self._add_section("容量", self._capacity_lines(rows))
-        self._add_section("标签 Top 10", self._tag_lines(alive))
+
+        tag_counter = Counter(t for m in alive if m.tags for t in m.tags)
+        self._add_section("标签 Top 10", self._tag_lines(tag_counter))
+        self._add_chart(self._make_hbar(
+            [name for name, _ in tag_counter.most_common(10)],
+            [n for _, n in tag_counter.most_common(10)]))
+
         self._add_section("更新节奏", self._rhythm_lines(alive))
+        counts = self._rhythm_counts(alive)
+        order = [name for name, _ in _RHYTHM_BUCKETS] + ["更早", "未知"]
+        self._add_chart(self._make_hbar(
+            order, [counts[name] for name in order]))
+
         self._add_section("失效归档", self._failed_lines())
 
         foot = QLabel(f"以上为 {time.strftime('%H:%M:%S')} 时刻的快照。", self)
@@ -120,6 +180,99 @@ class StatsPage(QWidget):
             Qt.TextInteractionFlag.TextSelectableByMouse)
         self._body.addWidget(body)
 
+    def _add_chart(self, chart_view) -> None:
+        """图表可选：None（缺包/无数据）就跳过——文字行永远是兜底。"""
+        if chart_view is not None:
+            self._body.addWidget(chart_view)
+
+    def _make_hbar(self, categories: list[str], values: list[int]):
+        """横条图（QtCharts，可选件）：分类按传入顺序自上而下排列。
+        缺 PySide6-Addons / 无数据 → None，调用方跳过。
+        主题跟随：按调色板亮度挑 Dark/Light 图表主题；条色取
+        Highlight（与全局强调色同源）；背景透明融入页面。
+        注意：方法不写返回值类型注解——QtCharts 缺包时 QChartView
+        这个名字不存在，注解会在类定义时炸 NameError。"""
+        if not _HAS_CHARTS or not categories or not values:
+            return None
+        # ---- 主题判定走事实源（决策 66⑧）：设置键 theme_mode；auto 档
+        # 读注册表。v2.43 初版用 palette().Window 亮度判定——踩坑51
+        # 正面命中（深色界面拿到浅色 Window → 网格线刺眼亮白，截图实证）。
+        mode = current_mode()
+        if mode not in ("dark", "light"):
+            mode = "dark" if _system_prefers_dark() else "light"
+        # ChartTheme 成员名跨 PySide6 版本不稳，且有两代命名并存：
+        # "DarkTheme"（短名）与 "ChartThemeDark"（C++ 枚举值原名）。
+        # 双候选都试，取得到才设，取不到保持默认（背景已透明，
+        # 差异只在网格线深浅，纯观感）。
+        # v2.43.5 勘误：上一版候选表忘了跟模式挂钩——亮色模式也会选中
+        # ChartThemeDark（深色主题=白字），白底上标签全白（截图实证）。
+        # 候选表按 mode 分列，两代命名各就各位（探针实证本机命中的是
+        # C++ 原值名，即第一个）。
+        _names = (("ChartThemeDark", "DarkTheme") if mode == "dark"
+                  else ("ChartThemeLight", "LightTheme"))
+        _theme = None
+        for _name in _names:
+            _theme = getattr(QChart.ChartTheme, _name, None)
+            if _theme is not None:
+                break
+
+        # ---- 先建 chart、再设主题，顺序不能反（v2.43.2 指引把
+        # setTheme 插在了 chart 建立之前——IDE"未解析的引用"是
+        # 真问题；本机恰无成员才侥幸不炸，记事本已记）----
+        chart = QChart()
+        if _theme is not None:
+            chart.setTheme(_theme)
+        chart.setBackgroundVisible(False)  # 融入页面背景
+        chart.setPlotAreaBackgroundVisible(False)
+        chart.legend().setVisible(False)  # 单系列无图例
+        chart.setMargins(QMargins(2, 2, 2, 2))
+
+        # 横条图的分类轴自下而上排列：倒序喂入，第一项显示在最上面
+        series = QHorizontalBarSeries()
+        barset = QBarSet("")
+        barset.append([int(v) for v in reversed(values)])
+        # 条色：主题设上了就让主题配色（亮/深各自协调）；没设上才退回
+        # 调色板 Highlight——palette 不跟 QSS 换装（踩坑51），亮色下
+        # 会是突兀的紫红（你的亮色截图实证），只做兜底不做主路径。
+        if _theme is None:
+            barset.setColor(
+                self.palette().color(QPalette.ColorRole.Highlight))
+
+        series.append(barset)
+        series.setLabelsVisible(True)  # 条端显示数值
+        # v2.43.1：LabelsPosition 的成员名跨 PySide6 版本不稳（实测有
+        # 版本 LabelsPosition 存在、OutsideEnd 却取不到 → 启动即炸，
+        # 踩坑54 族"版本门槛 API 不能裸调"）。getattr 探测：取得到就
+        # 设，取不到用默认位置——标签仍可见，最多位置略异，纯观感。
+        # 同族问题：成员名两代命名并存（LabelsOutsideEnd = C++ 原值名，
+        # OutsideEnd = 短名），双候选探测；连枚举类本身也防一手
+        _lp = getattr(QAbstractBarSeries, "LabelsPosition", None)
+        _pos = None
+        if _lp is not None:
+            for _name in ("LabelsOutsideEnd", "OutsideEnd"):
+                _pos = getattr(_lp, _name, None)
+                if _pos is not None:
+                    break
+        if _pos is not None:
+            series.setLabelsPosition(_pos)
+
+        series.setLabelsFormat("@value")
+
+        chart.addSeries(series)
+
+        cats = QBarCategoryAxis()
+        cats.append([str(c) for c in reversed(categories)])
+        chart.setAxisY(cats, series)
+        val = QValueAxis()
+        val.setLabelFormat("%d")
+        val.setRange(0, max(values) * 1.3 + 1)  # 留出条端标签的空间
+        chart.setAxisX(val, series)
+
+        view = QChartView(chart)
+        view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        view.setFixedHeight(30 * len(categories) + 50)
+        return view
+
     def _add_hint(self, text: str) -> None:
         lbl = QLabel(text, self)
         lbl.setStyleSheet("color: gray;")
@@ -128,7 +281,7 @@ class StatsPage(QWidget):
 
     @staticmethod
     def _clear(layout: QVBoxLayout) -> None:
-        """清空重建：统计节是纯 QLabel，deleteLater 即可，无嵌套布局。"""
+        """清空重建：统计节是纯 QLabel / QChartView，deleteLater 即可。"""
         while layout.count():
             item = layout.takeAt(0)
             if item.widget() is not None:
@@ -159,24 +312,26 @@ class StatsPage(QWidget):
             f"备份总占用：{fmt_size(self._repo.sum_backup_bytes())}"
             "（全部档案合计）",
         ]
-        top = sorted((m for m in rows
-                      if m.status != "deleted" and m.local_size),
+        top = sorted((m for m in rows if m.status != "deleted"
+                      and m.local_size),
                      key=lambda m: m.local_size, reverse=True)[:10]
         if top:
             lines.append("最大的 10 个：")
-            lines += [f"　{m.title or m.mod_id}（{m.mod_id}）— "
+            lines += [f"  {m.title or m.mod_id}（{m.mod_id}）— "
                       f"{fmt_size(m.local_size)}" for m in top]
         else:
             lines.append("最大的 10 个：（暂无带本地大小的条目）")
         return lines
 
-    def _tag_lines(self, alive) -> list[str]:
-        tags = Counter(t for m in alive if m.tags for t in m.tags)
+    def _tag_lines(self, tags: Counter) -> list[str]:
         if not tags:
             return ["（还没有标签数据——跑一次更新检测补齐）"]
         return [f"{name} ×{n}" for name, n in tags.most_common(10)]
 
-    def _rhythm_lines(self, alive) -> list[str]:
+    @staticmethod
+    def _rhythm_counts(alive) -> dict[str, int]:
+        """更新节奏分桶（v2.43 从 _rhythm_lines 拆出）：文字行与图表
+        共用同一份计数，两处数字永不打架。"""
         now = int(time.time())
         order = [name for name, _ in _RHYTHM_BUCKETS] + ["更早", "未知"]
         counts = dict.fromkeys(order, 0)
@@ -191,6 +346,11 @@ class StatsPage(QWidget):
                     break
             else:
                 counts["更早"] += 1
+        return counts
+
+    def _rhythm_lines(self, alive) -> list[str]:
+        counts = self._rhythm_counts(alive)
+        order = [name for name, _ in _RHYTHM_BUCKETS] + ["更早", "未知"]
         parts = "｜".join(f"{name} {counts[name]}" for name in order)
         return [f"距远端最近一次更新：{parts}",
                 "（不含已删除条目；「未知」= 从未取得远端更新时间）"]

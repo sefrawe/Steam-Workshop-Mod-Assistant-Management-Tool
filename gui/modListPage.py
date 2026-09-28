@@ -490,6 +490,24 @@ class ModListPage(QWidget):
             rows = [m for m in rows
                     if normalize_color_tag(m.color_tag) == _color_sel]
 
+        # 作者 / 本地版本时间（v2.43）：高级筛选的"内存侧"条件——
+        # repo 契约不动，取数后 Python 端过滤（颜色筛选同一哲学）。
+        # 放在颜色筛选之后、标签池/命中数之前：它们看到的都是最终口径。
+        # conditions() 是纯读，下方 adv_now 再取一次结果相同，无害
+        _adv = self._adv_dialog.conditions()
+        if _adv is not None:
+            if _adv.creator_id:
+                # 作者存的是上传者 SteamID64（更新检测从工坊 API 取回）；
+                # str() 兜底防库里存成整数时 .strip() 炸掉
+                rows = [m for m in rows
+                        if str(m.creator or "").strip() == _adv.creator_id]
+            if _adv.local_from is not None:
+                rows = [m for m in rows if m.local_timeupdated is not None
+                        and m.local_timeupdated >= _adv.local_from]
+            if _adv.local_to is not None:
+                rows = [m for m in rows if m.local_timeupdated is not None
+                        and m.local_timeupdated <= _adv.local_to]
+
         # 喂标签清单给对话框：来自当前显示的 mod 的并集；已勾选的
         # 标签对话框自己会保留（哪怕清单收窄也悄悄丢条件不发生）
         tag_pool = sorted({t for m in rows for t in (m.tags or [])})
@@ -682,7 +700,10 @@ class ModListPage(QWidget):
         if current.isValid():
             m = self._model.mod_at(current.row())
             self._selected_mod_id = m.mod_id
-            self._detail.set_mod(m)
+            self._detail.set_mod(
+                m, self._game.download_dir
+                if self._game is not None else None)
+
         else:
             self._detail.set_mod(None)
 
@@ -793,9 +814,9 @@ class ModListPage(QWidget):
 
     def _open_mod_folder(self, m) -> None:
         """右键「打开 mod 文件夹」：文件管理器打开该 mod 的下载内容目录。
-        路径两路候选：local_path（扫描本地时从 acf 回填，最权威）→
-        档案 download_dir + 编号（目录布局约定：工坊内容目录下就是
-        以编号命名的文件夹）。逐个验证存在，都没有 → 弹窗说明不静默
+        路径两路候选：local_path（历史预留字段，现无任何链路写入、恒
+        为空，保留兼容）→ 档案 download_dir + 编号（实际唯一机制：
+        steamcmd 下载位置恒定 = 决策 21③，acf 本身不记录每条路径）。
         （"点了没反应"比"打开失败"更糟，T15 口径）。
         软删除条目照样可开——软删除不删文件，盘上多半还在。"""
         candidates: list[str] = []

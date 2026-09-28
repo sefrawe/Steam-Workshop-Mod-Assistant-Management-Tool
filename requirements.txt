@@ -19,3 +19,4 @@ pyperclip
 # 说明：M1 是纯后端，PySide6 / pyqtdarktheme-fork 本阶段用不到，但现在装好省事。
 # 原版 pyqtdarktheme（2022-12 的 2.1.0）已停更，改用社区接管的 pyqtdarktheme-fork
 # （兼容新版 Python/PySide6）；两版 import 名一致都是 qdarktheme，代码不区分。
+PySide6-Addons>=6.6

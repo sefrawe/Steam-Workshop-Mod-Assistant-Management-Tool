@@ -24,9 +24,11 @@ pytest 已覆盖），页面只管预览、确认、落库与复制命令。
 import sqlite3
 import sys
 import threading
+from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QAction, QKeySequence, QPixmap
+from PySide6.QtCore import QSettings, QUrl, Qt
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QPixmap
+
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -71,6 +73,8 @@ from gui.shareListPage import ShareListPage
 from gui.statsPage import StatsPage
 from gui.uninstallPage import UninstallPage
 from gui.updateCheckPage import UpdateCheckPage
+from gui.updateComparePage import UpdateComparePage
+
 from gui.updateSelectDialog import UpdateSelectDialog
 from gui.verifyPage import VerifyPage
 from gui.welcomePage import ICON_REL, PROJECT_URL, WelcomePage
@@ -86,6 +90,7 @@ _IDX_SHARE = 16   # 功能模块：分享清单 = 同上
 _IDX_MIGRATION = 17  # 功能模块：换机迁移 = _pages 末尾 append 后落位（决策 13 模式）
 _IDX_DELETE = 18   # 功能模块：清理与删除 = _pages 末尾 append 后落位（决策 13 模式）
 _IDX_UNINSTALL = 19 # 功能模块：卸载与清理 = _pages 末尾 append 后落位（决策 13 模式）
+_IDX_UPDATE_COMPARE = 20  # 基础功能：更新对照 = _pages 末尾 append 后落位
 
 
 
@@ -130,7 +135,7 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
     ("基础功能", [
         ("网址批量导入", 1),
         ("从浏览器取网址", 11),
-        ("更新检测", 4),
+        ("更新对照", _IDX_UPDATE_COMPARE),
         ("下载命令生成", 5),
         ("账实核验", 6),
         ("异常处理", 7),
@@ -262,6 +267,7 @@ class MainWindow(QMainWindow):
             MigrationPage(self._repo, self._settings, self._stack, log=self._log),  # 17 功能模块：换机迁移
             DeletePage(self._repo, self._settings, self._stack, log=self._log),  # 18 功能模块：清理与删除（决策 69）
             UninstallPage(self._repo, self._settings, self._stack, log=self._log),  # 19 功能模块：卸载与清理（决策 70）
+            UpdateComparePage(self._repo, self._stack),  # 20 基础功能：更新对照（只读）
 
 
         ]
@@ -423,6 +429,21 @@ class MainWindow(QMainWindow):
             "绝不改动现有数据")
         act_imp_share.triggered.connect(self._import_sharepack)
         m_file.addAction(act_imp_share)
+        m_file.addSeparator()
+        act_open_dl = QAction("打开 steamcmd 下载目录", self)
+        act_open_dl.setToolTip(
+            "在文件管理器打开当前档案的 mod 下载目录（steamcmd 工坊"
+            "内容目录，里面是按编号命名的 mod 文件夹）。需要先在左上角"
+            "选中游戏档案")
+        act_open_dl.triggered.connect(self._open_download_dir)
+        m_file.addAction(act_open_dl)
+        self._act_open_download = act_open_dl  # 无档案时置灰（_on_game_changed）
+        act_open_root = QAction("打开软件所在目录", self)
+        act_open_root.setToolTip(
+            "在文件管理器打开本软件的文件夹——绿色软件，账本（mods.db）"
+            "等数据都在其中的 data 子目录")
+        act_open_root.triggered.connect(self._open_software_dir)
+        m_file.addAction(act_open_root)
 
         m_file.addSeparator()
 
@@ -613,6 +634,9 @@ class MainWindow(QMainWindow):
                 # 进页重查会话文件/注册表状态：三张卡的文案随现状变化
                 # （典型：在别处用过界面记忆后回来看，状态是新的）
                 self._pages[index].refresh()
+            if index == _IDX_UPDATE_COMPARE:
+                # 检测/扫描在别的页跑完后切过来即最新（只读页，毫秒级）
+                self._pages[index].refresh()
 
     def _on_overview_requested(self, app_id: int) -> None:
         """删除对话框「先去备份总览看看」→ 跳总览页并按该档案过滤。"""
@@ -644,6 +668,9 @@ class MainWindow(QMainWindow):
         self._act_relocate.setEnabled(has_game)
         self._act_delete.setEnabled(has_game)
         self._act_share_out.setEnabled(has_game)  # 分享包按当前档案导出
+        self._act_open_download.setEnabled(
+            has_game and bool(game.download_dir))
+
 
     def _on_imported(self, count: int) -> None:
         self._nav.setCurrentItem(self._nav_items[0])  # 跳到 mod 库页
@@ -896,6 +923,41 @@ class MainWindow(QMainWindow):
             self.showNormal()  # 程序最小化时先还原，否则弹了也看不见
         self._console_dock.show()
         self._console_dock.raise_()
+
+    def _open_download_dir(self) -> None:
+        """文件 → 打开 steamcmd 下载目录：当前档案的工坊内容目录
+        （mod 文件夹 = 下载目录\\编号，决策 21③）。目录还没建（一批
+        都没下载过）时说明而不是静默；无档案时菜单项已置灰，双保险。"""
+        game = self._current_game
+        if game is None or not game.download_dir:
+            return
+        path = Path(game.download_dir)
+        if not path.is_dir():
+            QMessageBox.information(
+                self, "打开下载目录",
+                f"这个目录还不存在（可能还没下载过任何 mod）：\n{path}\n"
+                "steamcmd 首次下载时会自动创建；可在【游戏】菜单 →"
+                "编辑档案里核对路径。")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            # openUrl 失败是静默的（v2.18 教训）：手动兜底提示
+            QMessageBox.warning(
+                self, "打开下载目录",
+                f"文件管理器没有响应，请手动打开：\n{path}")
+
+    def _open_software_dir(self) -> None:
+        """文件 → 打开软件所在目录：绿色软件的"家"。路径走
+        appPaths.app_root()（T17 单源：源码运行=项目根、打包运行=
+        exe 所在文件夹——数据、配置、日志全在其下）。"""
+        path = appPaths.app_root()
+        if not path.is_dir():
+            QMessageBox.warning(self, "打开软件目录",
+                                f"目录不存在？请手动检查：\n{path}")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            QMessageBox.warning(
+                self, "打开软件目录",
+                f"文件管理器没有响应，请手动打开：\n{path}")
 
     def _toggle_side(self, visible: bool) -> None:
         """显示/隐藏左侧导航栏（T19⑭）：整个侧栏（切换下拉 + 导航树）

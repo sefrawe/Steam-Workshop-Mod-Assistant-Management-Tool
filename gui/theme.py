@@ -97,3 +97,18 @@ def zebra_colors() -> tuple[str, str] | None:
         except Exception:
             mode = "light"  # 判定不了按浅色（Windows 实测基本可判定）
     return _ZEBRA_COLORS[mode]
+def system_prefers_dark() -> bool:
+    """auto 档系统深浅判定（公共版）：读注册表 AppsUseLightTheme，
+    与换肤引擎 auto 同源（决策 66⑧）。backupPage 有一份同款私有
+    实现（v2.38 先落地），新消费方一律用本函数；旧份收敛归打包前
+    收官轮（WORKSHOP_URL_TEMPLATE 八份归一的同款先例）。"""
+    try:
+        import winreg
+        with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return value == 0
+    except Exception:
+        return False
