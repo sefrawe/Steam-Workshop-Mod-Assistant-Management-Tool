@@ -1,5 +1,6 @@
 """程序入口"""
-"""启动顺序四步：单实例锁 → 写路径守卫 → 主题 → 主窗口。
+"""启动顺序：建 app + 设图标 → 单实例锁 → 写路径守卫 → 会话落点 → 主题 → 主窗口。
+
 单实例锁（R12 收口）放最前：双开虽有 WAL+事务兜底不至于写坏账，
 但两边各开各的 steamcmd 终端、各自指挥下载，只会互相干扰——
 锁住比兜底好。锁文件放系统临时目录，与数据目录可写性无关
@@ -13,11 +14,14 @@ T17 守卫为什么这么前：主窗口一构造就会读配置文件、开数�
 （数据位置可预期是便携模式的命根子，与决策 29 同一哲学）。
 
 源码运行（python main.py）时项目目录天然可写，守卫恒通过，
-开发期零影响。打包相关（schema.sql 随包、图标等）归打包批次处理。
+开发期零影响。打包相关（schema.sql 随包、exe 文件图标）归打包
+批次处理；运行时图标（任务栏归属 + 窗口图标）已在本文件启动段设置。
 """
+import ctypes
 import sys
 
 from PySide6.QtCore import QDir, QLockFile
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from core import appPaths
@@ -29,12 +33,35 @@ _LOCK_PATH = QDir.temp().absoluteFilePath(
 
 def main() -> int:
     app = QApplication(sys.argv)
+    # 注意：下面两个名字是存储坐标（会话文件 = config/<组织名>/<应用名>.ini，
+    # 决策 70②），不是显示名——禁止改成标题/仓库 URL 等好看的形式，
+    # 改了会话记忆静默搬家/丢失（踩坑㊽族）。窗口标题在 MainWindow。
     app.setApplicationName("Steam Workshop Mod Assistant")
     app.setOrganizationName("sefrawe")
+    app.setApplicationVersion("1.0.0")  # 与 T17 版本拍板同步；--version-file 同源
+
+    # ---- 图标（运行时两件）：任务栏归属 + 窗口图标 ----
+    # AppUserModelID：向 Windows 声明本程序的独立应用身份。不设的话
+    # 源码运行任务栏挂 Python 默认图标；打包后任务栏图标归属也靠它。
+    # ID 一经发布不再改——改了等于换应用，任务栏固定/分组记忆全部作废。
+    # 与上面 Qt 两个名字互相独立、无需镜像（shell 身份证 ≠ 存储坐标）。
+    if sys.platform == "win32":
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "sefrawe.SteamWorkshopModAssistant.1")
+
+    # 窗口图标：标题栏 / 任务栏 / 所有弹窗（含下方"程序已在运行"）的共同来源。
+    # exe 文件图标（资源管理器/快捷方式）归打包轮 --icon——同一套美术、两条管线。
+    # 存在性检查不是多余：QIcon 加载失败不报错、静默回退默认图标，
+    # 缺图至少 stderr 留一行（踩坑㊽族：静默降级会掩盖集成失败）。
+    _icon_path = appPaths.resource_path("icon/icon.png")
+    if _icon_path.exists():
+        app.setWindowIcon(QIcon(str(_icon_path)))
+    else:
+        print(f"[main] 图标缺失，跳过窗口图标：{_icon_path}", file=sys.stderr)
 
     # ---- R12 单实例锁：赶在守卫与主窗口之前 ----
     # tryLock(0) = 不等待，抢不到立刻报；锁对象必须活到程序退出
-    #（main 函数局部变量正好如此），中途被回收等于没锁
+    # （main 函数局部变量正好如此），中途被回收等于没锁
     lock = QLockFile(_LOCK_PATH)
     if not lock.tryLock(0):
         QMessageBox.information(

@@ -27,4 +27,7 @@ logs/
 项目文件夹/
 /tests/fixtures
 
-config/
+/icon/原图.png
+/config/GlobalSettings.json
+/config/sefrawe/Steam Workshop Mod Assistant.ini
+/tools/图片测试.py

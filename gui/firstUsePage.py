@@ -63,17 +63,23 @@ _ID_LIMIT = 20         # 编号最多原样列出多少个，超出折成"…"
 # 检测不了，也不该装作能检测；两张卡是纯说明，永远显示
 _GUIDE_STEAMCMD_TITLE = "准备 · 安装 steamcmd"
 _GUIDE_STEAMCMD = (
-    "【待填：steamcmd 安装引导】\n"
-    "建议写清：官方下载地址、解压到哪个目录、第一次运行 steamcmd.exe "
-    "让它自更新完成；装好后回下方第①步填路径。"
+    "安装 steamcmd（Steam 命令行工具）是本工具的前置条件："
+    "官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\n"
+    "下载后解压得到steamcmd.exe，先别急着点进去，首次运行会自动安装到当前目录下，应当把它移到一个固定目录（如 D:\\steamcmd）再运行，\n"
+    "请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦；不能装在带中文的路径，会闪退。\n"
+    "调整好位置后运行 steamcmd.exe 让它安装完成，务必关闭watt Toolkit等加速器，否则无法安装，提示无法下载；"
+    "装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；"
+    "额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错（目前已知 rimworld 除外）。千万不能输入中文，否则会一直输出“？？？？？？”只能关闭软件\n"
+    "装好后回下方第①步填路径。"
 )
 _GUIDE_WATT_TITLE = "推荐 · Watt Toolkit（原 Steam++）"
 _GUIDE_WATT = (
-    "【待填：Watt Toolkit 推荐语】\n"
-    "建议写清：它是什么（本地网络加速 Steam 访问）、去哪下载、"
-    "勾选 Steam 相关加速后浏览器才能正常打开工坊页。"
+    "Watt Toolkit 是一个网络加速工具，可以加速Steam、github等相关平台。"
+    "官网：https://steampp.net/ \n"
+    "安装后启动点击网络加速，勾选并启动 Steam 相关加速，这样浏览器才能正常打开工坊页和提高访问相关api（比如日常更新模块的获取更新信息）成功率。"
+    "网络加速页，头像下面的“网络加速”的傍边有个“脚本配置”，点进去后点“脚本工坊”，登录后，推荐安装“steam创意工坊大图修复”\n"
+    "注意：Watt Toolkit 不是本工具的前置条件，没装也能用，但装了就能访问创意工坊和提高访问相关api的成功率。"
 )
-
 
 class FirstUsePage(QWidget):
     # 三个转调信号：主窗口接线——设置页跳转 / 建档对话框 / 连接指引，
@@ -328,7 +334,8 @@ class FirstUsePage(QWidget):
         if self._plan is None:
             self._set_card(self._d4,
                            f"把 Steam 客户端库目录填在下面（{self._game.name}"
-                           " 的订阅记录），点【解析预览】核对，再【纳入账本】。",
+                           " 的订阅记录），点【解析预览】核对，再【纳入账本】。\n如果你没有通过steam安装mod，什么都没扫描到也正常\n"
+                           "待确认的其他提醒：steamcmd和steam管理的mod从此分道扬镳，steamcmd和steam不能同时启动......",
                            _C_MUTED)
 
     # ---------- 第④步：预览与纳入 ----------

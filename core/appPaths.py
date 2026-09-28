@@ -54,6 +54,22 @@ def db_path() -> Path:
     这正是本模块要消灭的东西。"""
     return data_dir() / "mods.db"
 
+def resource_path(rel: str) -> Path:
+    """只读资源（icon/icon.png、schema.sql 等）的完整路径：跟着"包"走。
+
+    与 app_root()（数据根）刻意分成两层：数据要可写，打包运行时落在
+    exe 所在文件夹；资源只读、编译进包里，onefile 解包后住在临时目录
+    （sys._MEIPASS），与数据根不在同一棵目录树——所以不能用 app_root()
+    找资源。T17 打包后 schema.sql 的读取也走这里（资源路径唯一定义点）。
+
+    源码运行：_MEIPASS 不存在，项目根下原样直取（icon/ 在项目根）。
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass) / rel
+    # 源码运行：本文件在 core/ 里，上一级就是项目根（与 app_root 同款算法）
+    return Path(__file__).resolve().parent.parent / rel
+
 
 def writability_problem() -> str | None:
     """启动守卫（T17）：探测数据/配置目录能不能创建、能不能写入。
