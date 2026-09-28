@@ -51,6 +51,8 @@ T26 大修后的交互模型：
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Qt, QUrl, Signal
+from PySide6.QtGui import (
+    QAction, QBrush, QColor, QDesktopServices, )
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -71,21 +73,15 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
-    QWidget,
-)
+    QWidget, )
 
 from core.backupManager import BackupManager, steamcmd_running
 from core.models import Backup, Game
+from core.urlParser import WORKSHOP_URL_TEMPLATE
 from gui.backupMoveDialog import BackupMoveDialog
 from gui.backupRelocateDialog import BackupRelocateDialog
 from gui.consolePanel import LogBus
 from gui.formatters import abs_time, fmt_size, status_zh
-
-from core.urlParser import WORKSHOP_URL_TEMPLATE
-from PySide6.QtGui import (
-    QAction, QBrush, QColor, QDesktopServices, QGuiApplication,
-)
-
 
 # ---- 与设置页核对过的真键名（settingsPage.py）。注意配额在设置页
 # 以 GB 计（人好填），引擎以字节计（好比较），换算只在 _make_manager 做 ----
@@ -96,13 +92,33 @@ _KEY_QUOTA_GB = "backup_total_quota_gb"
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
 _C_FAIL = "#e5484d"
-# 组头底色（按 mod 分组视图）：不再取系统调色板——实测本应用的调色板
-# 不随主题换装（亮色模式下取到的 Mid 仍是深色，即"组头黑条"现象，
-# 详见记事本新增踩坑）。改读设置键 theme_mode（settingsPage 主题下拉
-# 同一键名，单源），两套主题各一个定值：亮色=浅灰条配黑字，
-# 深色=比行底色亮一档的深灰条配白字，都读得清。
+
+# 组头配色（按 mod 分组视图）：底色、字色都按主题各锁一个定值。
+# 只锁底色不锁字色是不行的——字色会被主题 QSS 或旧版遗留的浅色字
+# 抢走，深浅一叠加就糊。亮色=浅灰底黑字；深色=深灰底白字。
 _GROUP_BG_LIGHT = "#e0e0e0"
+_GROUP_FG_LIGHT = "#1a1a1a"
 _GROUP_BG_DARK = "#3a3f47"
+_GROUP_FG_DARK = "#f0f0f0"
+
+def _system_prefers_dark() -> bool:
+    """跟随系统时判断 Windows 的系统应用深浅色：读注册表里的
+    AppsUseLightTheme（0 = 系统应用用深色）。换肤引擎 pyqdarktheme
+    的 auto 判断看的也是同一个开关——问同一个问题，答案才不会打架。
+    上一版问的是 Qt 的 colorScheme 接口，那个接口要 PySide6 6.5 以上
+    才有，旧版上一问就摔跤，摔进"当亮色算"的兜底——深色系统下组头
+    于是成了白条（本轮翻车现场）。注册表读不到（权限/非 Windows）
+    按亮色算，要绕开就在设置里显式选深色/亮色。"""
+    try:
+        import winreg  # 标准库，只有 Windows 有——放函数里，别的平台加载本文件也不炸
+        with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+        return value == 0
+    except Exception:
+        return False
 
 # ---- 列布局：列号显式起名，填充代码一律用列号，不写魔法数字 ----
 COL_CHECK = 0         # 勾选框：操作对象的唯一来源
@@ -278,6 +294,9 @@ class BackupPage(QWidget):
     def __init__(self, repo, settings, parent: QWidget | None = None,
                  *, log: LogBus | None = None) -> None:
         super().__init__(parent)
+        # 分组头条目登记簿：切主题后回本页要重新上色（见 showEvent）。
+        self._group_heads: list[QTableWidgetItem] = []
+
         self._repo = repo
         self._settings = settings
         self._log = log if log is not None else LogBus()
@@ -859,22 +878,37 @@ class BackupPage(QWidget):
             r, COL_PIN, _SortItem("是" if b.pinned else "", 1 if b.pinned else 0))
         self._table.setItem(r, COL_NOTE, QTableWidgetItem(b.note or ""))
 
-    def _group_bg_color(self) -> QColor:
-        """组头底色：按当前主题返回定值（常量见文件头 _GROUP_BG_*）。
-        主题来源 = 设置键 theme_mode（与 settingsPage 的主题下拉同一份
-        事实）：dark/light 直接用；auto=跟随系统，问 Qt 的系统深浅色。
-        问不到（PySide6 版本过旧等）按亮色兜底——要绕开就在设置里
-        显式选深色/亮色。已知小限制：切主题不重建本表，组头底色要等
-        下次【刷新】/重载才换，其余文字颜色由 QSS 即时变。"""
+    def _group_colors(self) -> tuple[QColor, QColor]:
+        """组头（底色, 字色）：按当前主题返回成对定值（常量见文件头
+        _GROUP_BG_* / _GROUP_FG_*）。主题来源 = 设置键 theme_mode
+        （与设置页下拉同一份事实）：dark / light 直接用；auto（跟随
+        系统）→ 问 Windows 注册表（见 _system_prefers_dark 的说明，
+        别问 Qt）。字色和底色成对返回、成对上色——对比度自己锁死，
+        不赌 QSS。"""
         mode = str(self._settings.get("theme_mode") or "auto").strip()
         if mode not in ("dark", "light"):
-            try:
-                scheme = QGuiApplication.styleHints().colorScheme()
-                mode = "dark" if scheme == Qt.ColorScheme.Dark else "light"
-            except Exception:
-                mode = "light"
-        return QColor(_GROUP_BG_DARK if mode == "dark" else _GROUP_BG_LIGHT)
+            mode = "dark" if _system_prefers_dark() else "light"
+        if mode == "dark":
+            return QColor(_GROUP_BG_DARK), QColor(_GROUP_FG_DARK)
+        return QColor(_GROUP_BG_LIGHT), QColor(_GROUP_FG_LIGHT)
 
+    def showEvent(self, event) -> None:
+        """切到本页时把组头颜色刷一遍。为什么要有它：组头颜色是填表
+        那一刻定下的，而换主题发生在设置页——用户换完主题走回本页，
+        showEvent 正好接住，颜色当场换好，不用再按【刷新】。
+        try/except 防的是旧登记：整表重建后旧条目对象已被回收，
+        摸一下会报 RuntimeError，跳过并清出登记簿即可。"""
+        super().showEvent(event)
+        bg, fg = self._group_colors()
+        alive: list[QTableWidgetItem] = []
+        for head in self._group_heads:
+            try:
+                head.setBackground(QBrush(bg))
+                head.setForeground(QBrush(fg))
+                alive.append(head)
+            except RuntimeError:
+                continue  # 登记簿里的死条目（整表重建时已回收）
+        self._group_heads = alive
 
     def _fill_grouped(self, disk_map: dict[int, str]) -> None:
         """按 mod 分组视图：组头一行跨整表宽度（标题 + 编号 + 份数 +
@@ -903,7 +937,10 @@ class BackupPage(QWidget):
             font = head.font()
             font.setBold(True)
             head.setFont(font)
-            head.setBackground(QBrush(self._group_bg_color()))
+            bg, fg = self._group_colors()
+            head.setBackground(QBrush(bg))
+            head.setForeground(QBrush(fg))
+            self._group_heads.append(head)
 
             self._table.setItem(r, 0, head)
             self._table.setSpan(r, 0, 1, len(_COL_HEADERS))
