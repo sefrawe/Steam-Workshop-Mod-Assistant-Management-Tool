@@ -1,4 +1,4 @@
-"""连接指引对话框（T13）
+"""连接指引对话框
 """
 """给"游戏自己的 mod 目录"和"steamcmd 下载目录"牵线的操作指引。
 
@@ -200,8 +200,13 @@ class LinkGuideDialog(QDialog):
             self._make_cmd_block()
         self._remove_box, self._remove_title, self._remove_edit = \
             self._make_cmd_block()
-        v.addWidget(self._build_box)
+        # 命令块摆放次序（本轮修正）：拆除块在上、建链块在下。
+        # 带第1步/第2步编号的状态里，拆除块都是第 1 步（先拆错的才能
+        # 建新的），必须先摆在上面；旧版建链块固定在上，等于让人先做
+        # 第 2 步——mklink 会因"目标已存在"直接报错。
+        self._cmd_layout = v  # 存一份引用：_refresh 里个别状态还要微调次序
         v.addWidget(self._remove_box)
+        v.addWidget(self._build_box)
 
         self._steps_label = QLabel("", self)
         self._steps_label.setWordWrap(True)
@@ -387,6 +392,26 @@ class LinkGuideDialog(QDialog):
         self._build_box.setVisible(show_build)
         self._remove_box.setVisible(show_remove)
         self._steps_label.setText(steps)
+        # 命令块次序的微调（接上面）：默认拆除块在上（构造时已按此
+        # 摆放），唯一例外是反向"接了一半"（linked_reverse_missing）
+        # ——那个状态的推荐动作是接通（mkdir 补建目录），拆除块只是
+        # 备选（标题以"或："开头），接通块摆上面才顺着读；要是把拆除
+        # 命令摆在前面，用户先照着拆掉的是一条"本来指对了"的联接，
+        # 白折腾。其余状态一律拆除块在上（real_dir 两块同属第 2 步，
+        # 但步骤文案写明"先移除、再建链"，同样是拆除在上）。
+        # 次序已经对了就不动，反复点【检测】不会来回跳。
+        top, bottom = (
+            (self._build_box, self._remove_box)
+            if report.state == "linked_reverse_missing"
+            else (self._remove_box, self._build_box))
+        lay = self._cmd_layout
+        if lay.indexOf(top) > lay.indexOf(bottom):
+            lay.removeWidget(top)
+            lay.removeWidget(bottom)
+            i = lay.indexOf(self._steps_label)
+            lay.insertWidget(i, top)
+            lay.insertWidget(i + 1, bottom)
+
 
         # ---- T19㉒：检测通过 → 广播"游戏读取目录"（写账归调用方）----
         # 只有两种"全通"状态算通过：正向 linked（游戏侧联接指对）、

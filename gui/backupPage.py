@@ -81,8 +81,11 @@ from gui.backupRelocateDialog import BackupRelocateDialog
 from gui.consolePanel import LogBus
 from gui.formatters import abs_time, fmt_size, status_zh
 
-from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices
 from core.urlParser import WORKSHOP_URL_TEMPLATE
+from PySide6.QtGui import (
+    QAction, QBrush, QColor, QDesktopServices, QGuiApplication,
+)
+
 
 # ---- 与设置页核对过的真键名（settingsPage.py）。注意配额在设置页
 # 以 GB 计（人好填），引擎以字节计（好比较），换算只在 _make_manager 做 ----
@@ -93,6 +96,13 @@ _KEY_QUOTA_GB = "backup_total_quota_gb"
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
 _C_FAIL = "#e5484d"
+# 组头底色（按 mod 分组视图）：不再取系统调色板——实测本应用的调色板
+# 不随主题换装（亮色模式下取到的 Mid 仍是深色，即"组头黑条"现象，
+# 详见记事本新增踩坑）。改读设置键 theme_mode（settingsPage 主题下拉
+# 同一键名，单源），两套主题各一个定值：亮色=浅灰条配黑字，
+# 深色=比行底色亮一档的深灰条配白字，都读得清。
+_GROUP_BG_LIGHT = "#e0e0e0"
+_GROUP_BG_DARK = "#3a3f47"
 
 # ---- 列布局：列号显式起名，填充代码一律用列号，不写魔法数字 ----
 COL_CHECK = 0         # 勾选框：操作对象的唯一来源
@@ -849,6 +859,23 @@ class BackupPage(QWidget):
             r, COL_PIN, _SortItem("是" if b.pinned else "", 1 if b.pinned else 0))
         self._table.setItem(r, COL_NOTE, QTableWidgetItem(b.note or ""))
 
+    def _group_bg_color(self) -> QColor:
+        """组头底色：按当前主题返回定值（常量见文件头 _GROUP_BG_*）。
+        主题来源 = 设置键 theme_mode（与 settingsPage 的主题下拉同一份
+        事实）：dark/light 直接用；auto=跟随系统，问 Qt 的系统深浅色。
+        问不到（PySide6 版本过旧等）按亮色兜底——要绕开就在设置里
+        显式选深色/亮色。已知小限制：切主题不重建本表，组头底色要等
+        下次【刷新】/重载才换，其余文字颜色由 QSS 即时变。"""
+        mode = str(self._settings.get("theme_mode") or "auto").strip()
+        if mode not in ("dark", "light"):
+            try:
+                scheme = QGuiApplication.styleHints().colorScheme()
+                mode = "dark" if scheme == Qt.ColorScheme.Dark else "light"
+            except Exception:
+                mode = "light"
+        return QColor(_GROUP_BG_DARK if mode == "dark" else _GROUP_BG_LIGHT)
+
+
     def _fill_grouped(self, disk_map: dict[int, str]) -> None:
         """按 mod 分组视图：组头一行跨整表宽度（标题 + 编号 + 份数 +
         总大小），组内版本时间新→旧，组间按最近备份时间新→旧。
@@ -876,7 +903,8 @@ class BackupPage(QWidget):
             font = head.font()
             font.setBold(True)
             head.setFont(font)
-            head.setBackground(QBrush(QColor("#2b2b33")))
+            head.setBackground(QBrush(self._group_bg_color()))
+
             self._table.setItem(r, 0, head)
             self._table.setSpan(r, 0, 1, len(_COL_HEADERS))
             r += 1
