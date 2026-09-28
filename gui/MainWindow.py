@@ -25,26 +25,24 @@ import sqlite3
 import sys
 import threading
 
-from gui.browserPickDialog import BrowserPickDialog
-from gui.rescuePage import RescuePage
-from gui.shareListPage import ShareListPage
-
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtGui import QAction, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
     QDockWidget,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
+    QPushButton,
     QStackedWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
-    QMessageBox,
-    QFileDialog,
-    QDialog,
 )
-from PySide6.QtCore import QSettings, Qt
 
 from core import appPaths
 from core import dataExporter
@@ -55,25 +53,28 @@ from gui.addModPage import AddModPage
 from gui.backupOverviewPage import BackupOverviewPage
 from gui.backupPage import BackupPage
 from gui.batchDownloadController import BatchDownloadController
+from gui.browserPickDialog import BrowserPickDialog
 from gui.browserTabPage import BrowserTabPage
 from gui.commandGenPage import CommandGenPage
 from gui.consolePanel import ConsolePanel, LogBus
 from gui.dailyUpdatePage import DailyUpdatePage
+from gui.deletePage import DeletePage
 from gui.exceptionPage import ExceptionPage
 from gui.firstUsePage import FirstUsePage
 from gui.gameSwitcher import GameSwitcher
 from gui.importPage import ImportPage
-from gui.modListPage import ModListPage
 from gui.migrationPage import MigrationPage
-
+from gui.modListPage import ModListPage
+from gui.rescuePage import RescuePage
 from gui.settingsPage import SettingsPage
+from gui.shareListPage import ShareListPage
 from gui.statsPage import StatsPage
+from gui.uninstallPage import UninstallPage
 from gui.updateCheckPage import UpdateCheckPage
 from gui.updateSelectDialog import UpdateSelectDialog
 from gui.verifyPage import VerifyPage
-from gui.welcomePage import WelcomePage
-from gui.deletePage import DeletePage
-from gui.uninstallPage import UninstallPage
+from gui.welcomePage import ICON_REL, PROJECT_URL, WelcomePage
+
 
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根统一从 appPaths 定位（源码=项目根\data，打包=exe 旁\data）
 
@@ -515,8 +516,75 @@ class MainWindow(QMainWindow):
             "对话框里实时显示命中数，可一键跳到 mod 库看结果；\n"
             "与顶栏筛选叠加生效，条件生效期间库页工具条出现指示按钮")
         act_adv.triggered.connect(self._pages[0].open_advanced_search)
+        # 帮助(&H)：关于对话框（T17「关于」拍板项收口）。菜单栏最后一项，
+        # Windows 惯例位置；纯展示零写操作，模态安全（看它不需要同时碰
+        # 窗口外的任何东西——踩坑㊱ 自查通过）。
+        m_help = self.menuBar().addMenu("帮助(&H)")
+        act_about = QAction("关于…", self)
+        act_about.setToolTip("查看本工具的版本、简介与开源项目地址")
+        act_about.triggered.connect(self._about)
+        m_help.addAction(act_about)
+        m_help.setToolTipsVisible(True)  # QMenu 默认不显示悬浮说明（T19⑩ 同款坑）
 
 
+
+    def _about(self) -> None:
+        """帮助 → 关于…：版本、简介与开源项目地址。
+        两样信息全部单源、零硬编码：版本号读 QApplication（main.py
+        setApplicationVersion 设定），项目地址读 gui.welcomePage.
+        PROJECT_URL（欢迎页同一份常量）——将来改版本或改地址，
+        这里自动跟上，永不出现两处显示打架。"""
+        box = QDialog(self)
+        box.setWindowTitle("关于")
+        v = QVBoxLayout(box)
+        v.setContentsMargins(20, 20, 20, 16)
+        v.setSpacing(10)
+
+        # 图标 + 名称/版本 横排。图标缺失就跳过（纯装饰不弹窗，
+        # 与 main.py / 欢迎页同款兜底口径）。
+        head = QHBoxLayout()
+        pix = QPixmap(str(appPaths.resource_path(ICON_REL)))
+        if not pix.isNull():
+            icon = QLabel(box)
+            icon.setPixmap(pix.scaled(
+                64, 64, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation))
+            head.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
+        name_ver = QLabel(box)
+        ver = QApplication.applicationVersion()
+        name_ver.setText(
+            "<b>Steam 创意工坊 Mod 辅助管理工具</b>"
+            + (f"<br>版本 {ver}" if ver else ""))
+        name_ver.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        head.addWidget(name_ver, 1)
+        v.addLayout(head)
+
+        intro = QLabel(
+            "帮助大量使用 mod 的 Steam 玩家，在不打开 Steam 客户端的"
+            "情况下完成工坊 mod 的登记、更新检测、下载与备份恢复。"
+            "绿色软件：账本、设置等全部数据保存在软件自己的文件夹里。",
+            box)
+        intro.setWordWrap(True)
+        v.addWidget(intro)
+
+        link = QLabel(
+            f'开源项目主页：<a href="{PROJECT_URL}">{PROJECT_URL}</a>'
+            "<br>（点击打开浏览器，或选中复制）", box)
+        link.setWordWrap(True)
+        link.setOpenExternalLinks(True)
+        link.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextBrowserInteraction)
+        v.addWidget(link)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_close = QPushButton("关闭", box)
+        btn_close.clicked.connect(box.accept)
+        btn_row.addWidget(btn_close)
+        v.addLayout(btn_row)
+
+        box.exec()
 
 
     def _build_status_bar(self) -> None:
