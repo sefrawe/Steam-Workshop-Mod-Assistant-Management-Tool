@@ -173,7 +173,7 @@ class GameEditDialog(QDialog):
         dd_h.addStretch(1)
         dd_v.addLayout(dd_h)
         dd_desc = QLabel(
-            "由 steamcmd 位置唯一决定（决策 21），这里不开放手填——"
+            "由 steamcmd 位置唯一决定，这里不开放手填——"
             "历史错值正是手填造成的。推导不出时保留现值，绝不瞎猜。",
             dd_field)
         dd_desc.setWordWrap(True)

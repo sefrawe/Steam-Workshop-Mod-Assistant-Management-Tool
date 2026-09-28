@@ -44,7 +44,8 @@ from PySide6.QtCore import QMargins, Qt
 from PySide6.QtGui import  QPalette
 from PySide6.QtGui import QPainter
 
-from gui.theme import current_mode
+from gui.theme import current_mode, system_prefers_dark
+
 
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -58,29 +59,12 @@ from PySide6.QtWidgets import (
 from core.models import Game
 from gui.formatters import fmt_size
 from gui.modListModel import ModListModel
-from PySide6.QtGui import QPainter
 
-from gui.theme import current_mode
 
 _DAY = 86400
 _RHYTHM_BUCKETS = [("7 天内", 7), ("30 天内", 30), ("90 天内", 90),
                    ("1 年内", 365)]
 
-def _system_prefers_dark() -> bool:
-    """auto 档判断系统深浅：读注册表 AppsUseLightTheme（0=深色）。
-    与 backupPage._system_prefers_dark 同源同款（决策 66⑧：与换肤
-    引擎 pyqtdarktheme-fork 的 auto 同源）——别问 Qt 调色板，QSS
-    主题库下 palette 与样式表脱节（踩坑51）。读不到按亮色算。"""
-    try:
-        import winreg
-        with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-        ) as key:
-            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-            return value == 0
-    except Exception:
-        return False
 
 class StatsPage(QWidget):
     """统计页：无可写状态，set_game 即重算。"""
@@ -199,7 +183,8 @@ class StatsPage(QWidget):
         # 正面命中（深色界面拿到浅色 Window → 网格线刺眼亮白，截图实证）。
         mode = current_mode()
         if mode not in ("dark", "light"):
-            mode = "dark" if _system_prefers_dark() else "light"
+            mode = "dark" if system_prefers_dark() else "light"
+
         # ChartTheme 成员名跨 PySide6 版本不稳，且有两代命名并存：
         # "DarkTheme"（短名）与 "ChartThemeDark"（C++ 枚举值原名）。
         # 双候选都试，取得到才设，取不到保持默认（背景已透明，

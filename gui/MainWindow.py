@@ -1111,7 +1111,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"分享包导入完成：「{name}」新增 {report['added']} 条、"
             f"跳过 {report['skipped']} 条"
-            + ("（在左上角下拉切换到该游戏查看）" if elsewhere else ""),
+            f"（导入条目均为「已收录」；本机有文件的话，到【mod 库】页【扫描本地】自动补上已下载状态）"
+            + ("（；在左上角下拉切换到该游戏查看）" if elsewhere else ""),
             8000)
 
     def closeEvent(self, event) -> None:

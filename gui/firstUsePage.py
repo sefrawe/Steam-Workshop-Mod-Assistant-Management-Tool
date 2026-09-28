@@ -221,7 +221,6 @@ class FirstUsePage(QWidget):
         row_dir.addWidget(self._dir_edit, 1)
         self._btn_browse = QPushButton("浏览…", self)
         self._btn_browse.setToolTip("打开系统目录选择窗口，选 Steam 客户端库目录")
-        self._btn_browse.clicked.connect(self._on_browse)
 
         self._btn_browse.clicked.connect(self._on_browse)
         row_dir.addWidget(self._btn_browse)
@@ -332,11 +331,15 @@ class FirstUsePage(QWidget):
             self._set_card(self._d4, "等待建档。", _C_MUTED)
             return
         if self._plan is None:
-            self._set_card(self._d4,
-                           f"把 Steam 客户端库目录填在下面（{self._game.name}"
-                           " 的订阅记录），点【解析预览】核对，再【纳入账本】。\n如果你没有通过steam安装mod，什么都没扫描到也正常\n"
-                           "待确认的其他提醒：steamcmd和steam管理的mod从此分道扬镳，steamcmd和steam不能同时启动......",
-                           _C_MUTED)
+            self._set_card(self._d4, f"把 Steam 客户端库目录填在下面（{self._game.name}"
+                                     " 的订阅记录），点【解析预览】核对，再【纳入账本】。\n"
+                                     "· 没用 Steam 客户端装过 mod 的话，这里扫不到东西是正常的"
+                                     "——只读客户端的订阅记录。\n"
+                                     "· 两套账互不相通：Steam 客户端和 steamcmd 是两棵独立的树，"
+                                     "各有各的工坊文件夹和记录，互不知情。同一个游戏不要两边"
+                                     "同时订阅——两处各存一份，版本可能错乱。\n"
+                                     "· 登录 steamcmd 会把 Steam 客户端顶下线（Steam 单点登录），"
+                                     "属正常现象，回客户端重新登录即可。", _C_MUTED)
 
     # ---------- 第④步：预览与纳入 ----------
     def _on_browse(self) -> None:
@@ -457,7 +460,10 @@ class FirstUsePage(QWidget):
             "① 【复制下载命令】到 steamcmd 执行（或到【mod 库】页勾选这批"
             "条目点【下载选中项】）；\n"
             "② 下载完到【mod 库】页点【扫描本地】确认；\n"
-            "③ 确认后到 Steam 客户端把这批 mod 退订——不要两边同时订阅。",
+            "③ 确认后到 Steam 客户端把这批 mod 退订——不要两边同时订阅："
+            "不退订的话，客户端会按它自己的订阅清单继续维护那份拷贝"
+            "（有更新就自动下载到客户端自己的目录），与本工具这份并存，"
+            "版本各走各的还白占空间。",
             _C_OK)
         self._log.ok(f"纳入已有 mod 完成：新入库 {rep.registered} 条，"
                      f"补版本线索 {rep.hints_filled} 条"

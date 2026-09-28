@@ -75,8 +75,8 @@ def find_session_files(browser: str,
     目录不存在返回空表（调用方显式报告，不静默）。"""
     key = browser.strip().lower()
     if key == "firefox":
-        raise ValueError("Firefox 的会话是另一种格式（jsonlz4），"
-                         "第二批支持，暂不可读")
+        raise ValueError("暂不支持读取 Firefox 的会话（格式不同），"
+                         "请改用 Edge 或 Chrome")
     if key not in _BROWSER_ROOTS:
         raise ValueError(f"不认识的浏览器：{browser}（可选 edge / chrome）")
     if user_data_override:

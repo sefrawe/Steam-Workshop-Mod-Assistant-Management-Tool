@@ -81,6 +81,8 @@ from core.urlParser import WORKSHOP_URL_TEMPLATE
 from gui.backupMoveDialog import BackupMoveDialog
 from gui.backupRelocateDialog import BackupRelocateDialog
 from gui.consolePanel import LogBus
+from gui.theme import system_prefers_dark
+
 from gui.formatters import abs_time, fmt_size, status_zh
 
 # ---- 与设置页核对过的真键名（settingsPage.py）。注意配额在设置页
@@ -100,25 +102,6 @@ _GROUP_BG_LIGHT = "#e0e0e0"
 _GROUP_FG_LIGHT = "#1a1a1a"
 _GROUP_BG_DARK = "#3a3f47"
 _GROUP_FG_DARK = "#f0f0f0"
-
-def _system_prefers_dark() -> bool:
-    """跟随系统时判断 Windows 的系统应用深浅色：读注册表里的
-    AppsUseLightTheme（0 = 系统应用用深色）。换肤引擎 pyqdarktheme
-    的 auto 判断看的也是同一个开关——问同一个问题，答案才不会打架。
-    上一版问的是 Qt 的 colorScheme 接口，那个接口要 PySide6 6.5 以上
-    才有，旧版上一问就摔跤，摔进"当亮色算"的兜底——深色系统下组头
-    于是成了白条（本轮翻车现场）。注册表读不到（权限/非 Windows）
-    按亮色算，要绕开就在设置里显式选深色/亮色。"""
-    try:
-        import winreg  # 标准库，只有 Windows 有——放函数里，别的平台加载本文件也不炸
-        with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-        ) as key:
-            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-        return value == 0
-    except Exception:
-        return False
 
 # ---- 列布局：列号显式起名，填充代码一律用列号，不写魔法数字 ----
 COL_CHECK = 0         # 勾选框：操作对象的唯一来源
@@ -516,6 +499,9 @@ class BackupPage(QWidget):
         self._count_label = QLabel("", self)
         self._count_label.setWordWrap(True)
         root.addWidget(self._count_label)
+        self._btn_backup_menu.setToolTip("发起备份：mod 内容备份或数据库快照")
+        self._btn_sel_menu.setToolTip("对勾选的备份执行动作；菜单项与表格右键是同一组动作")
+        self._btn_dir_menu.setToolTip("备份位置相关动作：打开目录 / 重定位 / 搬家")
 
         self._refresh_op_buttons()
 
@@ -727,7 +713,10 @@ class BackupPage(QWidget):
         if steamcmd_running():
             self._steam_banner.setText(
                 "⚠ 检测到 steamcmd 正在运行：此时备份可能拿到不完整副本"
-                "（下载仍在写入），建议等它结束再备份；恢复操作会被引擎直接拒绝。")
+                "（下载仍在写入），建议等它结束再备份。恢复操作会被直接拒绝——"
+                "恢复要把整份内容写回下载目录，和正在下载的 steamcmd 抢同一批文件，"
+                "两边都会写坏；拒绝是保护，等下载结束再恢复。"
+            )
             self._steam_banner.setStyleSheet(f"color: {_C_WARN};")
             self._steam_banner.setVisible(True)
         else:
@@ -887,7 +876,8 @@ class BackupPage(QWidget):
         不赌 QSS。"""
         mode = str(self._settings.get("theme_mode") or "auto").strip()
         if mode not in ("dark", "light"):
-            mode = "dark" if _system_prefers_dark() else "light"
+            mode = "dark" if system_prefers_dark() else "light"
+
         if mode == "dark":
             return QColor(_GROUP_BG_DARK), QColor(_GROUP_FG_DARK)
         return QColor(_GROUP_BG_LIGHT), QColor(_GROUP_FG_LIGHT)

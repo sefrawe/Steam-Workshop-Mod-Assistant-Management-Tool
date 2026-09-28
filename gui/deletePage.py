@@ -235,9 +235,12 @@ class DeletePage(QWidget):
         lbl = QLabel(
             "为什么会出现：文件夹被手动删过、换过盘、或被别的工具删掉。"
             "处置只动账本、不碰磁盘（盘上本来就没有）。\n"
-            "你的选择：软删除（推荐）= 记录保留，随时可恢复；"
-            "彻底清账 = 记录物理删除、不可恢复，备份登记随之清除"
-            "（磁盘备份文件默认保留，想带走用下面的勾）。", body)
+            "你的选择：软删除（推荐）= 记录保留，随时可恢复；软删除后"
+            "更新检测不再盯它、下载命令生成页不再出现它、扫描也不再"
+            "收录它——盘上文件与备份都原样保留，右键「恢复」即回到"
+            "软删除前的状态。彻底清账 = 记录物理删除、不可恢复，"
+            "备份登记随之清除（磁盘备份文件默认保留，想带走用下面的勾）。",
+            body)
         lbl.setWordWrap(True)
         box2.addWidget(lbl)
         # 工具条：过滤（mod 库页同款交互）
@@ -403,6 +406,12 @@ class DeletePage(QWidget):
         btn_row.addWidget(self._btn_claim_import)
         btn_row.addStretch(1)
         box4.addLayout(btn_row)
+        self._btn_claim_scan.setToolTip(
+            "跳到【mod 库】页点【扫描本地】：acf 认识的编号会自动入库认领")
+        self._btn_claim_import.setToolTip(
+            "跳到【网址批量导入】页把编号登记进账本，再到 mod 库页"
+            "右键「确认已下载（手动）」完成认领")
+
 
         # ---- 卡⑤ 执行（常驻） ----
         _, box5 = self._make_card(root, "exec", "⑤ 执行所选处置")

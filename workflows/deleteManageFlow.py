@@ -438,7 +438,7 @@ def execute_action(repo: ModRepository, action: Action) -> ActionResult:
             if links:
                 return ActionResult(
                     action.kind, action.mod_id, ok=False,
-                    detail="目录树中发现链接/junction，拒绝删除（R4）："
+                    detail="目录树中发现链接/junction，拒绝删除："
                            + "、".join(str(p) for p in links[:3])
                            + "——请先到「连接」指引处理拓扑，再回来清理")
             if not target.is_dir():

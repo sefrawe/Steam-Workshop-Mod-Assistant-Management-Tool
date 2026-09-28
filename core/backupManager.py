@@ -137,13 +137,13 @@ def _assert_inside(target: Path, expected_root: Path) -> None:
     """
     if _is_link_or_junction(target):
         raise RuntimeError(
-            f"拒绝操作链接/junction（R4）：{target}\n"
+            f"拒绝操作链接/junction：{target}\n"
             "（若确需操作，请先手动处理链接本身）")
     real = _norm(Path(os.path.realpath(target)))
     root = _norm(Path(os.path.realpath(expected_root))).rstrip(os.sep)
     if not real.startswith(root + os.sep):
         raise RuntimeError(
-            f"路径越界（R4）：{real} 不在 {root} 内，拒绝操作")
+            f"路径越界：{real} 不在 {root} 内，拒绝操作")
 
 
 def _safe_rmtree(target: Path, expected_root: Path) -> None:
@@ -257,7 +257,7 @@ class BackupManager:
             return BackupReport(
                 ok=False,
                 error="无法确定备份位置：档案未设置备份目录，"
-                      "且未配置 steamcmd 程序路径（无法按决策 21 推导）。"
+                      "且未配置 steamcmd 程序路径，无法自动推导。"
                       "请先在设置页填写 steamcmd 程序。")
         if derived:
             # 与 T10e 同款"推导 + 回写 + 告知"模式：档案当时没存备份目录，
@@ -284,7 +284,7 @@ class BackupManager:
         for p in (source, Path(root)):
             if len(str(p)) > _PATH_WARN_LEN:
                 warnings.append(
-                    f"路径过长（R6，{len(str(p))} 字符）：{p}\n"
+                    f"路径过长（{len(str(p))} 字符）：{p}\n"
                     "robocopy 可处理，但游戏侧工具可能读不到。")
 
         if mod.local_size is not None:
@@ -292,7 +292,7 @@ class BackupManager:
             if free < mod.local_size:
                 return BackupReport(
                     ok=False,
-                    error=f"磁盘空间不足（R9）：预计需要 "
+                    error=f"磁盘空间不足：预计需要 "
                           f"{mod.local_size / 2**30:.2f} GiB，"
                           f"备份盘仅剩 {free / 2**30:.2f} GiB。")
             if free < mod.local_size * 1.1:
@@ -386,7 +386,7 @@ class BackupManager:
             # 游戏侧（决策 21④ 的反向），拒绝动手
             return RestoreReport(
                 ok=False, warnings=warnings,
-                error=f"下载目录中的 mod 位置是链接/junction，拒绝恢复（R4）：{dest}")
+                error=f"下载目录中的 mod 位置是链接/junction，拒绝恢复：{dest}")
 
         # ---- ① R8：先强制备份当前版本（没有现状则跳过）----
         pre: Backup | None = None
@@ -395,7 +395,7 @@ class BackupManager:
             if not pre_report.ok:
                 return RestoreReport(
                     ok=False, warnings=warnings,
-                    error=f"恢复前备份失败（R8 要求先备份，已中止恢复）：\n"
+                    error=f"恢复前备份失败（要求先备份当前版本，已中止恢复）：\n"
                           f"{pre_report.error}")
             pre = pre_report.backup
         else:
@@ -473,7 +473,7 @@ class BackupManager:
         try:
             _safe_rmtree(target, Path(game.backup_dir))
         except (RuntimeError, OSError) as exc:
-            return False, f"磁盘目录删除失败，记录保留（R4 保险丝或权限问题）：{exc}"
+            return False, f"磁盘目录删除失败，记录保留（安全保险丝或权限问题）：{exc}"
         self._repo.delete_backup_record(record.id)
         return True, None
 

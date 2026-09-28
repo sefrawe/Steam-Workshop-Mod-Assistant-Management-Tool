@@ -95,7 +95,7 @@ class BrowserTabPage(QWidget):
             "用键盘自动化逐个读取 Edge 当前打开的标签页（程序自己切窗口，"
             "期间占用鼠标键盘：别动）。中断方式：按 Esc、Alt+Tab 回本工具"
             "点【停止采集】、或鼠标甩到屏幕左上角。首次使用会弹窗引导安装"
-            "依赖，装完需重启本工具")
+            "依赖，装完无需重启，再点一次即可")
 
         self._btn_collect.clicked.connect(self._on_collect_clicked)
         btns.addWidget(self._btn_collect)
@@ -153,7 +153,7 @@ class BrowserTabPage(QWidget):
                 "实时采集缺 " + "、".join(missing) + "。\n\n"
                                                     "安装命令（复制到 cmd 执行）：\n"
                                                     "pip install pywinauto pyautogui pyperclip psutil\n\n"
-                                                    "装完后请重启本工具，再回来点本按钮。")
+                                                    "装完后无需重启本工具，再点一次本按钮即可继续。")
             return
 
         self._stop = False

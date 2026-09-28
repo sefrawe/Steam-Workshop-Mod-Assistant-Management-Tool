@@ -1,5 +1,6 @@
 """mod 库页
 """
+
 r"""后端调试主战场。
 布局：顶部筛选条（搜索 / 状态 / 特别关注 / 排序下拉 /统计见统计页/
 下载 / 备份选中项；"刷新"与"扫描本地"收进【刷新 ▾】下拉）+ 水平分割
@@ -53,8 +54,8 @@ T15 批 1 顺手修复（v2.29）：无档案时操作菜单的入口从"静默�
 （不依赖模型重置碰巧发来的 currentRowChanged）；文件头两处"控制台
 菜单"旧文案校准为顶级菜单（决策 63 修订后没跟上的尾巴）。
 """
+from gui.modFolderOpener import open_mod_folder
 from pathlib import Path
-
 from gui.advancedSearchDialog import AdvancedSearchDialog
 from gui.batchSpecialDialog import BatchSpecialDialog
 from PySide6.QtCore import QModelIndex, QSettings, Qt, QTimer, QUrl, Signal
@@ -253,7 +254,9 @@ class ModListPage(QWidget):
             "回填本地版本三件套")
         refresh_menu = QMenu(self._btn_refresh)
         act_scan = QAction("扫描本地", refresh_menu)
-        act_scan.setToolTip("解析当前游戏的 appworkshop acf，回填本地版本三件套")
+        act_scan.setToolTip("解析当前游戏的 appworkshop acf，回填本地版本三件套；"
+                            "可重复执行，已入库的只更新、不会重复登记")
+
         act_scan.triggered.connect(self._on_scan_local)
         refresh_menu.addAction(act_scan)
         # QMenu 的动作 tooltip 默认不显示（T19⑩ 同款坑），显式打开
@@ -813,36 +816,9 @@ class ModListPage(QWidget):
             self._reload()
 
     def _open_mod_folder(self, m) -> None:
-        """右键「打开 mod 文件夹」：文件管理器打开该 mod 的下载内容目录。
-        路径两路候选：local_path（历史预留字段，现无任何链路写入、恒
-        为空，保留兼容）→ 档案 download_dir + 编号（实际唯一机制：
-        steamcmd 下载位置恒定 = 决策 21③，acf 本身不记录每条路径）。
-        （"点了没反应"比"打开失败"更糟，T15 口径）。
-        软删除条目照样可开——软删除不删文件，盘上多半还在。"""
-        candidates: list[str] = []
-        if m.local_path:
-            candidates.append(m.local_path)
-        if self._game is not None and self._game.download_dir:
-            candidates.append(
-                str(Path(self._game.download_dir) / str(m.mod_id)))
-        for path in candidates:
-            if Path(path).is_dir():
-                if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
-                    # openUrl 失败是静默的（v2.18 教训）：手动兜底提示
-                    QMessageBox.warning(
-                        self, "打开文件夹",
-                        f"文件管理器没有响应，请手动打开：\n{path}")
-                    return
-                self._log.info(f"已打开 mod {m.mod_id} 的文件夹：{path}")
-                return
-        where = candidates[0] if candidates else "没有可推算的本地路径"
-        self._log.warn(f"mod {m.mod_id} 的文件夹不存在：{where}")
-        QMessageBox.information(
-            self, "打开 mod 文件夹",
-            f"盘上没有找到 mod {m.mod_id} 的文件夹：\n{where}\n\n"
-            "可能原因：还没下载过（已收录）、已被清理，或下载目录变动过"
-            "（后者可在设置页核对 steamcmd 路径后点【扫描本地】回填）。")
-
+        """右键「打开 mod 文件夹」：实现单源 gui/modFolderOpener
+        （与更新对照页共用，原镜像实现已收敛）。失败就地弹窗+日志。"""
+        open_mod_folder(self, self._game, m, log=self._log)
 
     def _pick_color(self, m) -> None:
         names = [*_COLORS.keys(), "（清除标记）"]
@@ -862,7 +838,11 @@ class ModListPage(QWidget):
         ret = QMessageBox.question(
             self, "软删除",
             f"确定将「{m.title or m.mod_id}」标记为已删除？\n"
-            "记录会保留在库中（含删除前快照），可随时恢复。")
+            "记录保留在库中（含删除前快照），盘上文件与备份都原样不动，"
+            "右键「恢复」随时可回。\n"
+            "软删除后：更新检测不再查询它、下载命令生成页不再列出它、"
+            "扫描本地也不再收录它。")
+
         if ret != QMessageBox.StandardButton.Yes:
             return
         # last_state 由调用方组装、repo 只管存取（repo 契约如此）；

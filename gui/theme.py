@@ -99,9 +99,10 @@ def zebra_colors() -> tuple[str, str] | None:
     return _ZEBRA_COLORS[mode]
 def system_prefers_dark() -> bool:
     """auto 档系统深浅判定（公共版）：读注册表 AppsUseLightTheme，
-    与换肤引擎 auto 同源（决策 66⑧）。backupPage 有一份同款私有
-    实现（v2.38 先落地），新消费方一律用本函数；旧份收敛归打包前
-    收官轮（WORKSHOP_URL_TEMPLATE 八份归一的同款先例）。"""
+    与换肤引擎 auto 同源（决策 66⑧）。backupPage/statsPage 的私有份
+    已收敛入本函数（收官轮）；新消费方一律用本函数
+    （WORKSHOP_URL_TEMPLATE 八份归一的同款先例）。"""
+
     try:
         import winreg
         with winreg.OpenKey(

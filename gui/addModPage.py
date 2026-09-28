@@ -361,7 +361,7 @@ class AddModPage(QWidget):
                 "实时采集缺 " + "、".join(missing) + "。\n\n"
                                                     "安装命令（复制到 cmd 执行）：\n"
                                                     "pip install pywinauto pyautogui pyperclip psutil\n\n"
-                                                    "装完后重启本工具，再点本按钮继续。")
+                                                    "装完后无需重启本工具，再点一次本按钮即可继续。")
             return
         self.open_browser_picker.emit()
 

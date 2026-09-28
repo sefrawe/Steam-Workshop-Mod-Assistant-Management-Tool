@@ -122,7 +122,8 @@ class GameAddDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.addLayout(row1)
         lay.addLayout(row2)
-        lay.addWidget(QLabel("下载目录（推导预览，建档后可在【编辑档案】里改）："))
+        lay.addWidget(QLabel("下载目录（按 steamcmd 位置自动推导，无需手填；"
+                             "之后 steamcmd 挪位，扫描时会自动跟着更新）："))
         lay.addWidget(self._lbl_dir)
         lay.addWidget(self._lbl_hint)
         lay.addWidget(self._buttons)

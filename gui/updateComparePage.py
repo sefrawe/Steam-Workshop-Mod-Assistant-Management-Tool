@@ -32,8 +32,7 @@ r"""gui/updateComparePage.py · 当前档案的版本对照与更新历史。
 【契约不变】set_game / refresh；MainWindow 零改动。
 """
 import time
-from pathlib import Path
-
+from gui.modFolderOpener import open_mod_folder
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QBrush, QAction, QColor, QDesktopServices
 from PySide6.QtWidgets import (
@@ -659,27 +658,8 @@ class UpdateComparePage(QWidget):
                 "可复制网址粘到浏览器地址栏打开。")
 
     def _open_mod_folder(self, m) -> None:
-        """与 modListPage._open_mod_folder 同款两路候选（镜像实现，
-        收敛归收官轮）：local_path 恒空 → download_dir/编号 实际唯一
-        机制（决策 21③）。都没有 → 弹窗说明不静默。"""
-        candidates: list[str] = []
-        if m.local_path:
-            candidates.append(m.local_path)
-        if self._game is not None and self._game.download_dir:
-            candidates.append(
-                str(Path(self._game.download_dir) / str(m.mod_id)))
-        for path in candidates:
-            if Path(path).is_dir():
-                if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
-                    QMessageBox.warning(
-                        self, "打开文件夹",
-                        f"文件管理器没有响应，请手动打开：\n{path}")
-                return
-        where = candidates[0] if candidates else "没有可推算的本地路径"
-        QMessageBox.information(
-            self, "打开 mod 文件夹",
-            f"盘上没有找到 mod {m.mod_id} 的文件夹：\n{where}\n\n"
-            "可能还没下载过（已收录）或已被清理；下载完回来点【刷新】。")
+        """实现单源 gui/modFolderOpener（与 mod 库页共用）。"""
+        open_mod_folder(self, self._game, m, log=self._log)
 
     def _copy_id(self, m) -> None:
         QApplication.clipboard().setText(str(m.mod_id))

@@ -236,7 +236,8 @@ def test_delete_refuses_junction(env):
     assert r.returncode == 0
     try:
         ok, msg = m.delete_backup(bak.id)
-        assert not ok and "R4" in msg
+        assert not ok and "拒绝操作链接/junction" in msg
+
         assert repo.get_backup(bak.id) is not None
     finally:
         os.rmdir(target)  # 只摘 junction 本体（rmtree 会穿进实体，踩坑 ⑩ 邻居）
