@@ -706,6 +706,15 @@ class ModListPage(QWidget):
         act_open.triggered.connect(
             lambda: QDesktopServices.openUrl(QUrl(m.url)))
         menu.addAction(act_open)
+        # 打开 mod 文件夹（v2.42 追补）：路径到点击时再解析——
+        # 菜单构建阶段不碰磁盘；未下载过/已被清理时点击有说明弹窗
+        act_folder = QAction("打开 mod 文件夹", menu)
+        act_folder.setToolTip(
+            "在文件管理器打开该 mod 的下载内容文件夹"
+            "（steamcmd 工坊内容目录下以编号命名的文件夹）")
+        act_folder.triggered.connect(lambda: self._open_mod_folder(m))
+        menu.addAction(act_folder)
+
         menu.addSeparator()
 
         for text, tip, cb in (
@@ -781,6 +790,38 @@ class ModListPage(QWidget):
             # 空串 → None：备注清空等于"没有备注"，库里不留空串
             self._repo.set_note(m.mod_id, text.strip() or None)
             self._reload()
+
+    def _open_mod_folder(self, m) -> None:
+        """右键「打开 mod 文件夹」：文件管理器打开该 mod 的下载内容目录。
+        路径两路候选：local_path（扫描本地时从 acf 回填，最权威）→
+        档案 download_dir + 编号（目录布局约定：工坊内容目录下就是
+        以编号命名的文件夹）。逐个验证存在，都没有 → 弹窗说明不静默
+        （"点了没反应"比"打开失败"更糟，T15 口径）。
+        软删除条目照样可开——软删除不删文件，盘上多半还在。"""
+        candidates: list[str] = []
+        if m.local_path:
+            candidates.append(m.local_path)
+        if self._game is not None and self._game.download_dir:
+            candidates.append(
+                str(Path(self._game.download_dir) / str(m.mod_id)))
+        for path in candidates:
+            if Path(path).is_dir():
+                if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+                    # openUrl 失败是静默的（v2.18 教训）：手动兜底提示
+                    QMessageBox.warning(
+                        self, "打开文件夹",
+                        f"文件管理器没有响应，请手动打开：\n{path}")
+                    return
+                self._log.info(f"已打开 mod {m.mod_id} 的文件夹：{path}")
+                return
+        where = candidates[0] if candidates else "没有可推算的本地路径"
+        self._log.warn(f"mod {m.mod_id} 的文件夹不存在：{where}")
+        QMessageBox.information(
+            self, "打开 mod 文件夹",
+            f"盘上没有找到 mod {m.mod_id} 的文件夹：\n{where}\n\n"
+            "可能原因：还没下载过（已收录）、已被清理，或下载目录变动过"
+            "（后者可在设置页核对 steamcmd 路径后点【扫描本地】回填）。")
+
 
     def _pick_color(self, m) -> None:
         names = [*_COLORS.keys(), "（清除标记）"]
