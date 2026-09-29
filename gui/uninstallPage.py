@@ -23,10 +23,9 @@ r"""gui/uninstallPage.py —— 功能模块「卸载与清理」（决策 70）
 """
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QListWidget,
-    QPushButton, QVBoxLayout, QWidget,
+    QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
 )
-
 from core.appPaths import app_root
 from gui.consolePanel import LogBus
 from gui.formatters import fmt_size
@@ -57,8 +56,17 @@ class UninstallPage(QWidget):
 
     # ---------- UI ----------
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget(scroll)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
+
         title = QLabel("卸载与清理", self)
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
         root.addWidget(title)

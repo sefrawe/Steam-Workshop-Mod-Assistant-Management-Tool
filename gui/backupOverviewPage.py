@@ -39,7 +39,7 @@ from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel,
     QMenu, QMessageBox, QProgressBar, QPushButton, QTableWidget,
-    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QCheckBox,QLineEdit
+    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QCheckBox, QLineEdit, QScrollArea
 )
 
 from core.backupManager import BackupManager
@@ -158,9 +158,16 @@ class BackupOverviewPage(QWidget):
 
     # ---------- UI ----------
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget(scroll)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
-
         title = QLabel("备份总览", self)
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
         root.addWidget(title)

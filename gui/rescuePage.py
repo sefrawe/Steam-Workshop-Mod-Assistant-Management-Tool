@@ -19,13 +19,10 @@ r"""gui/rescuePage.py —— 功能模块「恢复旧版本」（决策 34 第�
 """
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout,
     QWidget,
 )
+
 
 from core.appSettings import AppSettings
 from core.models import Game
@@ -61,9 +58,16 @@ class RescuePage(QWidget):
     # ---------- UI 构建 ----------
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget(scroll)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
-
         title = QLabel("恢复旧版本", self)
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
         root.addWidget(title)

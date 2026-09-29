@@ -19,13 +19,10 @@ mod_backups 的目录复制）在软件外完成，本软件不碰那些文件�
 """
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout,
     QWidget,
 )
+
 
 from core.appSettings import AppSettings
 from core.models import Game
@@ -71,7 +68,15 @@ class MigrationPage(QWidget):
     # ---------- UI 构建 ----------
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget(scroll)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("换机迁移", self)

@@ -20,14 +20,9 @@ r"""gui/shareListPage.py —— 功能模块「分享与接收清单」（决策
 """
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout,
     QWidget,
 )
-
 from core.appSettings import AppSettings
 from core.models import Game
 from gui.consolePanel import LogBus
@@ -64,9 +59,16 @@ class ShareListPage(QWidget):
     # ---------- UI 构建 ----------
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget(scroll)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
-
         title = QLabel("分享清单", self)
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
         root.addWidget(title)

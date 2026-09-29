@@ -8,15 +8,8 @@
 """
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication,
-    QHeaderView,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
+    QApplication, QHeaderView, QHBoxLayout, QLabel, QPushButton,
+    QScrollArea, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
     QMessageBox,
 )
 
@@ -38,7 +31,15 @@ class BrowserTabPage(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget(scroll)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("从浏览器取网址", self)

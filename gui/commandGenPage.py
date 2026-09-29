@@ -146,7 +146,19 @@ class CommandGenPage(QWidget):
     # ---------------- 搭骨架 ----------------
 
     def _init_ui(self):
-        root = QVBoxLayout(self)
+        # v2.41.4 整页滚动壳：只包第 1~3 块——预览框与【复制命令】
+        # 留在壳外固定（复制是最高频动作，不能随滚动沉底）。
+        # 与中部三分区的内滚两层各管各的：窗口高时外层零滚动，
+        # 矮时页级滚动条出现，分区照旧内滚
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        page_scroll = QScrollArea(self)
+        page_scroll.setWidgetResizable(True)
+        page_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        page_body = QWidget(page_scroll)
+        page_scroll.setWidget(page_body)
+        outer.addWidget(page_scroll, 1)
+        root = QVBoxLayout(page_body)
 
         # 第 1 块：游戏信息 + 重新载入
         top = QHBoxLayout()
@@ -203,7 +215,7 @@ class CommandGenPage(QWidget):
         self._preview.setReadOnly(True)
         self._preview.setPlaceholderText("勾选 mod 后，这里实时显示将要复制的命令")
         self._preview.setMaximumHeight(110)
-        root.addWidget(self._preview)
+        outer.addWidget(self._preview)  # 壳外常驻：矮窗口也能边勾边看命令
 
         bottom = QHBoxLayout()
         self._lbl_summary = QLabel("已勾选 0 个")
@@ -217,7 +229,7 @@ class CommandGenPage(QWidget):
         bottom.addWidget(self._lbl_summary, 1)
         bottom.addWidget(btn_save)
         bottom.addWidget(btn_copy)
-        root.addLayout(bottom)
+        outer.addLayout(bottom)  # 壳外常驻：【复制命令】永远一键可达
 
     # ---------------- 数据进出 ----------------
 
