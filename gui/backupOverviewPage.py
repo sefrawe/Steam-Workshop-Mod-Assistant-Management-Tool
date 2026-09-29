@@ -34,12 +34,12 @@ tooltip；↗ 点击打开后写一行日志（决策 22③），openUrl 静默�
 """
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtCore import Qt, QThread, QUrl, Signal,QTimer
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel,
     QMenu, QMessageBox, QProgressBar, QPushButton, QTableWidget,
-    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QCheckBox,
+    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QCheckBox,QLineEdit
 )
 
 from core.backupManager import BackupManager
@@ -146,7 +146,13 @@ class BackupOverviewPage(QWidget):
         self._sort_state = (COL_CREATED, Qt.SortOrder.DescendingOrder)
         self._building = False   # 重建表格期间抑制 itemChanged
         self._busy = False
+        # 搜索防抖（300ms，与更新对照页同一手感）
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(300)
+        self._search_timer.timeout.connect(self._apply_filter)
         self._batch_worker: _BatchWorker | None = None
+
         self._build_ui()
         self._reload()
 
@@ -187,7 +193,17 @@ class BackupOverviewPage(QWidget):
         fh.addWidget(self._combo)
         self._lost_only = self._make_lost_check(filter_row)
         fh.addWidget(self._lost_only)
+        self._search = QLineEdit(filter_row)
+        self._search.setPlaceholderText("搜索：游戏 / 标题 / 编号…")
+        self._search.setClearButtonEnabled(True)
+        self._search.setToolTip(
+            "即时过滤当前列表：不命中的行隐藏，已勾选的原样保留；\n"
+            "匹配游戏名、mod 标题、编号、mod 状态、备份目录名。"
+            "清空搜索框恢复全部")
+        self._search.textChanged.connect(self._on_search_changed)
+        fh.addWidget(self._search, 1)
         fh.addStretch(1)
+
         self._refresh_btn = QPushButton("刷新", filter_row)
         self._refresh_btn.clicked.connect(self._reload)
         self._refresh_btn.setToolTip("重新读取全部备份登记（会清空当前勾选）")
@@ -367,6 +383,7 @@ class BackupOverviewPage(QWidget):
         self._count_label.setText(text)
         self._building = False
         self._refresh_op_buttons()
+        self._apply_filter()
 
     def _fill_row(self, row: int, r: BackupOverviewRow, d: str) -> None:
         """填一行数据。数值列全部用 _SortItem：显示可读文本、排序按原始值。"""
@@ -467,10 +484,16 @@ class BackupOverviewPage(QWidget):
             self._refresh_op_buttons()
 
     def _set_all_checks(self, on: bool) -> None:
-        self._building = True  # 批量改勾选状态，别每行都刷一遍按钮
+        self._building = True
+        # 批量改勾选状态，别每行都刷一遍按钮。
+        # 全选只勾可见行：搜索过滤在场时，勾进看不见的行=盲删隐患；
+        # 清空选择仍作用所有行（只往安全方向走）
         for r in range(self._table.rowCount()):
+            if on and self._table.isRowHidden(r):
+                continue
             it = self._table.item(r, COL_CHECK)
-            if it is not None and (it.flags() & Qt.ItemFlag.ItemIsUserCheckable):
+            if it is not None and (it.flags()
+                                   & Qt.ItemFlag.ItemIsUserCheckable):
                 it.setCheckState(
                     Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
         self._building = False
@@ -501,8 +524,34 @@ class BackupOverviewPage(QWidget):
                 "可复制上面的网址，粘到浏览器地址栏打开。")
 
     def _on_sort_changed(self, col: int, order: Qt.SortOrder) -> None:
-        # 记住用户的排序选择，刷新/重载后照旧
+        # 记住用户的排序选择，刷新/重载后照旧。
+        # 排序搬的是条目、行隐藏挂的是行号——排序后重滤一次对齐
         self._sort_state = (col, order)
+        self._apply_filter()
+    def _on_search_changed(self, _text: str) -> None:
+        """搜索框防抖：停手 300ms 才真正过滤。"""
+        self._search_timer.start()
+
+    def _apply_filter(self) -> None:
+        """把搜索框关键词落到表格：不命中的行隐藏（只隐藏不重建，
+        勾选原样保留）。匹配游戏名 / mod 标题 / 编号 / mod 状态 /
+        备份目录名；空关键词 = 全部显示。"""
+        kw = self._search.text().strip().casefold()
+        for r in range(self._table.rowCount()):
+            it = self._table.item(r, COL_CHECK)
+            if it is None or not (it.flags()
+                                  & Qt.ItemFlag.ItemIsUserCheckable):
+                self._table.setRowHidden(r, False)
+                continue
+            rec = self._row_by_id.get(it.data(Qt.ItemDataRole.UserRole))
+            if rec is None:
+                self._table.setRowHidden(r, bool(kw))
+                continue
+            hay = " ".join((
+                rec.game_name, rec.mod_title or "", str(rec.mod_id),
+                status_zh(rec.mod_status), rec.backup_path or "",
+            )).casefold()
+            self._table.setRowHidden(r, bool(kw) and kw not in hay)
 
     def _on_context_menu(self, pos) -> None:
         """表格右键菜单：与「对选中 ▾」完全同一组 QAction。"""

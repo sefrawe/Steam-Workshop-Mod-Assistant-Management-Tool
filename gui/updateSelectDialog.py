@@ -214,6 +214,17 @@ class UpdateSelectDialog(QDialog):
                 if self._table.item(r, 0).checkState()
                 == Qt.CheckState.Checked]
 
+    def _update_count(self) -> None:
+        """刷新底部提示行的勾选计数（构造收尾 / itemChanged / 全选
+        全不选批量设值后调用）。_building=True 期间（建表填充、批量
+        设值）itemChanged 同样会触发本方法——此时直接返回，由调用方
+        设完后手动刷一次，避免逐项重算。"""
+        if self._building:
+            return
+        self._hint.setText(
+            f"已勾选 {len(self._checked_rows())} / "
+            f"{self._table.rowCount()} 个条目。")
+
     def _on_execute_clicked(self) -> None:
         """【执行选中】：只发请求，不动勾选、不留痕（决策 36⑧）。
         受理与否由主窗口回话：受理 → mark_executed（留痕 + 清勾选），

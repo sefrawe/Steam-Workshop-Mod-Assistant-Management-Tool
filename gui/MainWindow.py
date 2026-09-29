@@ -135,6 +135,7 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
     ("基础功能", [
         ("网址批量导入", 1),
         ("从浏览器取网址", 11),
+        ("更新检测", 4),
         ("更新对照", _IDX_UPDATE_COMPARE),
         ("下载命令生成", 5),
         ("账实核验", 6),

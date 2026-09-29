@@ -50,7 +50,8 @@ T26 大修后的交互模型：
 
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, QUrl, Signal
+from PySide6.QtCore import QThread, Qt, QTimer, QUrl, Signal
+
 from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, )
 from PySide6.QtWidgets import (
@@ -72,7 +73,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
-    QVBoxLayout,
+    QVBoxLayout, QLineEdit,
     QWidget, )
 
 from core.backupManager import BackupManager, steamcmd_running
@@ -291,6 +292,12 @@ class BackupPage(QWidget):
         self._view_mode = "flat"               # flat=平铺 / grouped=按 mod 分组
         self._sort_state = (COL_BACKUP_TIME, Qt.SortOrder.DescendingOrder)
         self._building = False                 # 重建表格期间抑制 itemChanged
+        # 搜索防抖（300ms，与更新对照页同一手感）
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(300)
+        self._search_timer.timeout.connect(self._apply_filter)
+
         self._busy = False
 
         self._backup_worker: _BackupWorker | None = None
@@ -459,7 +466,16 @@ class BackupPage(QWidget):
             "平铺=全部备份按时间排；按 mod 分组=每个 mod 一组，"
             "组头显示份数和总大小")
         h.addWidget(self._view_combo)
+        self._search = QLineEdit(bar)
+        self._search.setPlaceholderText("搜索：标题 / 编号 / 备注…")
+        self._search.setClearButtonEnabled(True)
+        self._search.setToolTip(
+            "即时过滤当前列表：不命中的行隐藏，已勾选的原样保留；\n"
+            "匹配 mod 标题、编号、备注、备份目录名。清空搜索框恢复全部")
+        self._search.textChanged.connect(self._on_search_changed)
+        h.addWidget(self._search, 1)
         h.addStretch(1)
+
         root.addWidget(bar)
 
         self._game_label = QLabel(self)
@@ -689,18 +705,78 @@ class BackupPage(QWidget):
             QDesktopServices.openUrl(QUrl(url))
 
     def _on_sort_changed(self, col: int, order: Qt.SortOrder) -> None:
-        # 记住用户的排序选择，刷新/重载后照旧
+        # 记住用户的排序选择，刷新/重载后照旧。
+        # 排序搬的是条目、行隐藏挂的是行号——排序后重滤一次对齐
         self._sort_state = (col, order)
+        self._apply_filter()
+
+    def _on_search_changed(self, _text: str) -> None:
+        """搜索框防抖：停手 300ms 才真正过滤。"""
+        self._search_timer.start()
+
+    def _apply_filter(self) -> None:
+        """把搜索框关键词落到表格：不命中的行隐藏（只隐藏不重建，
+        勾选原样保留）。平铺视图逐行匹配；分组视图整组判定——
+        组内任一成员命中，组头与命中成员显示，未命中成员隐藏。
+        空关键词 = 全部显示。重复执行无害（幂等）。"""
+        kw = self._search.text().strip().casefold()
+        rows = self._table.rowCount()
+        if not kw:
+            for r in range(rows):
+                self._table.setRowHidden(r, False)
+            return
+        hit = [False] * rows
+        for r in range(rows):
+            it = self._table.item(r, COL_CHECK)
+            if it is None or not (it.flags()
+                                  & Qt.ItemFlag.ItemIsUserCheckable):
+                continue  # 组头行在下面整组判定
+            b = self._row_by_id.get(it.data(Qt.ItemDataRole.UserRole))
+            if b is None:
+                continue
+            hay = " ".join((
+                self._title_of(b), str(b.mod_id),
+                b.note or "", b.backup_path or "",
+            )).casefold()
+            hit[r] = kw in hay
+        if self._view_mode == "grouped":
+            i = 0
+            while i < rows:
+                head_it = self._table.item(i, 0)
+                if head_it is None or (head_it.flags()
+                                       & Qt.ItemFlag.ItemIsUserCheckable):
+                    i += 1
+                    continue
+                j = i + 1
+                group_hit = False
+                while j < rows:
+                    m_it = self._table.item(j, COL_CHECK)
+                    if m_it is None or not (m_it.flags()
+                                            & Qt.ItemFlag.ItemIsUserCheckable):
+                        break  # 下一组的组头
+                    if hit[j]:
+                        group_hit = True
+                    j += 1
+                hit[i] = group_hit
+                i = j
+        for r in range(rows):
+            self._table.setRowHidden(r, not hit[r])
 
     def _on_view_changed(self, idx: int) -> None:
         self._view_mode = "grouped" if idx == 1 else "flat"
         self._reload()
 
     def _set_all_checks(self, on: bool) -> None:
-        self._building = True  # 批量改勾选状态，别每行都刷一遍按钮
+        self._building = True
+        # 批量改勾选状态，别每行都刷一遍按钮。
+        # 全选只勾可见行：搜索过滤在场时，勾进看不见的行=盲删隐患；
+        # 清空选择仍作用所有行（只往安全方向走）
         for r in range(self._table.rowCount()):
+            if on and self._table.isRowHidden(r):
+                continue
             it = self._table.item(r, COL_CHECK)
-            if it is not None and (it.flags() & Qt.ItemFlag.ItemIsUserCheckable):
+            if it is not None and (it.flags()
+                                   & Qt.ItemFlag.ItemIsUserCheckable):
                 it.setCheckState(
                     Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
         self._building = False
@@ -814,6 +890,7 @@ class BackupPage(QWidget):
 
         self._building = False
         self._refresh_op_buttons()
+        self._apply_filter()
 
     def _fill_row(self, r: int, b: Backup, on_disk: str) -> None:
         """填一行数据。所有排序用不到的辅助信息放悬浮提示，不占列。"""
