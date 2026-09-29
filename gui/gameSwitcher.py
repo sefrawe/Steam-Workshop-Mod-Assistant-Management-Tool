@@ -111,6 +111,20 @@ class GameSwitcher(QWidget):
                 return game
         return None
 
+    def set_current_by_app_id(self, app_id: int) -> bool:
+        """程序化选中某档案（启动恢复上次档案用，v2.44）。找到并选中
+        返回 True；下拉里没有（档案被删过/账本导入替换过）返回 False
+        ——调用方静默跳过，维持"落到第一项"的现状，不报错。
+        setCurrentIndex 触发 currentIndexChanged → _emit_current 广播，
+        与用户手点下拉同一条路；目标已是当前项时 Qt 不发信号，但那时
+        当前档案本来就是它，正好无需广播。"""
+        idx = self._combo.findData(app_id)
+        if idx < 0:
+            return False
+        self._combo.setCurrentIndex(idx)
+        return True
+
+
     def add_game_dialog(self) -> None:
         """建档入口：一屏对话框（查重 → 自动查名 → 目录推导预览 → 落账）。
         落账成功后 reload() 并把新档案设为当前——刚加完大概率马上要导

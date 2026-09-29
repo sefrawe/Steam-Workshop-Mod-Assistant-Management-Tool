@@ -108,6 +108,8 @@ _SES_CONSOLE = "session/console_visible"
 _SES_GEOM = "session/window_geometry"  # 窗口大小与位置（QByteArray）
 _SES_STATE = "session/window_state"    # 停靠窗布局（控制台位置/高度等）
 _SES_NAV = "session/nav_expanded"  # 导航树组折叠状态（展开的组名逗号串，T19⑤ 收官项）
+_SES_LAST_GAME = "session/last_game_app_id"  # 上次打开的游戏档案（AppID，v2.44）
+
 
 
 # 左导航树：整数 = 页面栈下标（真实页面）；None = 未完成模块，灰色"开发中"。
@@ -388,11 +390,18 @@ class MainWindow(QMainWindow):
         # 批量下载控制器：整软件一个实例（steamcmd 单实例 → 单批次），
         # 把终端信号、批次卡片和流程状态机缝在一起。
         # repo 供"批次前备份阶段"读写备份账（决策 40）
+        # 批量下载控制器：整软件一个实例（steamcmd 单实例 → 单批次），
+        # 把终端信号、批次卡片和流程状态机缝在一起。
+        # repo 供"批次前备份阶段"读写备份账（决策 40）
         self._batch_controller = BatchDownloadController(
             console_panel.terminal, console_panel.step_list,
             self._log, self._settings, self._repo, self)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
-                           self._console_dock)
+        # 终端输入框粘贴下载命令 → 转「下载批次」编排（todo 1）：
+        # 解析在终端面板，AppID 裁决与受理在这里，结果回执终端
+        # （受理回执制：受理才改写输入框，被拒原文保留）
+        console_panel.terminal.download_batch_requested.connect(
+            self._on_terminal_batch_requested)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._console_dock)
 
     def _build_menus(self) -> None:
         m_file = self.menuBar().addMenu("文件(&F)")
@@ -971,23 +980,65 @@ class MainWindow(QMainWindow):
         表格自动占满整行）。"""
         self._pages[0].set_detail_visible(visible)
 
+    def _on_terminal_batch_requested(self, command_app_ids: list,
+                                     mod_ids: list) -> None:
+        """终端输入框粘贴下载命令 → 批次编排的裁决与转交（todo 1）。
+        AppID 以命令自带为准——工坊编号只属于一个游戏，命令行里的
+        AppID 就是这批编号的户籍；纯编号/网址不带 AppID，按当前档案
+        处理，没有档案则拒绝并指路。与当前界面档案不同只提示不拦：
+        下载位置由命令里的 AppID 决定，与界面显示无关；批次结束自动
+        为所属档案复扫入账（决策 26 现成链路），账本里没有的编号由
+        复扫自动补录（决策 20 现成链路）。"""
+        if command_app_ids:
+            app_id = command_app_ids[0]
+            game = self._repo.get_game(app_id)
+            if game is None:
+                self._log.info(
+                    f"这批命令的游戏（AppID {app_id}）还没有建档：照常"
+                    "下载；之后在左上角添加该游戏并扫描本地，即可把"
+                    "下载结果记入账本")
+            else:
+                cur = self._current_game
+                if cur is not None and cur.app_id != app_id:
+                    self._log.info(
+                        f"这批命令属于「{game.name}」，与当前界面显示"
+                        "的档案不同——照常下载，结束后自动为"
+                        f"「{game.name}」扫描入账")
+        else:
+            cur = self._current_game
+            if cur is None:
+                self._log.error(
+                    "粘贴的是纯编号/网址，无法判断属于哪个游戏：请先在"
+                    "左上角选择档案，或粘贴带游戏 AppID 的下载命令行")
+                self._console.terminal.batch_handoff_receipt(False)
+                return
+            app_id = cur.app_id
+        accepted = self._start_batch(app_id, list(mod_ids), switch_tab=False)
+        self._console.terminal.batch_handoff_receipt(accepted)
+
+
     def _start_batch(self, app_id: int, mod_ids: list,
-                     backup_first: list | None = None) -> bool:
+                     backup_first: list | None = None,
+                     switch_tab: bool = True) -> bool:
         """开批量下载批次。backup_first = 要先备份旧版本再下载的条目
         （日常更新一条龙的"备份+更新"动作，决策 40）；mod 库页手动
         批次不传 = 维持现状不备份（那边有右键手动备份兜底）。
+        switch_tab = 是否切到「下载批次」标签：从其他页面发起时True
+        （要看进度）；终端输入框发起时传 False——用户视线正对着终端
+        输出原文，标签留在原地，想看卡片再自己切。默认 True，既有
+        调用方（信号槽直连）零改动。
         返回是否受理成功（决策 36⑧ 受理回执用；信号槽直连的调用方
         忽略返回值，无影响）。
-        无论成败先弹出控制台并切到「下载批次」标签：备份阶段与下载
-        阶段的进度都写在运行日志里，不能让用户对着没反应的按钮猜。
+        无论成败先弹出控制台：批次进度写在运行日志里，不能让用户
+        对着没反应的按钮猜。
         """
         # 批次结束后自动复扫要对上档案（决策 26）；start_batch 拒绝时
         # 不会有 batch_done，残留值无害（下次 _start_batch 会覆盖）
         self._batch_app_id = app_id
         self._pop_console()
-        self._console.show_batch_tab()
-        return self._batch_controller.start_batch(app_id, mod_ids,
-                                                  backup_first)
+        if switch_tab:
+            self._console.show_batch_tab()
+        return self._batch_controller.start_batch(app_id, mod_ids, backup_first)
 
     def _backup_checked(self, app_id: int, mod_ids: list) -> None:
         """mod 库页【备份选中项】→ 备份页切档案并开批次。"""
@@ -1190,6 +1241,26 @@ class MainWindow(QMainWindow):
         self._act_detail.setChecked(str(q.value(_SES_DETAIL, "1")) != "0")
         self._console_dock.setVisible(str(q.value(_SES_CONSOLE, "1")) != "0")
         self._restore_nav_state()  # 导航组折叠（T19⑤ 收官）
+        # 恢复上次打开的档案（v2.44）：与面板显隐同一套会话记忆口径。
+        # 顺序说明：构造期已按"下拉第一项"补广播过一次，这里若目标
+        # 档案不同会再广播一次——各页 set_game 是毫秒级重载，两次
+        # 换来"启动即停在上次的档案"，值得。
+        # 找不到（档案被删/账本换过）→ 静默跳过：现状本就是落到
+        # 第一项，不为恢复失败额外报错。
+        raw = q.value(_SES_LAST_GAME)
+        try:
+            last_id = (int(raw) if raw is not None and str(raw) != ""
+                       else None)
+        except (TypeError, ValueError):
+            last_id = None  # 脏值当没有：绝不让历史遗留值混进选择
+        if last_id is not None:
+            cur = self._switcher.current_game()
+            if cur is None or cur.app_id != last_id:
+                if self._switcher.set_current_by_app_id(last_id):
+                    g = self._current_game
+                    if g is not None:
+                        self._log.info(
+                            f"已恢复上次打开的档案：「{g.name}」")
 
 
     def _save_panel_state(self) -> None:
@@ -1202,6 +1273,10 @@ class MainWindow(QMainWindow):
                    "1" if self._console_dock.isVisible() else "0")
         q.setValue(_SES_GEOM, self.saveGeometry())
         q.setValue(_SES_STATE, self.saveState())
+        # 上次打开的档案（v2.44）：存 app_id 不存名字——档案改名、
+        # 重名都不会错位；空库存空串，恢复侧按"没有"处理。
+        game = self._current_game
+        q.setValue(_SES_LAST_GAME, game.app_id if game is not None else "")
 
 
     # ---------- 全局异常兜底 ----------

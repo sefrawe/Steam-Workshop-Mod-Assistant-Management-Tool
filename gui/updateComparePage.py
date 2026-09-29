@@ -28,6 +28,11 @@ r"""gui/updateComparePage.py · 当前档案的版本对照与更新历史。
   候选（local_path 历史预留恒空 → download_dir/编号 实际唯一机制，
   决策 21③）；此处为镜像实现，收敛归打包前收官轮
   （WORKSHOP_URL_TEMPLATE 八份归一先例）。
+ 【v2.44 · 0 快照条目不显示（用户拍板）】分组视图只为有版本快照的
+ mod 出卡片——0 快照条目没有"历史"可看，空卡只有一句指引，纯属噪音；
+ 隐藏数量进汇总行（"另有 N 个…"），全被过滤时空态另有专门文案。
+ 平铺视图不受影响：现状对照比的是两本版本账，不是快照——刚检测过
+ 一次的 mod（首次检测只立基线不拍快照）在平铺照样能看落后。
 
 【契约不变】set_game / refresh；MainWindow 零改动。
 """
@@ -381,11 +386,18 @@ class UpdateComparePage(QWidget):
         self._stale_check.setEnabled(False)
         mods = self._visible_mods()
         pairs = []
+        no_snap: list = []  # 0 快照的 mod：分组视图不显示（v2.44）。
+        # 过滤住本层，不进 _visible_mods——那是
+        # 两视图共用口径，平铺不受影响
         for m in mods:
             snaps = self._repo.list_snapshots(m.mod_id)
-            snaps = sorted(snaps, key=lambda s: s.snapshot_at or 0,
-                           reverse=True)
-            pairs.append((m, snaps))
+            snaps = sorted(snaps, key=lambda s: s.snapshot_at or 0, reverse=True)
+            if snaps:  # v2.44 起分组只喂有快照的 mod，此处恒真
+
+                pairs.append((m, snaps))
+            else:
+                no_snap.append(m)
+
         if self._group_sort == "title":
             pairs.sort(key=lambda p: (p[0].title or "").casefold())
         elif self._group_sort == "id":
@@ -402,12 +414,18 @@ class UpdateComparePage(QWidget):
         else:  # recent：最近一次记录 新→旧（原默认）
             pairs.sort(key=lambda p: p[1][0].snapshot_at if p[1] else 0,
                        reverse=True)
-
         self._clear_sections()
         if not pairs:
-            self._empty_hint = QLabel(
-                "（没有匹配当前筛选的 mod——清空关键词或状态试试；"
-                "或先跑【更新检测】/【扫描本地】）", self)
+            # 两种空要分开说（v2.44）：全被"无快照"过滤 = 有 mod 但都
+            # 还没有版本记录；真没 mod = 筛选太严或空档案
+            if no_snap:
+                hint = ("（筛出的 mod 都还没有版本快照，这里不显示空卡。"
+                        "版本记录来自【更新检测】与【扫描本地】，"
+                        "有记录的 mod 会出现在这里）")
+            else:
+                hint = ("（没有匹配当前筛选的 mod——清空关键词或状态试试；"
+                        "或先跑【更新检测】/【扫描本地】）")
+            self._empty_hint = QLabel(hint, self)
             self._empty_hint.setWordWrap(True)
             self._empty_hint.setStyleSheet("color: gray;")
             self._body_layout.addWidget(self._empty_hint)
@@ -417,10 +435,14 @@ class UpdateComparePage(QWidget):
         # 把内容页拉高、卡片跟着被拉高悬空
         self._body_layout.addStretch(1)
         total = sum(len(s) for _, s in pairs)
+        tail = ""
+        if no_snap:
+            tail = (f"｜另有 {len(no_snap)} 个 mod 还没有版本快照，未显示"
+                    "（版本记录来自【更新检测】/【扫描本地】）")
         self._summary.setText(
             f"当前筛出 {len(pairs)} 个 mod · 共 {total} 条快照"
             "（每 mod 滚动保留最近若干条——设置页「快照保留条数」可调，"
-            "这里是最近的更新史，不是全史）")
+            "这里是最近的更新史，不是全史）" + tail)
 
     def _section_height(self, n_snap: int, has_rows: bool) -> int:
         """卡片内容高度：动作行 + 备注行 + 快照小表（表头+行数×行高）
@@ -515,13 +537,7 @@ class UpdateComparePage(QWidget):
                     abs_time(s.local_timeupdated)
                     if s.local_timeupdated else "—"))
             cv.addWidget(tbl)
-        else:
-            lbl = QLabel(
-                "（本 mod 还没有版本快照——跑一次【更新检测】或"
-                "【扫描本地】后这里就会出现记录）", content)
-            lbl.setWordWrap(True)
-            lbl.setStyleSheet("color: gray;")
-            cv.addWidget(lbl)
+
 
         sec = CollapsibleSection(head_txt, self)
         sec.set_content(content, self._section_height(len(snaps),

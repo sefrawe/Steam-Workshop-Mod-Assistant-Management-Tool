@@ -69,6 +69,8 @@ from PySide6.QtWidgets import (
 from core import outputAnalyzer
 from core.backupManager import steamcmd_running
 from core.steamPaths import ensure_steamcmd_exe
+from core.urlParser import parse_lines
+
 from gui.logBus import LogBus
 
 try:
@@ -170,9 +172,14 @@ class _CommandInput(QPlainTextEdit):
 
 class TerminalDock(QWidget):
     """steamcmd 终端：启动/停止子进程 + 原文输出 + 手动命令。"""
-
     verdict_emitted = Signal(object)  # outputAnalyzer.Verdict
     idle_prompt_seen = Signal()
+    # 输入框里的下载命令请求转「下载批次」编排：参数 = (命令自带的
+    # 游戏 AppID 清单（纯编号/网址时为空）, mod 编号清单)。
+    # 能不能受理由主窗口裁决（是否已有批次、编号归属哪个档案）——
+    # 本面板不认识控制器与账本，保持零仓库依赖。
+    download_batch_requested = Signal(list, list)
+
 
     def __init__(self, log_bus: LogBus | None = None,
                  settings=None, parent: QWidget | None = None) -> None:
@@ -182,6 +189,9 @@ class TerminalDock(QWidget):
         self._pty = None       # pywinpty 的 PtyProcess（未启动 = None）
         self._reader = None    # 配套的读线程（未启动 = None）
         self._buf = ""         # 输出缓冲：攒够整行才解析
+        self._pending_invalid: list[str] = []   # 最近一次转批次请求里识别不了的行
+        self._pending_count = 0                 # 同一次请求里的下载命令条数
+
         self._build_ui()
 
     # ---------------- 界面 ----------------
@@ -230,13 +240,25 @@ class TerminalDock(QWidget):
         # 底部：命令输入框（多行）+ 发送按钮（T19㉓）
         # Enter 发送、Shift+Enter 换行；验证码应答等需要多行的场景
         # 可以一次粘贴多行，逐行发给 steamcmd（见 _on_send_input）
+        # 底部：命令输入框（多行）+ 发送按钮（T19㉓）
+        # Enter 发送、Shift+Enter 换行；验证码应答等需要多行的场景
+        # 可以一次粘贴多行，逐行发给 steamcmd（见 _on_send_input）。
+        # 粘贴下载命令（workshop_download_item 行）或工坊编号时，
+        # 自动转给「下载批次」逐条执行——批次会等上一条下载完再发
+        # 下一条，有进度卡片、结束自动扫描入账。
         bottom = QHBoxLayout()
         self._input = _CommandInput(self)
         self._input.setPlaceholderText(
-            "输入 steamcmd 命令：Enter 发送，Shift+Enter 换行；"
-            "可一次粘贴多行，会逐行发送（例：login 你的用户名）")
+            "输入 steamcmd 命令：Enter 发送，Shift+Enter 换行。粘贴下载"
+            "命令（workshop_download_item 行）或工坊编号会自动转给"
+            "「下载批次」逐条执行；其他多行命令逐行发送"
+            "（例：login 你的用户名）")
         self._input.setEnabled(False)
         self._btn_send = QPushButton("发送", self)
+        self._btn_send.setToolTip(
+            "发送输入框里的命令（Enter 键等效；Shift+Enter 换行）。\n"
+            "内容含下载命令或工坊编号时，自动转给「下载批次」逐条"
+            "执行（有进度、结束自动扫描入账）；\n其余命令逐行直接发送")
         self._btn_send.setEnabled(False)
         self._input.send_requested.connect(self._on_send_input)
         self._btn_send.clicked.connect(self._on_send_input)
@@ -430,11 +452,17 @@ class TerminalDock(QWidget):
     # ---------------- 输入框 ----------------
     def _on_send_input(self) -> None:
         """用户在输入框敲的命令：与批量下载同走 send_command 一条路。
-        多行输入按行拆开逐条发（空行跳过）——每条命令独立走一次
-        send_command，中途 steamcmd 退出时自然停在当前行，已发出的
-        行不会被重复补发。全部发出成功才清空输入框；发一半失败时
-        原文保留，用户看着剩余内容自行处理（失败原因 send_command
-        已写进运行日志）。"""
+
+        两条出路，按内容自动分流：
+        - 含下载命令（workshop_download_item 行）或工坊编号/网址：
+          这些行整批转给「下载批次」编排（download_batch_requested
+          信号 → 主窗口裁决受理）——批次会等上一条下载完（空闲提示
+          符）再发下一条，有进度卡片、结束自动扫描入账，比一口气
+          全发进终端可控得多；
+        - 不含下载命令：维持原有行为——逐行直发（每行独立走
+          send_command，中途 steamcmd 退出时自然停在当前行；全部
+          发出成功才清空输入框）。
+        """
         if not self._is_running():
             # 先拦在门外只提醒一次：send_command 每行都会自查，
             # 不拦的话多行命令会刷出一串相同的警告
@@ -444,11 +472,58 @@ class TerminalDock(QWidget):
         lines = [ln for ln in lines if ln]  # 空行与纯空白行跳过
         if not lines:
             return
+        report = parse_lines(lines)
+        if report.mod_ids:
+            self._handoff_to_batch(report)
+            return
         for ln in lines:
             if not self.send_command(ln):
                 return  # 失败原因已记日志；保留输入框原文，不误清
         self._input.clear()
 
+    def _handoff_to_batch(self, report) -> None:
+        """下载命令行 → 请求转「下载批次」。本面板只解析与发请求：
+        能不能受理（是否已有批次在跑、steamcmd 是否在跑、这批编号
+        归属哪个档案）由主窗口裁决，结果经 batch_handoff_receipt
+        回话。一批命令混着多个游戏的 AppID 就地拦下——工坊编号只
+        属于一个游戏，混贴多半是复制错了范围，按游戏分开粘贴才是
+        用户真想要的；此时什么都不执行，输入框原样保留。"""
+        apps = list(report.command_app_ids)
+        if len(apps) > 1:
+            shown = "、".join(str(a) for a in apps[:5])
+            self._log.error(
+                f"这批命令里混着多个游戏的下载命令（AppID {shown}），"
+                "没有执行——请按游戏分开粘贴；输入框内容原样保留")
+            return
+        self._pending_invalid = list(report.invalid)
+        self._pending_count = len(report.mod_ids)
+        self.download_batch_requested.emit(apps, list(report.mod_ids))
+
+    def batch_handoff_receipt(self, accepted: bool) -> None:
+        """主窗口对「转批次」请求的回话（受理回执制）：受理成功才
+        改写输入框，被拒不改——原文保留，原因见运行日志，重按发送
+        即可重试；没受理不装作已处理。受理成功时，输入框只留识别
+        不了的行（例如登录命令）——它们没有被自动发送，等批次提示
+        需要登录时再发送，然后点「继续批次」。"""
+        if not accepted:
+            self._pending_invalid = []
+            self._pending_count = 0
+            return
+        leftover = self._pending_invalid
+        count = self._pending_count
+        self._pending_invalid = []
+        self._pending_count = 0
+        head = f"已把 {count} 条下载命令转给「下载批次」逐条执行"
+        if leftover:
+            self._input.setPlainText("\n".join(leftover))
+            self._log.warn(
+                head + f"；输入框还留着 {len(leftover)} 行不是下载命令"
+                       "的内容，没有自动发送——需要先登录就现在发送它，等批次"
+                       "提示需要登录后再点「继续批次」；其余行请核对后再发")
+        else:
+            self._input.clear()
+            self._log.info(head + "，进度见「下载批次」标签页，"
+                                  "结束后自动扫描入账")
 
     def _on_send_login(self) -> None:
         """把设置页里的登录命令原样发给 steamcmd。
