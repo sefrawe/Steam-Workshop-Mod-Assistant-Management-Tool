@@ -1021,6 +1021,12 @@ class VerifyPage(QWidget):
                     self._junc_label.setStyleSheet("color: #46a758;")
                     self._log.ok(
                         f"junction 巡检：反向拓扑正常（{game_dir}）")
+                    # 反向健康 = 一行绿字收工（docstring 早写了，v2.41 重写
+                    # 时 return 丢了——不 return 就落进逐条巡检，
+                    # modVerifier 对反向布局返回 None，绿字被"未启用"覆盖）
+                    self._sec_junc.set_expanded(False)
+                    return
+
                 else:
                     # 悬空：不赌 junction_state 的状态名，用存在性兜底
                     # ——绝不能当"正常"放过去：steamcmd 下次下载会

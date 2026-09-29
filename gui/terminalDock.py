@@ -118,19 +118,34 @@ class _PtyReader(QThread):
         self._pty = pty
 
     def run(self) -> None:
-        while self._pty.isalive():
-            try:
-                chunk = self._pty.read(4096)
-            except (EOFError, OSError):
-                break
-            if not chunk:
-                continue  # pywinpty 偶发返回空串（内部哨兵值），跳过即可
-            self.chunk_received.emit(chunk)
+        try:
+            while self._pty.isalive():
+                try:
+                    chunk = self._pty.read(4096)
+                except (EOFError, OSError):
+                    break
+                except Exception:
+                    # 打包环境实证过读取层溢出类异常：读线程绝不
+                    # 无声暴死——按断流收场，交 exited 走正常收尾
+                    break
+                if not chunk:
+                    continue
+                self.chunk_received.emit(chunk)
+        except Exception:
+            pass  # 任何意外都按断流收场，exited 照发，界面不会卡死在"运行中"
         try:
             status = int(self._pty.exitstatus)
         except Exception:
             status = -1
+        # Signal(int) = 32 位 C int：pywinpty 可能交回无符号形态的退出码
+        # （0xC000013A 无符号 = 3221225786），超范围 emit 即 OverflowError
+        # ——按补码归一成有符号再发（3221225786 → -1073741510）
+        if 2 ** 31 <= status < 2 ** 32:
+            status -= 2 ** 32
+        elif not (-(2 ** 31) <= status < 2 ** 31):
+            status = -1
         self.exited.emit(status)
+
 
 class _CommandInput(QPlainTextEdit):
     """终端命令输入框（T19㉓ 多行化）：Enter 发送、Shift+Enter 换行。
