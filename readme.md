@@ -1,7 +1,7 @@
 # Steam Workshop Mod Assistant Management Tool
 
 <div align="center">
-  <img src="picture/main.png" width="100%" alt="主界面：mod 库 + 底部 steamcmd 终端">
+  <img src="https://raw.githubusercontent.com/sefrawe/Steam-Workshop-Mod-Assistant-Management-Tool/master/picture/main.png" width="100%" alt="主界面：mod 库 + 底部 steamcmd 终端">
   <p><b>不打开 Steam 客户端，完成创意工坊 mod 的日常管理。</b></p>
   <p>Windows 10/11 · 中文界面 · 绿色便携 · 免费开源</p>
   <p>
@@ -38,7 +38,7 @@
 - 🔄 日常更新一条龙 —— 检测 → 勾选确认（可选先备份）→ 批量下载 → 自动复扫入账
 - 📜 更新对照 —— 每个 mod 的版本时间线与历史快照
 
-<div align="center"><img src="picture/daily.png" width="80%" alt="日常更新模块"></div>
+<img src="https://raw.githubusercontent.com/sefrawe/Steam-Workshop-Mod-Assistant-Management-Tool/master/picture/daily.png" width="80%" alt="日常更新模块">
 
 **下载执行**
 - 🖥️ 内置 steamcmd 终端 —— ConPTY 实时伪终端，登录一次、批次自动排队
@@ -50,7 +50,7 @@
 - 🧾 账实核验 —— 「账上有 / 盘上有 / 版本一致」三差集报告，异常条目一键生成修复命令
 - 🗑️ 软删除 —— 删除可恢复，彻底清账前须先处置备份
 
-<div align="center"><img src="picture/backup.png" width="80%" alt="备份管理"></div>
+<img src="https://raw.githubusercontent.com/sefrawe/Steam-Workshop-Mod-Assistant-Management-Tool/master/picture/backup.png" width="80%" alt="备份管理">
 
 **多游戏与搬家**
 - 🎮 多游戏档案 —— RimWorld / CK3 / 任意创意工坊游戏，独立账本一键切换
@@ -65,7 +65,7 @@
 - 🧹 清理与卸载 —— 绿色软件的「反安装」：盘点、指引、零残留
 - 🌐 可选：浏览器标签页一键采集工坊网址
 
-<div align="center"><img src="picture/stats.png" width="80%" alt="统计页"></div>
+<img src="https://raw.githubusercontent.com/sefrawe/Steam-Workshop-Mod-Assistant-Management-Tool/master/picture/stats.png" width="80%" alt="统计页">
 
 ## 设计原则
 
@@ -108,7 +108,7 @@
 下载需要登录拥有该游戏的 Steam 账号（steamcmd 登录一次后本机缓存）。
 
 **Q：支持哪些游戏？**
-任何有创意工坊的 Steam 游戏；已在 RimWorld 与《十字军之王3》日常使用。
+任何有创意工坊的 Steam 游戏。
 
 **Q：数据存在哪？会上传吗？**
 全部在软件文件夹内（`data\` `config\`），本工具不上传任何数据；更新检测只向 Steam 官方接口**读取**公开信息。
