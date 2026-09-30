@@ -1,5 +1,9 @@
 """更新检测页
 """
+import threading
+
+from gui import netGate
+
 """
 对当前游戏档案下的全部 mod 批量查询 Steam 远端信息：
 补全标题等字段、判定哪些 mod 需要更新、给特别关注的 mod 记提醒。
@@ -16,8 +20,11 @@
 - 疑似合集/异常：Steam 返回"查询成功"但文件大小缺失或为 0——真实 mod
   不可能是 0 字节，大概率是合集。这类条目不做任何写入（防止把合集的
   标题误填进 mod），等用户点"展开合集"确认后再处理
-- 查询失败：接口对单个条目返回 result 非 1（被删除/设为私有/查无此条），
-  原样展示给用户，不做任何写入
+ - 查询失败：接口对单个条目返回 result 非 1（被删除/设为私有/查无此条），
+   原样展示给用户；其中 result=9（项目口径 = 确认失效）且条目已被
+   用过（状态 downloaded / failed）时建立失效归档（决策 86——异常页
+   「关联替换」的依据，v2.45 缺口修补），其余异常码仍不做任何写入
+
 
 日常更新一条龙（决策 26）：检测落库完成后，把"确有新版本"的 mod id
 清单经 updates_found 信号交给主窗口——由它弹窗询问（或按勾选自动）
@@ -47,11 +54,13 @@ from PySide6.QtWidgets import (
 )
 
 from core.models import Game, Mod
-from core.steamApiClient import SteamApiError, SteamApiClient, WorkshopItem
+
 from gui.formatters import fmt_size, relative_time
 from gui.modListModel import ModListModel
 from gui.consolePanel import LogBus
 from core.urlParser import WORKSHOP_URL_TEMPLATE  # 模板单源（决策 61④ 归一收尾）
+from core.steamApiClient import (SteamApiCancelled, SteamApiClient,
+                                 SteamApiError, WorkshopItem)
 
 # 「发现更新后自动开始下载」在设置里的键名（与 appSettings.DEFAULTS 同名，
 # 决策 12）。界面就地开关，不进设置页 _FIELDS（console_auto_show 同款）
@@ -72,24 +81,27 @@ class _CheckWorker(QThread):
     failed = Signal(str)        # 请求层面失败，携带给用户看的原因
     stopped = Signal()          # 用户点了"停止"：正常收场，不算失败
 
-    def __init__(self, mod_ids: list[int], *, interval_ms: int, max_retries: int) -> None:
+    def __init__(self, mod_ids: list[int], *, interval_ms: int,
+                 max_retries: int) -> None:
         super().__init__()
         self._mod_ids = mod_ids
         self._interval_ms = interval_ms
         self._max_retries = max_retries
         self._stop_requested = False
+        self._cancel = threading.Event()  # 与客户端共用的取消事件
 
     def stop(self) -> None:
-        """请求停止：批边界生效，查询进行中无法打断，最多多等一批的时间。
-        已查到的数据一律丢弃不落库（含最后一批途中点的停，见 run 末尾
-        的兜底）——重新点一次检测很快，不值得为半截数据写复杂的续传逻辑。
-        """
+        """请求停止：批边界生效（v2.45 后取消事件让客户端的等待与
+        重试立即中断，最多多等一次在途请求的超时）。"""
         self._stop_requested = True
+        self._cancel.set()
 
     def run(self) -> None:
-        client = SteamApiClient(interval_ms=self._interval_ms,
-                                max_retries=self._max_retries)
-        ids = list(dict.fromkeys(self._mod_ids))  # 去重且保持顺序
+        client = SteamApiClient(
+            interval_ms=self._interval_ms,
+            max_retries=self._max_retries,
+            cancel_event=self._cancel)
+        ids = list(dict.fromkeys(self._mod_ids))  # 去重且保序
         done = 0
         items: list[WorkshopItem] = []
         try:
@@ -103,9 +115,13 @@ class _CheckWorker(QThread):
                 done += len(ids[start:start + _BATCH])
                 self.batch_done.emit(done)
                 if start + _BATCH < len(ids):
-                    # 批间礼貌间隔，来源同客户端的请求间隔设置。
-                    # 等待期间无法响应停止，最多多等一个间隔
+                    # 批间礼貌间隔，来源同客户端的请求间隔设置
                     time.sleep(self._interval_ms / 1000)
+        except SteamApiCancelled:
+            # 取消事件在请求/等待中途触发（v2.45）：与批边界停止
+            # 同一收场——丢弃结果、走 stopped，不弹"检测失败"
+            self.stopped.emit()
+            return
         except SteamApiError as exc:
             self.failed.emit(str(exc))
             return
@@ -141,8 +157,10 @@ class _CollectionWorker(QThread):
 # 连接超时是到 Steam 的链路波动，不是软件坏了，也不是 Steam 限流）
 _NET_HINT = ("提示：连续失败常是到 Steam 服务器的网络波动（晚间更明显），"
              "属正常现象——稍等几分钟到几十分钟再试通常就能恢复。"
-             "本次结果没有写入，数据无损；不必连续重试（每次失败要等满"
-             "超时才报错），隔段时间来试即可。")
+             "本次结果没有写入，数据无损；不必连续重试（失败要等重试"
+             "跑完才报错，最长一两分钟），隔段时间来试即可。"
+             "可以参考watt toolkit的连通性测试，若一直不通过，"
+             "可以尝试关闭watt toolkit，然后尝试。下载mod同理。")
 
 class UpdateCheckPage(QWidget):
     """checks_finished(int)：一次检测完成落库后发射，参数为本次检测到
@@ -194,8 +212,12 @@ class UpdateCheckPage(QWidget):
             "点【开始检测】查询当前档案全部 mod 的远端信息：自动补全标题等字段、"
             "判定需不需要更新；特别关注的 mod 出新版本时会记一条提醒。\n"
             "文件大小缺失的条目会列为「疑似合集」，确认后可展开入库；"
+            "查询失败的条目会列出原因——其中 result=9 = Steam 接口已看不见"
+            "该条目（作者删除/下架/转私有等），已下载过的会自动建立失效归档，"
+            "处置方法（先试重下、再软删除）见【异常处理】页。\n"
             "已删除的 mod 不会查询；手动确认入账（版本未知）的 mod "
             "照常查询，但无法判定新旧，结果里单独列为「版本未知」。")
+
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
@@ -207,12 +229,16 @@ class UpdateCheckPage(QWidget):
         self._start_btn.clicked.connect(self._start_check)
         self._start_btn.setToolTip(
             "批量查询当前档案全部 mod 的远端信息：补全标题、判定需不需要更新、"
-            "给特别关注的 mod 记提醒。可中途【停止】；已删除的 mod 不查询")
+            "给特别关注的 mod 记提醒。可中途【停止】（等待与重试立即中断）；"
+            "已删除的 mod 不查询。\n"
+            "查询失败的条目原样列出：result=9 = 条目已失效——已下载过的"
+            "自动建立失效归档，之后到【异常处理】页处置（先试重下）")
 
         self._stop_btn = QPushButton("停止", btn_row)
         self._stop_btn.setToolTip(
-            "请求停止本次检测：正在查的这一批做完后收场，已查到的数据"
-            "全部丢弃不写入——重新点【开始检测】即可重来")
+            "请求停止本次检测：等待与重试立即中断，最多再等一次在途请求"
+            "收场（网络不畅时约 10~40 秒）；已查到的数据全部丢弃不写入"
+            "——重新点【开始检测】即可重来")
 
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_check)
@@ -273,16 +299,20 @@ class UpdateCheckPage(QWidget):
             self._start_btn.setEnabled(True)
 
     def shutdown(self) -> None:
-        """程序退出前的收尾：停掉可能还在跑的线程并等它们退出。
-        检测线程有停止协议：点一下停止标记，它做完当前这批查询就会退，
-        所以 wait() 最多等几秒（网络超时上限内）。合集查询没有停止
-        协议但本身就一次请求，直接等它跑完即可。
-        """
+        """程序退出前的收尾：请求检测线程停止并等 1.5 秒（v2.45 修正：
+        原来无限期 wait()，线程卡在网络超时/重试里时主线程跟着冻住、
+        Windows 判"未响应"——等不到就交 netGate.park 保活，退场守卫
+        随进程带走；线程只读网络不写库，零数据损失）。合集查询没有
+        停止协议但只有一次请求，同样 1.5 秒封顶。"""
         if self._worker is not None:
             self._worker.stop()
-            self._worker.wait()
+            if not self._worker.wait(1500):
+                netGate.park(self._worker)
+                self._worker = None
         if self._col_worker is not None:
-            self._col_worker.wait()
+            if not self._col_worker.wait(1500):
+                netGate.park(self._col_worker)
+                self._col_worker = None
 
     def start_check(self) -> str:
         """对外入口（T22）：「日常更新」模块页经主窗口调到这里自动
@@ -312,6 +342,14 @@ class UpdateCheckPage(QWidget):
         # 条目）都写进它，即便检测过程中用户切到了别的档案
         self._check_game = self._game
         self._check_total = len(ids)  # 进度中继要用（见 _on_batch_progress）
+        # 联网互斥闸（v2.45）：同一时刻只允许一个联网入口在查
+        busy = netGate.try_acquire("更新检测")
+        if busy is not None:
+            self._summary.setText(
+                f"另有联网任务在进行（{busy}）：等它结束后再检测。")
+            self._summary.setStyleSheet("color: #f5a623;")
+            return f"另有联网任务在进行（{busy}）"
+
         self._progress.setRange(0, len(ids))
         self._progress.setValue(0)
         self._set_running(True)
@@ -342,7 +380,14 @@ class UpdateCheckPage(QWidget):
     def _stop_check(self) -> None:
         if self._worker is not None:
             self._worker.stop()
-        self._stop_btn.setEnabled(False)
+            self._stop_btn.setEnabled(False)
+            self._summary.setText(
+                "已请求停止：等待与重试已中断，最多再等一次在途请求收场"
+                "（网络不畅时约 10~40 秒）；已查到的数据照旧不写入，"
+                "退出软件不必等它。")
+            self._summary.setStyleSheet("color: gray;")
+            self._log.info("已请求停止更新检测：等待与重试已中断，"
+                           "等在途请求收场")
 
     def _set_running(self, running: bool) -> None:
         self._start_btn.setEnabled(not running and self._game is not None)
@@ -355,11 +400,13 @@ class UpdateCheckPage(QWidget):
         引用丢给 Python 销毁会踩中"销毁仍在运行的线程"，进程当场
         终止（0xC0000409）。wait() 在这里只等几毫秒（线程已在收尾），
         换一个绝不闪退，值得。
+        联网互斥闸也在这里归还：finished 无论成功/失败/停止都必发。
         """
         w = self._worker
         self._worker = None
         if w is not None:
             w.wait()
+        netGate.release("更新检测")
 
     # ---------- 结果处理（主线程） ----------
 
@@ -379,37 +426,63 @@ class UpdateCheckPage(QWidget):
             else:
                 ok_items.append(item)
         return ok_items, suspected_ids, failed
-
     def _apply_results(self, ok_items: list[WorkshopItem],
                        suspected_ids: set[int],
-                       failed: dict[int, int]) -> tuple[int, list[int]]:
-        """把查询结果写入数据库，返回 (有新版本的个数, 有新版本的 id 清单)。
-
+                       failed: dict[int, int]) -> tuple[int, list[int], int]:
+        """把查询结果写入数据库，返回 (有新版本的个数, 有新版本的
+        id 清单, 本次新建失效归档的条数)。
         需更新判定 = 决策 2 唯一公式：远端 time_updated > 本地
         local_timeupdated（acf 回填，本地事实唯一权威）。本地版本只在
         扫描/复扫时更新，检测不碰它——所以"检测到但没下载"的条目
         下次检测必然再次报出（v2.17 修正：旧实现拿远端新值对比库里
         上次记录的远端值，自比一次就把更新"吃掉"了，本地没动也报 0）。
-
         只统计 status=downloaded：未下载（tracked）没有本地版本，
         谈不上"更新"，在 mod 库页显示为「已收录」；版本未知（决策 24）
         新旧无从判定，不进清单。
-
         写入三路与判定无关，各管各的账：first_fill = 第一次拿到远端
         信息（last_time_updated 记为当前值 = 没有上一版）；changed =
         远端真变了（旧远端值挪进 last_time_updated 作间隔基准 +
         拍版本快照 + 特别关注记提醒，同一远端版本只提醒一次）；其余
-        只刷新标题等元数据。全部包在一个事务里，失败整体回滚。
+        只刷新标题等元数据。
+        失效归档（决策 86，v2.45 缺口修补）：result=9（项目口径 =
+        确认失效）且条目已被用过（状态 downloaded / failed）且尚无
+        归档时，调 mark_failed 建档——这是异常处理页「关联替换」的
+        依据（replace_failed_mod 硬性要求归档），文件头承诺"归档由
+        更新检测建立"却一直没实现。tracked（从未下载）刻意跳过：
+        黄类「已收录·未下载」无可转移的整理内容，不必为它翻状态，
+        也避免把"接口看不见≠一定下载不了"（决策 85）的条目提前打
+        成失效；已有归档的跳过（failed_mods 无唯一约束，重复调用
+        会插重复行，已替换的历史归档同样不动）。mark_failed 会把
+        账面状态记为 failed——本地文件还在的条目属决策 85 的判定
+        边界（桶④说明列与先读我已注明）。全部包在一个事务里，
+        失败整体回滚。
         """
         now = int(time.time())
         updates_found = 0
         updated_ids: list[int] = []
+        # 已有归档的编号（防重复建档）：归档量小，一次读回毫秒级
+        archived: set[int] = set()
+        if self._check_game is not None:
+            archived = {r.mod_id for r in
+                        self._repo.list_failed(self._check_game.app_id)}
         # 先整体记"检测过"（包括失败和疑似合集的）——"查过了"这个事实
         # 本身就值得记，否则"上次检测时间"的展示会骗人
         all_ids = ([i.mod_id for i in ok_items] + sorted(suspected_ids)
                    + sorted(failed))
+        n_archived = 0
         with self._repo.transaction():
             self._repo.touch_checked(all_ids, checked_at=now)
+            # 失效归档（决策 86）：只认 result=9；状态逐条现查
+            # （防检测进行中条目被删除/处置后误翻状态）
+            for mid, code in sorted(failed.items()):
+                if code != 9 or mid in archived:
+                    continue
+                row = self._repo.get_mod(mid)
+                if row is None or row.status not in ("downloaded", "failed"):
+                    continue
+                self._repo.mark_failed(
+                    mid, "接口返回 result=9（删除/下架/转私有等）")
+                n_archived += 1
             for item in ok_items:
                 row = self._repo.get_mod(item.mod_id)
                 if row is None:
@@ -441,12 +514,14 @@ class UpdateCheckPage(QWidget):
                     self._repo.update_api_metadata(
                         item.mod_id,
                         time_updated=item.time_updated,
-                        last_time_updated=item.time_updated, **meta)
+                        last_time_updated=item.time_updated,
+                        **meta)
                 elif changed:
                     self._repo.update_api_metadata(
                         item.mod_id,
                         time_updated=item.time_updated,
-                        last_time_updated=row.time_updated, **meta)
+                        last_time_updated=row.time_updated,
+                        **meta)
                     # 拍版本快照：记录新版本 + 当时的本地状态
                     self._repo.add_snapshot(
                         item.mod_id,
@@ -461,60 +536,86 @@ class UpdateCheckPage(QWidget):
                             diff = ((item.time_updated - row.last_time_updated)
                                     if row.last_time_updated else None)
                             self._repo.add_alert(
-                                item.mod_id, item.time_updated,
+                                item.mod_id,
+                                item.time_updated,
                                 diff_seconds=diff,
                                 was_downloaded=(row.status == "downloaded"))
                 else:
                     # 远端没变：只刷新其余元数据，时间字段一个不动
                     self._repo.update_api_metadata(item.mod_id, **meta)
-        return updates_found, updated_ids
+        return updates_found, updated_ids, n_archived
 
-    def _show_results(self, suspected_ids: set[int],
-                      failed: dict[int, int]) -> None:
-        """按开始检测时的库内顺序展示结果。正常条目重新从库里读一遍——
-        展示的是写入完成后的最新状态，和 mod 库页看到的一致。
+    def _show_results(self, suspected_ids: set[int], failed: dict[int, int],
+                      n_archived: int = 0) -> None:
+
+        """结果表只显示有信息量的行（用户拍板 v2.45）：需更新/版本未知/
+        疑似合集/查询失败进表；已最新/未下载/远端未知不占行——数量
+        进汇总行兜底，完整消失会让人怀疑没查到。顺序仍按开始检测时
+        的库内顺序；正常条目重新从库里读一遍（展示写入后的最新状态）。
         """
         threshold = self._settings.get_int("slow_update_days", 30)
         visible = [m for m in self._mods_at_start if m.status != "deleted"]
-        self._table.setRowCount(len(visible))
-        red = QColor("#e5484d")
-        counts = {"需更新": 0, "版本未知": 0,
-                  "疑似": len(suspected_ids), "失败": len(failed)}
-        for r, m in enumerate(visible):
+        # 第一遍：分拣 + 顺带取 fresh（第二遍不重查库）
+        rows = []      # (m, fresh, title, kind) 有信息量的
+        n_normal = 0
+        for m in visible:
             fresh = self._repo.get_mod(m.mod_id)
             title = (fresh.title if fresh is not None else None) or m.title \
-                or "（无标题）"
-            self._set_cell(r, 0, str(m.mod_id))
-            self._set_cell(r, 1, title)
+                    or "（无标题）"
             if m.mod_id in failed:
-                self._set_cell(r, 2, "查询失败")
-                self._set_cell(r, 3, f"接口返回 result={failed[m.mod_id]}")
+                kind = "查询失败"
             elif m.mod_id in suspected_ids:
-                self._set_cell(r, 2, "疑似合集/异常")
-                self._set_cell(
-                    r, 3, "远端缺少文件大小——可能是合集，点右侧按钮确认")
+                kind = "疑似合集/异常"
             else:
                 kind = ModListModel._update_state(fresh)
-                counts["需更新"] += kind == "需更新"
-                counts["版本未知"] += kind == "版本未知"
-                self._set_cell(r, 2, kind)
-                self._set_cell(r, 3, relative_time(fresh.time_updated))
-                # 更新间隔 = 本次版本距上一版过了多少天（作者的更新节奏）。
-                # 只有 last_time_updated 与当前值不同才算真基线——第一次
-                # 拿到远端信息时两者相等，那是"没有上一版"，显示"—"，
-                # 不显示误导性的"不足 1 天"
-                baseline = fresh.last_time_updated
-                days = None
-                if (fresh.time_updated is not None and baseline is not None
-                        and baseline != fresh.time_updated):
-                    days = (fresh.time_updated - baseline) / 86400
-                if days is not None and days >= 0:
-                    text = f"{days:.0f} 天" if days >= 1 else "不足 1 天"
-                    item = self._set_cell(r, 4, text)
-                    if days > threshold:
-                        item.setForeground(red)
+            if kind in ("需更新", "版本未知", "查询失败", "疑似合集/异常"):
+                rows.append((m, fresh, title, kind))
+            else:
+                n_normal += 1
+        counts = {"需更新": 0, "版本未知": 0,
+                  "疑似": len(suspected_ids), "失败": len(failed)}
+        self._table.setRowCount(len(rows))
+        red = QColor("#e5484d")
+        for r, (m, fresh, title, kind) in enumerate(rows):
+            self._set_cell(r, 0, str(m.mod_id))
+            self._set_cell(r, 1, title)
+            counts["需更新"] += kind == "需更新"
+            counts["版本未知"] += kind == "版本未知"
+            self._set_cell(r, 2, kind)
+            if m.mod_id in failed:
+                code = failed[m.mod_id]
+                if code == 9:
+                    it = self._set_cell(r, 3, "result=9：条目已失效")
+                    it.setToolTip(
+                        "Steam 接口已看不见该条目（作者删除/下架/"
+                        "转私有等）。接口看不见 ≠ 一定下载不了——"
+                        "可先到【下载命令生成】页试下载一次；处置"
+                        "（软删除/关联替换）去【异常处理】页桶④。"
+                        "已下载过的条目本次检测已自动建立失效归档")
                 else:
-                    self._set_cell(r, 4, "—")
+                    it = self._set_cell(r, 3, f"接口返回 result={code}")
+                    it.setToolTip(
+                        "接口返回了异常结果码（可能被设为私有/地区"
+                        "限制/远端波动）——稍后重测即可")
+
+            elif m.mod_id in suspected_ids:
+                self._set_cell(r, 3, "远端缺少文件大小——可能是合集，点右侧按钮确认")
+            else:
+                self._set_cell(r, 3, relative_time(fresh.time_updated))
+            # 更新间隔 = 本次版本距上一版过了多少天（作者的更新节奏）。
+            # last_time_updated 与当前值相等 = "没有上一版"，显示"—"
+            baseline = fresh.last_time_updated
+            days = None
+            if (fresh.time_updated is not None and baseline is not None
+                    and baseline != fresh.time_updated):
+                days = (fresh.time_updated - baseline) / 86400
+            if days is not None and days >= 0:
+                text = f"{days:.0f} 天" if days >= 1 else "不足 1 天"
+                item = self._set_cell(r, 4, text)
+                if days > threshold:
+                    item.setForeground(red)
+            else:
+                self._set_cell(r, 4, "—")
             self._set_cell(
                 r, 5, fmt_size(fresh.local_size or fresh.file_size))
             self._set_cell(r, 6, "")
@@ -523,11 +624,12 @@ class UpdateCheckPage(QWidget):
                 btn.clicked.connect(
                     lambda _=False, mid=m.mod_id: self._expand_collection(mid))
                 self._table.setCellWidget(r, 6, btn)
+        arch_tail = f"（result=9 建档 {n_archived}）" if n_archived else ""
         self._summary.setText(
-            f"检测完成：共 {len(visible)} 个｜需更新 {counts['需更新']}"
-            f"｜版本未知 {counts['版本未知']}"
-            f"｜疑似合集 {counts['疑似']}｜查询失败 {counts['失败']}"
-            f"（其余为已最新 / 未下载 / 远端未知）")
+            f"检测完成：需更新 {counts['需更新']}｜版本未知 {counts['版本未知']}"
+            f"｜疑似合集 {counts['疑似']}｜查询失败 {counts['失败']}{arch_tail}"
+            f"｜已最新/未下载/远端未知 {n_normal} 个（不占表）")
+
         self._summary.setStyleSheet("color: #46a758;")
 
     def _set_cell(self, row: int, col: int, text: str) -> QTableWidgetItem:
@@ -539,7 +641,7 @@ class UpdateCheckPage(QWidget):
         self._set_running(False)
         ok_items, suspected_ids, failed = self._classify(items)
         try:
-            updates_found, updated_ids = self._apply_results(
+            updates_found, updated_ids, n_archived = self._apply_results(
                 ok_items, suspected_ids, failed)
         except Exception as exc:
             # 写库失败：明确告诉用户，不让程序无声崩溃
@@ -549,14 +651,17 @@ class UpdateCheckPage(QWidget):
                 f"查询成功，但写入数据库时出错：{exc}\n"
                 "数据已整体回滚，请重试一次；若反复出现请反馈。")
             return
-        self._show_results(suspected_ids, failed)
+        self._show_results(suspected_ids, failed, n_archived)
         self.checks_finished.emit(updates_found)
         if updated_ids and self._check_game is not None:
             # 交给主窗口的"日常更新一条龙"（决策 26）：归属开始检测
             # 那一刻的档案，与写库同一口径
             self.updates_found.emit(self._check_game.app_id, updated_ids)
+        tail = (f"，result=9 已建失效归档 {n_archived} 条"
+                if n_archived else "")
         self._log.ok(f"检测完成：需更新 {updates_found}，"
-                     f"疑似合集 {len(suspected_ids)}，查询失败 {len(failed)}")
+                     f"疑似合集 {len(suspected_ids)}，"
+                     f"查询失败 {len(failed)}{tail}")
 
     def _on_check_failed(self, message: str) -> None:
         self._set_running(False)
@@ -594,6 +699,14 @@ class UpdateCheckPage(QWidget):
     def _expand_collection(self, collection_id: int) -> None:
         if self._col_worker is not None:
             return  # 一次只查一个合集，防止连点
+        # 联网互斥闸（v2.45）：与更新检测/深度检测共用一个名额
+        busy = netGate.try_acquire("展开合集")
+        if busy is not None:
+            self._log.warn(f"展开合集未开始：{busy} 正在使用联网查询")
+            QMessageBox.information(
+                self, "展开合集",
+                f"另有联网任务在进行（{busy}），稍后再试。")
+            return
         self._col_worker = _CollectionWorker(
             collection_id,
             max_retries=self._settings.get_int("api_max_retries", 3))
@@ -612,6 +725,7 @@ class UpdateCheckPage(QWidget):
         self._col_worker = None
         if w is not None:
             w.wait()
+        netGate.release("展开合集")
 
     def _on_collection_children(self, collection_id: int,
                                 children: list[int]) -> None:

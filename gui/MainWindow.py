@@ -401,6 +401,9 @@ class MainWindow(QMainWindow):
         # （受理回执制：受理才改写输入框，被拒原文保留）
         console_panel.terminal.download_batch_requested.connect(
             self._on_terminal_batch_requested)
+        # 终端【停止】的批次守卫（v2.45）：批次进行中先确认再停
+        console_panel.terminal.set_stop_guard(self._confirm_terminal_stop)
+
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._console_dock)
 
     def _build_menus(self) -> None:
@@ -1016,6 +1019,26 @@ class MainWindow(QMainWindow):
         accepted = self._start_batch(app_id, list(mod_ids), switch_tab=False)
         self._console.terminal.batch_handoff_receipt(accepted)
 
+    def _confirm_terminal_stop(self) -> bool:
+        """终端【停止】的批次守卫（set_stop_guard 注入）：批次进行中
+        弹确认（默认否）——steamcmd 一停，控制器会立即中止整个批次
+        （在途条目记失败、剩余条目不再执行）。备份阶段同样拦下问
+        一声（停止不影响备份本身，只影响其后的下载批次）。无批次
+        时直接放行，老行为零变化。"""
+        if not self._batch_controller.is_active():
+            return True
+        ret = QMessageBox.question(
+            self, "下载批次进行中",
+            "检测到下载批次正在进行（或处于批次前备份阶段）。\n"
+            "停止 steamcmd 会中止下载批次：正在下载的那条会中断"
+            "（记为失败），剩余条目不再执行，已完成的保留；\n"
+            "正在进行的备份不受影响。\n\n仍要停止 steamcmd 吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            self._log.info("已取消停止：批次继续进行")
+            return False
+        return True
 
     def _start_batch(self, app_id: int, mod_ids: list,
                      backup_first: list | None = None,

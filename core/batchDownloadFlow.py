@@ -135,6 +135,25 @@ class BatchDownloadFlow:
             return
         self._advance()
 
+    def abort(self, reason: str = "") -> None:
+        """强制中止（steamcmd 进程已退出时由控制器调用）：与 stop()
+        的温和停止本质不同——进程没了，当前条的结论永远不会来，
+        等下去只会变成僵尸批次（退出守卫、检测清单、新批次、账本
+        导入全被 is_active() 挡住——v2.45 实证 bug）。
+        RUNNING/STOPPING 的在途条目记失败（reason 如实入账）；
+        WAITING_IDLE 的当前条已有结论、不重复记账；其余状态直接
+        收尾。已结束（IDLE/DONE）为无害空操作。"""
+        if self._state in (ST_IDLE, ST_DONE):
+            return
+        if self._state in (ST_RUNNING, ST_STOPPING) \
+                and self._current is not None:
+            self._failed.append(ItemResult(
+                self._current, ok=False, reason=reason or "steamcmd 已退出"))
+            self._emit("item_done", mod_id=self._current, ok=False,
+                       reason=reason or "steamcmd 已退出",
+                       done=self._done_count())
+        self._finish(stopped=True)
+
     # ---------------- 对外：终端信号接线入口 ----------------
 
     def on_verdict(self, verdict) -> None:

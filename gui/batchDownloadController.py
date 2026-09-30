@@ -100,6 +100,10 @@ class BatchDownloadController(QObject):
         self._phase_backup_failed: list[int] = []  # 并进 batch_done 汇总
         step_list.stop_requested.connect(self._on_stop)
         step_list.resume_requested.connect(self._on_resume)
+        # steamcmd 进程退出 → 立即中止在跑批次（v2.45 僵尸批次防线）
+        terminal.process_exited.connect(self._on_process_exited)
+        self._shutting_down = False  # closeEvent 置位后不再响应退出事件
+
 
     # ---------------- 对外 ----------------
 
@@ -135,10 +139,35 @@ class BatchDownloadController(QObject):
     def shutdown(self) -> None:
         """主窗口退出前调用（closeEvent 统一调）：备份阶段若在跑，
         批间停止并等它收尾，避免退出时销毁活线程。下载批次本身由
-        terminal.shutdown 收尾（steamcmd 退出后流程自然结束）。"""
+        terminal.shutdown 收尾（steamcmd 退出后流程自然结束）。
+        同时置关机旗：reader 线程的退出事件在 closeEvent 走完后才
+        投递，此后不再中止批次——程序正在退场，收尾汇总与自动复扫
+        都该免了（库马上就要关闭，不能在关闭后再触发复扫）。"""
+        self._shutting_down = True
         if self._phase_worker is not None:
             self._phase_worker.stop()
             self._phase_worker.wait()
+    def _on_process_exited(self, _status: int) -> None:
+        """steamcmd 进程退出（quit / 强杀 / 崩溃都走这）：批次还在跑
+        就立即强制中止。流程等的是"当前条的结论"与"空闲提示符"，
+        进程没了这两样永远不会来——不中止就是僵尸批次：is_active()
+        永真，退出守卫、检测清单、新批次、账本导入全被挡住（v2.45
+        实证）。备份阶段不受影响：备份不依赖 steamcmd，照常收尾；
+        随后的下载批次会因命令发送失败自然出错收尾（_try_send 现成
+        路径，不会挂死）。"""
+        if self._shutting_down:
+            return  # 程序退出中：批次随程序结束，不再收尾复扫
+        flow = self._flow
+        if flow is None:
+            return
+        pending = flow.pending_count
+        msg = "steamcmd 已退出：批次立即中止"
+        if pending:
+            msg += f"，还有 {pending} 条未开始"
+        self._log.warn(msg)
+        flow.abort(reason="steamcmd 已退出")
+        # abort → batch_done 事件 → _on_event → 汇总卡 + batch_done
+        # 广播（主窗口自动复扫）→ _detach，全部同步完成，这里无事可做
 
     # ---------------- 下载批次启动（原 start_batch 本体） ----------------
 

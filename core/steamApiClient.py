@@ -22,6 +22,14 @@
    （指数退避），重试用完仍失败才抛异常。错误显式爆炸，绝不静默
    返回空结果——静默的空结果会让"全部 mod 都是最新"变成一个谎言
 
+关于取消（v2.45）：客户端支持协作式取消——构造时注入 cancel_event，
+调用方 set() 后：等待中（批间隔/重试退避）立即中断、重试不再发起、
+整批查询尽快抛 SteamApiCancelled。已在途的单个 HTTP 请求无法被打断
+（requests 的阻塞调用），它受超时约束（连接 10 秒/读取 30 秒）
+——所以"点停止到真停"的上限 = 一次在途请求的超时，而不是
+"重试次数 × 超时"的数分钟。
+
+
 关于合集：远端响应没有一个官方写明的"这是合集"标记字段，所以本客户端
 不做合集判定，只提供查询手段：
 - 上层把 file_size 缺失/为 0 的条目归入"疑似合集/异常"，由用户裁决
@@ -36,6 +44,7 @@ CERTIFICATE_VERIFY_FAILED。装了 truststore 就让 requests 也走系统
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+import threading
 
 import requests
 
@@ -52,7 +61,12 @@ STORE_APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
 
 # 官方接口的单次查询上限：超过 100 个必须自己分批
 _BATCH = 100
-_TIMEOUT = 30  # 单次请求超时秒数
+# 单次请求超时：连接 10 秒 / 读取 30 秒（元组给 requests）。
+# 连接阶段单独收紧——卡死场景（代理半死，如 watt toolkit 挂着）
+# 多半吊在 TCP 连接上，10 秒连不上就该放弃本轮尝试
+_CONNECT_TIMEOUT = 10
+_READ_TIMEOUT = 30
+
 # 遇到这两个状态码值得重试（典型限流）；其他非 200 直接报错，不多耗时间
 _RETRY_STATUSES = frozenset({429, 503})
 
@@ -61,6 +75,11 @@ class SteamApiError(RuntimeError):
     """Steam 接口请求层面的失败（连不上/限流耗尽/响应格式不对）。
     注意与"单个条目 result 非 1"区分：后者是查询结果，不是请求失败。"""
 
+class SteamApiCancelled(SteamApiError):
+    """调用方请求取消（点了停止）——不是网络失败。
+    继承 SteamApiError 让既有"except SteamApiError"兜底仍接得住
+    （万一漏接也不会变成无声崩溃）；工作线程先接本类、再接父类，
+    取消走 stopped 路径、不弹"检测失败"。"""
 
 def _to_int(value) -> int | None:
     """Steam 的数字字段经常以字符串形式出现，偶尔缺失。
@@ -126,25 +145,58 @@ class SteamApiClient:
 
     def __init__(self, session: requests.Session | None = None, *,
                  interval_ms: int = 200, max_retries: int = 3,
-                 sleeper: Callable[[float], None] = time.sleep) -> None:
+                 sleeper: Callable[[float], None] = time.sleep,
+                 cancel_event: threading.Event | None = None) -> None:
         self._session = session if session is not None else requests.Session()
         self._interval_ms = max(0, int(interval_ms))
         self._max_retries = max(0, int(max_retries))
         # 计时函数注入：生产环境是 time.sleep，测试换成"只记录不等待"
         self._sleep = sleeper
+        # 协作式取消（v2.45）：不传 = 自备永不置位的事件（行为与
+        # 旧版完全一致）；工作线程把 stop 用的同一个事件传进来
+        self._cancel = (cancel_event if cancel_event is not None
+                        else threading.Event())
+
+    # ---------- 取消（协作式）----------
+    def cancel(self) -> None:
+        """请求取消：等待中（批间隔/重试退避）立即中断，重试不再发起。
+        已在途的单个 HTTP 请求无法被打断（requests 的阻塞调用没有
+        中途取消的口子），它受超时约束——点停止到真停的上限 =
+        一次在途请求的超时（连接 10 秒/读取 30 秒）。"""
+        self._cancel.set()
+
+    def _check_cancel(self) -> None:
+        """取消检查点：置位即抛 SteamApiCancelled。已取到的数据由
+        调用方按"停止 = 什么都没发生"处置（工作线程丢弃不落库）。"""
+        if self._cancel.is_set():
+            raise SteamApiCancelled()
+
+    def _sleep_cancellable(self, seconds: float) -> None:
+        """可被取消打断的等待：生产环境用 Event.wait（取消立即醒）；
+        测试注入了 sleeper 时退化为原样调用——假计时器没有时钟，
+        Event.wait 会真睡，注入语义保持纯净。"""
+        if self._sleep is not time.sleep:
+            self._sleep(seconds)
+            return
+        self._cancel.wait(seconds)
+
 
     # ---------- 对外：批量查条目详情 ----------
 
     def query_details(self, mod_ids: Iterable[int]) -> list[WorkshopItem]:
         """批量查询，自动去重（保持传入顺序）、自动按 100 个一批分批。
-        批与批之间等待请求间隔，礼貌节流，降低被限流的概率。"""
-        ids = list(dict.fromkeys(int(i) for i in mod_ids))  # 去重且保序
+        批与批之间等待请求间隔，礼貌节流，降低被限流的概率。
+        取消检查在每个批边界与批间隔里（v2.45）。"""
+        ids = list(dict.fromkeys(int(i) for i in mod_ids))
+        # 去重且保序
         items: list[WorkshopItem] = []
         for start in range(0, len(ids), _BATCH):
+            self._check_cancel()
             chunk = ids[start:start + _BATCH]
             items.extend(self._query_details_chunk(chunk))
-            if start + _BATCH < len(ids):  # 还有下一批才等，最后一批不等
-                self._sleep(self._interval_ms / 1000)
+            if start + _BATCH < len(ids):
+                # 还有下一批才等，最后一批不等；等待可被取消打断
+                self._sleep_cancellable(self._interval_ms / 1000)
         return items
 
     def _query_details_chunk(self, ids: list[int]) -> list[WorkshopItem]:
@@ -228,23 +280,25 @@ class SteamApiClient:
 
     # ---------- 内部：带重试的请求 ----------
 
-    def _request_json(self, url: str,
-                      send: Callable[[], requests.Response]) -> dict:
+    def _request_json(self, url: str, send: Callable[[], requests.Response]) -> dict:
         """发一次请求 → 解析 JSON，重试三档（POST/GET 共用这一份逻辑）：
         - 429/503、网络异常、空响应体：值得重试，指数退避（等待翻倍）
         - 其他非 200（如 404）：立刻报错，重试没有意义
         - 重试用完仍失败：抛 SteamApiError，把最后一次的失败原因带出去
-
+        - 取消置位（v2.45）：任何检查点/退避等待里立即抛
+          SteamApiCancelled——重试与退避都不再发生
         send 是"怎么发这个请求"的无参函数（POST 还是 GET 由调用方决定），
         本方法只管"发了之后怎么算失败、失败了怎么办"——重试策略只有
         这一份，改判定/改退避只动这里，绝不出现两处走样。
         """
         last_exc: Exception | None = None
         for attempt in range(self._max_retries + 1):  # 首次 + N 次重试
+            self._check_cancel()
             try:
                 resp = send()
             except requests.RequestException as exc:
-                last_exc = exc  # 连不上/DNS 失败/超时/证书校验失败等，值得重试
+                last_exc = exc
+                # 连不上/DNS 失败/超时/证书校验失败等，值得重试
             else:
                 if resp.status_code in _RETRY_STATUSES:
                     last_exc = SteamApiError(f"HTTP {resp.status_code}（疑似限流）")
@@ -257,17 +311,22 @@ class SteamApiClient:
                     except ValueError as exc:
                         last_exc = exc  # 偶发空响应/坏 JSON，值得重试
             if attempt < self._max_retries:
-                # 指数退避：第 1 次重试等 1 个间隔，第 2 次等 2 个，第 3 次等 4 个……
-                self._sleep(self._interval_ms / 1000 * (2 ** attempt))
+                # 指数退避：第 1 次重试等 1 个间隔，第 2 次等 2 个，
+                # 第 3 次等 4 个……等待可被取消立即打断
+                self._sleep_cancellable(
+                    self._interval_ms / 1000 * (2 ** attempt))
+        self._check_cancel()  # 重试耗尽时若恰好点过停，取消优先于报错
         raise SteamApiError(
             f"请求多次失败（共 {self._max_retries + 1} 次）：{last_exc}")
 
     def _post_json(self, url: str, form: dict) -> dict:
         """POST 表单查询（两个官方接口的发送方式），重试逻辑见 _request_json。"""
         return self._request_json(
-            url, lambda: self._session.post(url, data=form, timeout=_TIMEOUT))
+            url, lambda: self._session.post(
+                url, data=form, timeout=(_CONNECT_TIMEOUT, _READ_TIMEOUT)))
 
     def _get_json(self, url: str, params: dict) -> dict:
         """GET 查询（商店接口的发送方式），重试逻辑见 _request_json。"""
         return self._request_json(
-            url, lambda: self._session.get(url, params=params, timeout=_TIMEOUT))
+            url, lambda: self._session.get(
+                url, params=params, timeout=(_CONNECT_TIMEOUT, _READ_TIMEOUT)))

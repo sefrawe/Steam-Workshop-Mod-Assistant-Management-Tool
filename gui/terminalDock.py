@@ -174,6 +174,8 @@ class TerminalDock(QWidget):
     """steamcmd 终端：启动/停止子进程 + 原文输出 + 手动命令。"""
     verdict_emitted = Signal(object)  # outputAnalyzer.Verdict
     idle_prompt_seen = Signal()
+    process_exited = Signal(int)  # 子进程退出（码）：批次编排据此中止僵尸批次
+
     # 输入框里的下载命令请求转「下载批次」编排：参数 = (命令自带的
     # 游戏 AppID 清单（纯编号/网址时为空）, mod 编号清单)。
     # 能不能受理由主窗口裁决（是否已有批次、编号归属哪个档案）——
@@ -191,6 +193,7 @@ class TerminalDock(QWidget):
         self._buf = ""         # 输出缓冲：攒够整行才解析
         self._pending_invalid: list[str] = []   # 最近一次转批次请求里识别不了的行
         self._pending_count = 0                 # 同一次请求里的下载命令条数
+        self._stop_guard = None  # Optional[Callable[[], bool]]：停止前确认回调
 
         self._build_ui()
 
@@ -209,7 +212,9 @@ class TerminalDock(QWidget):
             "本机已有 steamcmd 在跑时会先提醒（同一时间跑两个不建议）")
         self._btn_stop = QPushButton("停止", self)
         self._btn_stop.setToolTip(
-            "先发 quit 优雅退出（保住登录缓存）；5 秒没退才强杀")
+            "先发 quit 优雅退出（保住登录缓存）；5 秒没退才强杀。\n"
+            "下载批次进行中会先确认——停止 steamcmd = 中止批次")
+
         self._btn_login = QPushButton("发送登录命令", self)
         self._btn_login.setToolTip(
             "把设置页里填的登录命令原样发给 steamcmd；"
@@ -291,6 +296,11 @@ class TerminalDock(QWidget):
             self._log.error("steamcmd 已退出：命令没有发出")
             return False
         return True
+    def set_stop_guard(self, guard) -> None:
+        """注入「停止前确认」回调（MainWindow 在批次控制器建好后装填）：
+        返回 True 放行停止；False = 用户反悔，放弃本次停止。
+        没注入时停止行为与旧版一致（直接停）。"""
+        self._stop_guard = guard
 
     def shutdown(self) -> None:
         """程序退出前的收尾（MainWindow.closeEvent 统一调用）。
@@ -383,6 +393,11 @@ class TerminalDock(QWidget):
     def _on_stop(self) -> None:
         if not self._is_running():
             return
+        # 停止守卫（v2.45）：批次进行中先确认——steamcmd 一停，批次
+        # 立即中止（在途条目中断、剩余条目不再执行）。守卫由主窗口
+        # 注入（本面板不认识批次控制器，保持零依赖）；没注入 = 不拦
+        if self._stop_guard is not None and not self._stop_guard():
+            return
         # 先礼后兵：quit 让它正常收尾（写完日志、保存登录缓存），
         # 5 秒还没退（比如卡在下载写盘）才强杀
         try:
@@ -439,6 +454,10 @@ class TerminalDock(QWidget):
     def _on_exited(self, status: int) -> None:
         """子进程退出（无论 quit、强杀还是自己崩）统一走到这里收尾。"""
         self._log.info(f"steamcmd 已退出（退出码 {status}）")
+        # 先广播再拆线：批次编排收到后立即中止僵尸批次（flow.abort →
+        # batch_done → 自动复扫），全程同步且不碰终端，无重入风险；
+        # 没有批次在跑时发进空气，无副作用
+        self.process_exited.emit(status)
         self._buf = ""
         self._pty = None
         self._set_running_ui(False)

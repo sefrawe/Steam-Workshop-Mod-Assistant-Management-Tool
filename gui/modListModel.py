@@ -97,6 +97,16 @@ class ModListModel(QAbstractTableModel):
 
     def checked_count_in_rows(self) -> int:
         return sum(1 for m in self._rows if m.mod_id in self._checked)
+    def set_all_checked(self, on: bool) -> None:
+        """全选/全不选（用户 todo：全选只作用当前显示的 mod——筛选/
+        搜索后的可见行；隐藏行本来就不在 _rows 里，天然不会波及）。"""
+        self._checked = {m.mod_id for m in self._rows} if on else set()
+        if self._rows:
+            self.dataChanged.emit(
+                self.index(0, _CHECK_COL),
+                self.index(len(self._rows) - 1, _CHECK_COL),
+                [Qt.ItemDataRole.CheckStateRole])
+        self.checks_changed.emit()
 
     # ---------- Qt 必备 ----------
 

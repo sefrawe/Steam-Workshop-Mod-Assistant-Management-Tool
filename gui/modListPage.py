@@ -277,6 +277,20 @@ class ModListPage(QWidget):
             QToolButton.ToolButtonPopupMode.InstantPopup)
         self._actions_menu = QMenu(self._btn_actions)
         self._actions_menu.setMinimumWidth(240)  # T19①：中文菜单项在部分字体下宽度测量偏窄，硬性兜底
+        # 全选/清空（用户 todo）：只作用当前显示的 mod——批量操作
+        # 的"只对看得见的条目生效"纪律在模型层天然成立
+        act_sel_all = QAction("全选当前显示", self._actions_menu)
+        act_sel_all.setToolTip(
+            "勾选当前筛选结果里的全部 mod（被搜索/筛选藏起来的不算）")
+        act_sel_all.triggered.connect(
+            lambda: self._model.set_all_checked(True))
+        self._actions_menu.addAction(act_sel_all)
+        act_sel_none = QAction("清除全部勾选", self._actions_menu)
+        act_sel_none.setToolTip("取消本页所有勾选")
+        act_sel_none.triggered.connect(
+            lambda: self._model.set_all_checked(False))
+        self._actions_menu.addAction(act_sel_none)
+        self._actions_menu.addSeparator()
 
         self._act_download = QAction("下载选中项", self._actions_menu)
         self._act_download.setToolTip(

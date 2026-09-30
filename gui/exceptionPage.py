@@ -26,13 +26,18 @@ r"""六类异常的汇聚诊断台（gui/exceptionPage.py）。
   写库仅桶④的处置动作（右键【软删除此记录】/「关联替换」），
   且逐条确认后才发生。
 
-【桶④处置 philosophy（打包前 todo 3 定稿）】
-失效 mod 重下无效（工坊条目没了，steamcmd 无从下载）。推荐三步：
-① 右键行【打开工坊页面】找作者的续作/重传，拿到新编号；
-② 到【网址批量导入】把新 mod 入库；
-③ 回本页把旧记录【软删除此记录】（记录保留可恢复，盘上文件不动）。
-「关联替换」降级为右键菜单里的进阶项（仅限有失效归档的条目），
-适用场景 = 想把备注/颜色标记/特别关注一键带给已在库的替代条目。
+ 【桶④处置 philosophy（v2.45 修订：result=9 多义性实测定口径）】
+ result=9 = Steam 匿名接口看不见条目（作者删除/下架/转私有等）
+ ——接口看不见 ≠ 一定下载不了：实测部分 result=9 条目
+ steamcmd 仍能下载成功、部分报 File Not Found。处置改为
+ "先验证再处置"：第 0 步 = 右键跳命令生成页试下载一次
+ （成本极低，红黄行都开放），下不回来再走三步（工坊页找
+ 续作 → 网址批量导入入库 → 软删除旧记录）。「关联替换」
+ 仍为进阶项（仅限有失效归档的条目，无归档行菜单置灰+悬停
+ 说明）。软删除可逆（记录保留可恢复、盘上文件不动），
+ result=9 条目每次深检仍会列回本表——属 Steam 接口判定
+ 边界，说明列注明，不算检测错误。
+
 
 【本版（打包前 todo 3，第 2 刀）桶④升级为"失效 mod 管理台"】
 - 桶④从逐行卡片升级成表格（备份管理页风格）：列 = ↗（打开
@@ -72,6 +77,9 @@ r"""六类异常的汇聚诊断台（gui/exceptionPage.py）。
   渲染一律按 rep.game_id 取数据，切了也不串。
 """
 import time
+from gui.modFolderOpener import open_mod_folder
+from gui import netGate
+import threading
 
 from PySide6.QtCore import Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices
@@ -94,14 +102,16 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
-    QWidget,
+    QWidget,QLineEdit,
     QAbstractItemView, QHeaderView,
 )
 
 from core import steamPaths
 from core.appSettings import AppSettings
 from core.models import Game
-from core.steamApiClient import SteamApiClient, SteamApiError, WorkshopItem
+from core.steamApiClient import (SteamApiCancelled, SteamApiClient,
+                                 SteamApiError, WorkshopItem)
+
 from core.urlParser import WORKSHOP_URL_TEMPLATE
 from gui.consolePanel import LogBus
 from workflows import exceptionFlow
@@ -157,14 +167,19 @@ class _DeepWorker(QThread):
         self._interval_ms = interval_ms
         self._max_retries = max_retries
         self._stop_requested = False
+        self._cancel = threading.Event()  # 与客户端共用的取消事件
 
     def stop(self) -> None:
-        """请求停止：批边界生效，最多多等一批的时间（同更新检测）。"""
+        """请求停止：批边界生效（v2.45 后取消事件让客户端的等待与
+        重试立即中断，最多多等一次在途请求的超时）。"""
         self._stop_requested = True
+        self._cancel.set()
 
     def run(self) -> None:
-        client = SteamApiClient(interval_ms=self._interval_ms,
-                                max_retries=self._max_retries)
+        client = SteamApiClient(
+            interval_ms=self._interval_ms,
+            max_retries=self._max_retries,
+            cancel_event=self._cancel)
         ids = list(dict.fromkeys(self._mod_ids))  # 去重且保序
         done = 0
         entries: list[dict] = []
@@ -182,6 +197,11 @@ class _DeepWorker(QThread):
                     # 批间礼貌间隔；等待期间无法响应停止，
                     # 最多多等一个间隔（同更新检测页口径）
                     time.sleep(self._interval_ms / 1000)
+        except SteamApiCancelled:
+            # 取消事件在请求/等待中途触发（v2.45）：与批边界停止
+            # 同一收场——丢弃结果、走 stopped
+            self.stopped.emit()
+            return
         except SteamApiError as exc:
             self.failed.emit(str(exc))
             return
@@ -326,6 +346,15 @@ class ExceptionPage(QWidget):
         # 最近一次本地快检报告：深检结果回来时与它同屏重画
         self._last_local: exceptionFlow.LocalReport | None = None
         self._deep_worker: _DeepWorker | None = None
+        # 最近一次深检结果与渲染档案（v2.45）：桶④处置后的自动复检
+        # 只重跑本地部分，深检结果刻意保留——重画时带上，桶⑤不回
+        # "待检测"、桶④联网确认半边不丢（用户 todo：处置一次就被
+        # 打回重跑深检，节奏断了）。set_game 换档案时一并清
+        self._last_remote: exceptionFlow.RemoteFindings | None = None
+        self._owner_game: Game | None = None
+        self._b4_checked: set[int] = set()   # 桶④勾选（按 mid，跨重建存活）
+        self._id_lists: list = []            # 各桶编号列表登记（查找框过滤用）
+
         # ---- 桶④管理台的状态（页面级：卡片每次检测重建，
         # 下拉选择若跟着控件被销毁重置，"筛着修、修完复检"的
         # 节奏就断了——状态放这里，重建时恢复）----
@@ -421,6 +450,23 @@ class ExceptionPage(QWidget):
         h.addWidget(self._only_issue)
         h.addWidget(self._progress, 1)
         root.addWidget(btn_row)
+        # 查找框（v2.45 用户 todo）：按标题/编号过滤各桶条目——只隐藏
+        # 不销毁，清空即全回。列表逐项 setHidden；桶④表格随重灌过滤
+        srow = QWidget(self)
+        sh = QHBoxLayout(srow)
+        sh.setContentsMargins(0, 0, 0, 0)
+        sh.addWidget(QLabel("查找：", srow))
+        self._filter_edit = QLineEdit(srow)
+        self._filter_edit.setClearButtonEnabled(True)
+        self._filter_edit.setPlaceholderText(
+            "按标题 / 编号过滤各桶条目（即时生效，只隐藏）…")
+        self._filter_edit.setToolTip(
+            "输入关键词，六个桶里匹配的条目留下、其余暂时隐藏；\n"
+            "清空恢复全部。不影响检测，只帮你找行")
+        self._filter_edit.textChanged.connect(
+            lambda *_: self._apply_item_filter())
+        sh.addWidget(self._filter_edit, 1)
+        root.addWidget(srow)
 
         self._summary = QLabel("", self)
         self._summary.setWordWrap(True)  # 踩坑⑨
@@ -456,9 +502,9 @@ class ExceptionPage(QWidget):
             "· 桶③ 孤儿目录——盘上有以编号命名的文件夹，账本里却没"
             "这个编号。修法 = 到【mod 库】页点【扫描本地】尝试入账；"
             "确认无用再手动删除。\n"
-            "· 桶④ 远端失效——mod 的作者把它从创意工坊删除或下架了"
-            "（Steam 接口返回码 result=9），它永远下不回来了。"
-            "推荐三步处置（见下）。\n"
+            "· 桶④ 远端失效——Steam 接口看不见该条目（result=9："
+            "作者删除/下架/转私有等）。注意：接口看不见 ≠ 一定下载"
+            "不了，建议先试下载再处置（见下）。\n"
             "· 桶⑤ 查询失败与疑似合集——查询失败可能是条目被设为私有"
             "或远端波动，稍后重测；疑似合集是「看着像一个 mod，实际"
             "可能是一整个合集」，需要到【更新检测】页展开确认。\n"
@@ -475,25 +521,34 @@ class ExceptionPage(QWidget):
             "· 「已收录」（已入库、还没下载）是正常排队：本地检测不报"
             "它们——批量下载到【下载命令生成】页勾选执行；逐个管理到"
             "【mod 库】页状态筛选「已收录」。\n"
-            "· 已收录里远端已失效的（作者把条目删了）不会被漏掉：联网"
+            "· 已收录里远端已失效的（result=9）不会被漏掉：联网"
             "深度检测后会出现在桶④表格里，分类「已收录·未下载」。")
-
         c.add_text(
-            "桶④失效 mod 怎么办（推荐三步）：\n"
-            "① 在桶④表格里右键该行【打开工坊页面】，看作者有没有留"
+            "桶④失效 mod 怎么办（先试重下，再走三步）：\n"
+            "⓪ 右键该行【跳到命令生成页】试着下载一次——result=9 "
+            "的条目有时仍能下载成功（接口看不见≠内容服务器没有），"
+            "下载成功后到【mod 库】页【扫描本地】入账即可；\n"
+            "① 下载失败的话，右键行【打开工坊页面】，看作者有没有留"
             "续作/重传的链接，拿到新编号；\n"
             "② 到【网址批量导入】把新 mod 添加进库；\n"
             "③ 回本页右键旧行【软删除此记录】——记录保留（可到"
             "【mod 库】页右键「恢复」）、盘上文件不动（想清文件去"
             "【清理删除】模块）。\n"
             "表格支持按分类筛选/分组/排序：「已收录·未下载」是"
-            "从没下载过就失效的条目，没有可转移的整理内容，直接"
-            "软删除即可。")
+            "从没下载过就确认失效的条目——但它们恰恰最值得先试"
+            "下载（本来就没下过，万一能下回来就赚了）。")
         c.add_text(
             "进阶：「关联替换」（右键菜单里，仅限有失效归档的条目）"
             "可把旧记录的备注、颜色标记、特别关注一键带给一个已在库"
             "的替代条目，归档里记下「旧 → 新」证据链——整理成果多"
-            "时省事。不想用替换、直接走上面三步也完全没问题。")
+            "时省事。菜单里该项是活的 = 这行有失效归档；置灰 = "
+            "没有（悬停看原因）。不想用替换、直接走三步也完全没问题。")
+        c.add_text(
+            "关于 result=9 的一个诚实提醒：只要条目在 Steam 匿名"
+            "接口看不见，每次联网深度检测都会把它列回本表——即使"
+            "你已确认它实际可用、甚至已成功下载到本地。这是 Steam "
+            "接口的判定边界，不是检测错了；本地已有文件的行会在"
+            "说明列注明。")
         c.add_text(
             "修完怎么确认：再点一次【开始检测】，对应桶的数字应归零"
             "（软删除的行会变「已删除」分类）；远端数字要重跑"
@@ -515,6 +570,9 @@ class ExceptionPage(QWidget):
                     f"当前游戏：{game.name}（{game.app_id}）")
             return
         self._last_local = None
+        self._last_remote = None
+        self._owner_game = None
+
         self._clear_cards()
         self._summary.setText("")
         # 结果清了：回到空态引导
@@ -531,12 +589,16 @@ class ExceptionPage(QWidget):
             self._deep_btn.setEnabled(True)
 
     def shutdown(self) -> None:
-        """程序退出前的收尾（MainWindow 的页面循环自动发现并调用，
-        本页新增此方法不需要改 MainWindow）：停掉可能还在跑的深检
-        线程并等它退出。停止协议 = 批边界生效，wait() 最多几秒。"""
+        """程序退出前的收尾：请求深检线程停止并等 1.5 秒。
+        v2.45 修正：不再无限期 wait()——线程可能卡在一次 HTTP 超时/
+        重试里数分钟（实测点停止后批边界迟迟不来），同步等待会冻住
+        主线程、Windows 判"未响应"。等不到就交 netGate.park 保活 +
+        退场守卫随进程带走（线程只读网络不写库，零数据损失）。"""
         if self._deep_worker is not None:
             self._deep_worker.stop()
-            self._deep_worker.wait()
+            if not self._deep_worker.wait(1500):
+                netGate.park(self._deep_worker)
+                self._deep_worker = None
 
     # ---------- 本地快检 ----------
 
@@ -569,7 +631,7 @@ class ExceptionPage(QWidget):
                 " steamcmd 目录。")
             return None
         self._last_local = report
-        self._render(report)
+        self._render(report, remote=self._last_remote)
         return report
 
     def _latest_game(self) -> Game | None:
@@ -613,6 +675,16 @@ class ExceptionPage(QWidget):
         if not ids:
             self._log.warn("当前档案没有可深检的 mod（已删除的除外）")
             return
+        # 联网互斥闸（v2.45）：同一时刻只允许一个联网入口在查——
+        # 两个客户端一起卡进超时重试时，用户看到的是两个都"还在检测"
+        busy = netGate.try_acquire("联网深度检测")
+        if busy is not None:
+            self._summary.setText(
+                f"另有联网任务在进行（{busy}）：等它结束后再跑深度检测。")
+            self._summary.setStyleSheet(f"color: {_C_WARN};")
+            self._log.warn(f"深度检测未开始：{busy} 正在使用联网查询")
+            return
+
         self._progress.setRange(0, len(ids))
         self._progress.setValue(0)
         self._set_deep_running(True)
@@ -638,6 +710,15 @@ class ExceptionPage(QWidget):
         if self._deep_worker is not None:
             self._deep_worker.stop()
             self._deep_stop_btn.setEnabled(False)
+            # 立刻给反馈：点停止 = 取消事件已置位（等待/重试立即中断），
+            # 只剩在途的那一个请求要等——没有反馈时"在等待"和"卡死"
+            # 长得一模一样（v2.45 实测教训）
+            self._summary.setText(
+                "已请求停止：等待与重试已中断，最多再等一次在途请求收场"
+                "（网络不畅时约 10~40 秒）——退出软件不必等它，可直接关。")
+            self._summary.setStyleSheet("color: gray;")
+            self._log.info("已请求停止联网深度检测：等待与重试已中断，"
+                           "等在途请求收场")
 
     def _set_deep_running(self, running: bool) -> None:
         self._detect_btn.setEnabled(not running and self._game is not None)
@@ -650,6 +731,8 @@ class ExceptionPage(QWidget):
         if self._last_local is None:
             return  # 理论到不了：深检前必先本地快检；防御一行
         remote = exceptionFlow.classify_entries(entries)
+        self._last_remote = remote
+
         self._render(self._last_local, remote=remote)
         self._log.ok(
             f"联网深度检测完成：确认失效 {len(remote.invalid)}，"
@@ -662,7 +745,7 @@ class ExceptionPage(QWidget):
         # 本地快检的卡片结果仍然有效、不受影响
         self._summary.setText(
             f"联网深度检测失败：{message}\n（本地快检结果仍有效，"
-            "见下方卡片；稍后可重试）")
+            "见下方卡片；稍后可重试。可以参考watt toolkit的连通性测试，若一直不通过，可以尝试关闭watt toolkit，然后尝试。下载mod同理。）")
         self._summary.setStyleSheet(f"color: {_C_FAIL};")
         self._log.error(f"联网深度检测失败：{message}")
 
@@ -681,6 +764,9 @@ class ExceptionPage(QWidget):
         self._deep_worker = None
         if w is not None:
             w.wait()
+        # 联网互斥闸在此归还：finished 无论成功/失败/停止都必发，
+        # 释放放这里一次就够，漏不掉
+        netGate.release("联网深度检测")
 
     def _refresh_after_dispose(self) -> None:
         """桶④处置（软删除/替换）后的复检刷新。
@@ -716,6 +802,8 @@ class ExceptionPage(QWidget):
         self._empty_hint.setVisible(False)
 
         owner = self._repo.get_game(rep.game_id)
+        self._owner_game = owner
+
         owner_name = owner.name if owner is not None \
             else f"档案 {rep.game_id}"
 
@@ -867,14 +955,14 @@ class ExceptionPage(QWidget):
         newly = [i for i in remote_invalid if i not in set(rep.failed_ids)]
         recovered = sorted(
             set(rep.failed_ids) & (set(remote.ok) if remote else set()))
-
         card = self._card(
-            "b4", "桶④ 远端失效（result=9：作者删除/下架）",
-            tip="mod 的作者把条目从创意工坊删除或下架了，永远下不"
-                "回来。推荐三步：右键行打开工坊页找续作/重传 → "
-                "【网址批量导入】添加新编号 → 回来右键【软删除此"
-                "记录】。进阶：「关联替换」（右键菜单）可把备注/"
-                "颜色/特别关注带给已在库的替代条目。",
+            "b4",
+            "桶④ 远端失效（result=9：删除/下架/转私有等）",
+            tip="Steam 匿名接口看不见这个条目（result=9）。注意："
+                "接口看不见 ≠ 一定下载不了——实测有的条目 steamcmd "
+                "仍能下载成功。建议先右键行【跳到命令生成页】试下"
+                "一次，下不回来再走三步（见引导文字）。进阶："
+                "「关联替换」（右键菜单，仅限有失效归档的行）。",
             attention=bool(all_invalid))
         if not all_invalid:
             if remote is None:
@@ -890,10 +978,11 @@ class ExceptionPage(QWidget):
         else:
             # -- 分类：每条失效 mod 归入哪一类、允许哪些动作 --
             # 判定顺序：已删除（软删除过的闭环）→ 已替换（归档里有
-            # 替代记录）→ 已收录·未下载（tracked：从未下载过就死了，
-            # 没有失效归档，「关联替换」必报错，不给）→ 归档失效
-            # （有归档可替换；只有 failed 状态没有归档的半残条目
-            # 同样不给替换，只给软删除）。
+            # 替代记录）→ 已收录·未下载（tracked）→ 归档失效（兜底，
+            # 含"已下载过、本次联网刚确认、还没有归档"的行）。
+            # 无归档的行「关联替换」置灰（_fill_row_menu）；
+            # 跳命令页试下载对红黄都开放——result=9 有时仍能下载
+            # 成功（v2.45 实测口径，见文件头 philosophy）
             rec_map = {r.mod_id: r for r in rep.failed_records}
             rows: list[dict] = []
             for mid in all_invalid:
@@ -915,18 +1004,27 @@ class ExceptionPage(QWidget):
                     note = "已软删除——恢复到【mod 库】页右键「恢复」"
                 elif replaced:
                     note = f"已替换 → mod {replaced}"
+
                 elif rec and rec.reason:
                     note = rec.reason
+                    # 建档后 status 变 failed，下面"本地已有文件"分支不再
+                    # 命中——决策 85 的边界提示续在这里，先读我承诺不落空
+                    if m is not None and m.local_size:
+                        note += "（本地文件仍在，照常用）"
                 elif st == "tracked":
-                    note = ("本次联网确认 result=9——从未下载过就失效了"
+                    note = ("result=9 确认（未下载过；偶尔仍能下载，"
+                            "建议先试）"
                             if mid in remote_invalid
                             else "远端已失效（从未下载过）")
+                elif st == "downloaded" and mid in remote_invalid:
+                    note = ("本地已有文件——result=9 有时仍能下载成功，"
+                            "已在本地就照常用（每次深检仍会列在本表，"
+                            "属 Steam 接口判定边界）")
                 elif mid in remote_invalid:
                     note = "本次联网确认 result=9"
                 else:
                     note = "（无归档：仅有 failed 状态）"
-                rows.append({"mid": mid,
-                             "title": self._title_of(mid),
+                rows.append({"mid": mid, "title": self._title_of(mid),
                              "cat": cat, "note": note,
                              "can_replace": can_repl,
                              "can_delete": can_del,
@@ -936,20 +1034,38 @@ class ExceptionPage(QWidget):
             n_cat = {c: 0 for c in _CAT_ORDER}
             for r in rows:
                 n_cat[r["cat"]] += 1
-            stat = " · ".join(f"{c} {n_cat[c]}"
-                              for c in _CAT_ORDER if n_cat[c])
+            stat = " · ".join(f"{c} {n_cat[c]}" for c in _CAT_ORDER
+                              if n_cat[c])
             extra = f"（含联网新确认 {len(newly)} 个）" if newly else ""
             card.set_status(f"{len(all_invalid)} 个{extra}：{stat}",
                             _C_FAIL)
-            # -- 引导文字：三步主路径 + 进阶一句话 --
+            # -- 引导文字：先试重下（⓪）→ 三步主路径 → 进阶一句话 --
             card.add_text(
-                "失效的 mod 重下无效（工坊条目没了，steamcmd 无从"
-                "下载）。推荐三步：① 右键行【打开工坊页面】找作者的"
-                "续作/重传 → ② 到【网址批量导入】添加新编号 → "
-                "③ 回本行右键【软删除此记录】（记录保留可恢复，"
-                "盘上文件不动）。右键菜单里还有「关联替换」（进阶，"
-                "仅限有归档的行）：把备注/颜色/特别关注一键带给已在"
-                "库的替代条目。表格可按分类筛选/分组/排序。")
+                "result=9 = Steam 接口看不见条目（作者删除/下架/"
+                "转私有等）——接口看不见 ≠ 一定下载不了：实测有的"
+                "result=9 条目 steamcmd 仍能下载成功，有的报 File "
+                "Not Found（真没了）。建议先右键行【跳到命令生成页】"
+                "试下载一次（成本极低）。下不回来再走三步：① 右键行"
+                "【打开工坊页面】找作者的续作/重传 → ② 到【网址批量"
+                "导入】添加新编号 → ③ 回本行右键【软删除此记录】"
+                "（记录保留可恢复，盘上文件不动）。「关联替换」（进阶）"
+                "只对有失效归档的行可用——菜单里该项是活的即有归档、"
+                "置灰即没有（悬停看原因）。表格可按分类筛选/分组/排序。")
+            # -- 归档缺口提示（v2.45 用户三次在此困惑的收口）：红行没归档
+            # = 关联替换置灰。建档唯一出口在【更新检测】页（决策 86），
+            # 本页深检是纯只读承诺、永不建档——把解锁路径送到眼前
+            n_no_arch = sum(1 for r in rows
+                            if r["cat"] == "归档失效" and not r["can_replace"])
+            if n_no_arch:
+                card.add_text(
+                    f"其中 {n_no_arch} 行（红）还没有失效归档，「关联替换」"
+                    "暂为置灰：归档只由【更新检测】建立（本页深度检测纯只读、"
+                    "不建档）。到【更新检测】页点【开始检测】，汇总行出现"
+                    "「result=9 建档 N」即建档完成，回本页复检后解锁。"
+                    "黄行（已收录·未下载）的置灰是设计如此：从未下载过、"
+                    "没有可转移的整理内容，刻意不建档。",
+                    _C_WARN)
+
             # -- 管理台本体：工具行 + 表格 --
             self._build_b4_card(card)
             if recovered:
@@ -957,7 +1073,8 @@ class ExceptionPage(QWidget):
                     "本地记为失效、本次远端查询却正常（未列入上表）："
                     + _ids_text(recovered)
                     + "（可能是作者恢复了条目——要不要继续用自行判断；"
-                      "更新检测会照常盯它们）", _C_WARN)
+                      "更新检测会照常盯它们）",
+                    _C_WARN)
             card.add_text(
                 "处置后点【开始检测】复检；远端数字要重跑【联网深度"
                 "检测】才会刷新。")
@@ -995,9 +1112,9 @@ class ExceptionPage(QWidget):
                         "真失效的会归入桶④。")
                     self._add_id_list(
                         card,
-                        [(mid, self._title_of(mid), "查询失败")
-                         for mid in remote.query_failed],
-                        allow_cmd=False)
+                        [(mid, self._title_of(mid), "查询失败") for mid in remote.query_failed],
+                        allow_cmd=False, allow_dispose=True)
+
                 if remote.suspected_collection:
                     card.add_text(
                         "疑似合集（远端缺少文件大小）——确认与展开入库"
@@ -1102,11 +1219,13 @@ class ExceptionPage(QWidget):
 
     def _clear_cards(self) -> None:
         """清空上次检测的卡片（整体重建的"清"半边）。
-        桶④的表格/下拉引用一并置 None：控件马上 deleteLater，
+        桶④的表格/下拉/批量按钮引用一并置 None：控件马上 deleteLater，
         悬空引用在销毁完成窗口期被访问会崩。"""
         self._cards = {}
         self._b4_table = None
         self._b4_combo_sort = None
+        self._b4_batch_btn = None
+        self._id_lists = []  # 查找框的列表登记一并清（v2.45）
         if self._cards_box is None:
             return
         while self._cards_box.count():
@@ -1133,15 +1252,15 @@ class ExceptionPage(QWidget):
     # ---------- 桶④管理台：工具行 + 表格 ----------
 
     def _build_b4_card(self, card: _BucketCard) -> None:
-        """桶④卡片内容：工具行（状态筛选/视图/排序三个下拉）+ 表格。
-        下拉的选中值先按页面级状态恢复、再连信号、最后手动灌一次表
-        ——顺序保证不会在 connect 时触发多余的重建。"""
+        """桶④卡片内容：工具行（状态筛选/视图/排序下拉 + 对勾选项 ▾）
+        + 表格（✓ 勾选列，v2.45 六列）。下拉的选中值先按页面级状态
+        恢复、再连信号、最后手动灌一次表——顺序保证不会在 connect 时
+        触发多余的重建。"""
         # ---- 工具行 ----
         bar = QWidget(card)
         bh = QHBoxLayout(bar)
         bh.setContentsMargins(0, 0, 0, 0)
         bh.setSpacing(4)
-
         lbl_f = QLabel("状态", bar)
         lbl_f.setStyleSheet("color: gray;")
         bh.addWidget(lbl_f)
@@ -1154,7 +1273,6 @@ class ExceptionPage(QWidget):
             "「已删除」= 本页软删除过的（可到 mod 库页恢复）。")
         combo_filter.currentTextChanged.connect(self._on_b4_filter)
         bh.addWidget(combo_filter)
-
         lbl_v = QLabel("视图", bar)
         lbl_v.setStyleSheet("color: gray;")
         bh.addWidget(lbl_v)
@@ -1166,7 +1284,6 @@ class ExceptionPage(QWidget):
             "（备份管理页的分组视图同款思路）。")
         combo_view.currentIndexChanged.connect(self._on_b4_view)
         bh.addWidget(combo_view)
-
         lbl_s = QLabel("排序", bar)
         lbl_s.setStyleSheet("color: gray;")
         bh.addWidget(lbl_s)
@@ -1180,17 +1297,39 @@ class ExceptionPage(QWidget):
             "平铺视图下生效；分组视图下组内固定按编号排列。")
         self._b4_combo_sort.currentTextChanged.connect(self._on_b4_sort)
         bh.addWidget(self._b4_combo_sort)
+        # 对勾选项 ▾（v2.45 用户 todo：勾选框→批处理）：只作用勾选行
+        self._b4_batch_btn = QToolButton(bar)
+        self._b4_batch_btn.setText("对勾选项 ▾")
+        self._b4_batch_btn.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._b4_batch_btn.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup)
+        bm = QMenu(self._b4_batch_btn)
+        bm.setToolTipsVisible(True)
+        a_pages = QAction("批量打开工坊页面", bm)
+        a_pages.setToolTip("勾选 mod 的工坊页面逐个在浏览器打开"
+                           "（每个一页标签，开前确认）")
+        a_pages.triggered.connect(self._b4_batch_open_pages)
+        a_dirs = QAction("批量打开文件夹", bm)
+        a_dirs.setToolTip("勾选 mod 的下载内容文件夹逐个在文件管理器打开")
+        a_dirs.triggered.connect(self._b4_batch_open_dirs)
+        a_del = QAction("批量软删除…", bm)
+        a_del.setToolTip("把勾选中「可处置」的失效条目整批软删除"
+                         "（列清单确认、默认否；已替换/已删除的行自动跳过）")
+        a_del.triggered.connect(self._b4_batch_soft_delete)
+        for a in (a_pages, a_dirs, a_del):
+            bm.addAction(a)
+        self._b4_batch_btn.setMenu(bm)
+        bh.addWidget(self._b4_batch_btn)
         bh.addStretch(1)
         card.add_widget(bar)
-
         # ---- 表格 ----
-        # 列：↗ ｜ mod 标题 ｜ mod 编号 ｜ 分类 ｜ 说明/原因。
-        # 行内控件只有 ↗（打开工坊页面）；全部动作走右键菜单——
-        # 行内控件多的表一旦排序/重灌，控件随行搬家容易错位
-        # （删除页 v2.32 的教训），所以排序用下拉重灌式。
-        t = QTableWidget(0, 5, card)
+        # 列（v2.45 六列）：✓ 勾选 ｜ ↗ ｜ mod 标题 ｜ mod 编号 ｜ 分类
+        # ｜ 说明/原因。行内控件 = 勾选框 + ↗，其余动作走右键菜单——
+        # 行内控件随排序搬家错位是删除页 v2.32 的坑，排序保持下拉重灌式
+        t = QTableWidget(0, 6, card)
         t.setHorizontalHeaderLabels(
-            ["↗", "mod 标题", "mod 编号", "分类", "说明 / 原因"])
+            ["✓", "↗", "mod 标题", "mod 编号", "分类", "说明 / 原因"])
         t.verticalHeader().setVisible(False)
         t.setAlternatingRowColors(True)
         t.setWordWrap(False)  # 踩坑④：表格关换行，全文进 tooltip
@@ -1199,8 +1338,8 @@ class ExceptionPage(QWidget):
         t.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
         header = t.horizontalHeader()
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        for col, width in ((0, 36), (2, 110), (3, 120), (4, 260)):
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        for col, width in ((0, 32), (1, 36), (3, 110), (4, 120), (5, 260)):
             t.setColumnWidth(col, width)
         # 右键 = 行菜单；双击 = 打开工坊页面（核验页"双击=快捷动作"
         # 同款手感）
@@ -1209,10 +1348,7 @@ class ExceptionPage(QWidget):
         t.cellDoubleClicked.connect(self._on_b4_double)
         card.add_widget(t)
         self._b4_table = t
-
         self._rebuild_b4_table()  # 初次灌表
-
-    # 三个下拉的小处理函数：记状态 + 重灌（状态在页面级，见 __init__）
 
     def _on_b4_filter(self, text: str) -> None:
         self._b4_filter = text
@@ -1230,17 +1366,27 @@ class ExceptionPage(QWidget):
         self._rebuild_b4_table()
 
     def _rebuild_b4_table(self) -> None:
-        """桶④表格的唯一灌表出口：筛选 → 排序 → （可选）分组 → 灌行。
-        数据源 = self._b4_rows（_render 分类好的行字典列表）；
-        这里绝不查库——表格只是这份数据的三个视图开关。"""
+        """桶④表格的唯一灌表出口：勾选剪除 → 状态筛选 → 查找过滤 →
+        排序 →（可选）分组 → 灌行。数据源 = self._b4_rows（_render
+        分类好的行字典列表）；这里绝不查库——表格只是视图开关。"""
         t = self._b4_table
         if t is None:
             return
         rows = list(self._b4_rows)
+        # 勾选剪除（v2.45）：检测结果刷新后不在最新清单里的勾选清掉，
+        # 集合不积灰（与 mod 库页模型 set_rows 的剪除同一思路）
+        self._b4_checked &= {r["mid"] for r in rows}
         # 1. 状态筛选
         if self._b4_filter != "全部":
             rows = [r for r in rows if r["cat"] == self._b4_filter]
-        # 2. 排序（分类序按 _CAT_ORDER 固定类序，组内按编号）
+        # 2. 查找框过滤（v2.45）：标题/编号/说明包含即留
+        kw = self._filter_edit.text().strip().casefold()
+        if kw:
+            rows = [r for r in rows if
+                    kw in r["title"].casefold()
+                    or kw in str(r["mid"])
+                    or kw in (r["note"] or "").casefold()]
+        # 3. 排序（分类序按 _CAT_ORDER 固定类序，组内按编号）
         if self._b4_sort == "标题":
             rows.sort(key=lambda r: (r["title"], r["mid"]))
         elif self._b4_sort == "分类":
@@ -1248,7 +1394,7 @@ class ExceptionPage(QWidget):
             rows.sort(key=lambda r: (order.get(r["cat"], 9), r["mid"]))
         else:
             rows.sort(key=lambda r: r["mid"])
-        # 3. 灌表（先清残留：行与分组跨列合并都要清干净）
+        # 4. 灌表（先清残留：行与分组跨列合并都要清干净）
         t.clearSpans()
         t.setRowCount(0)
         if self._b4_group:
@@ -1263,14 +1409,14 @@ class ExceptionPage(QWidget):
         else:
             for r in rows:
                 self._append_b4_row(t, r)
-        # 4. 高度：行多时封顶内部滚动，行少时不留大片空白
+        # 5. 高度：行多时封顶内部滚动，行少时不留大片空白
         n_vis = t.rowCount()
         t.setFixedHeight(max(120, min(380, 28 * n_vis + 32)))
         if not rows:
             self._log.info("桶④：当前筛选下没有条目")
 
     def _append_b4_group_header(self, t: QTableWidget, text: str) -> None:
-        """分组视图的分类标题行：跨全部 5 列合并、灰底、不可选中。"""
+        """分组视图的分类标题行：跨全部 6 列合并、灰底、不可选中。"""
         row = t.rowCount()
         t.insertRow(row)
         it = QTableWidgetItem(text)
@@ -1279,37 +1425,45 @@ class ExceptionPage(QWidget):
         it.setFlags(Qt.ItemFlag.ItemIsEnabled)
         it.setBackground(QBrush(QColor("#262626")))
         t.setItem(row, 0, it)
-        t.setSpan(row, 0, 1, 5)
+        t.setSpan(row, 0, 1, 6)  # v2.45：勾选列加入后 5 → 6
 
     def _append_b4_row(self, t: QTableWidget, r: dict) -> None:
-        """桶④表格灌一行。编号塞进 UserRole（右键/双击从条目数据
+        """桶④表格灌一行。勾选框状态按页面级 _b4_checked（mid）恢复
+        ——重灌/排序不丢；编号塞进第 3 列 UserRole（右键/双击按数据
         取，不按行号反查——行号会漂，id 才稳，备份页同款纪律）。"""
         row = t.rowCount()
         t.insertRow(row)
-        # 第 0 列：↗ 打开工坊页面（行内唯一控件）
+        # 第 0 列：✓ 勾选框（v2.45，批量动作的入口）
+        cb = QCheckBox(t)
+        cb.setToolTip("勾选后可用「对勾选项 ▾」批量操作")
+        cb.setChecked(r["mid"] in self._b4_checked)
+        cb.toggled.connect(
+            lambda on, mid=r["mid"]: self._on_b4_check(mid, on))
+        t.setCellWidget(row, 0, cb)
+        # 第 1 列：↗ 打开工坊页面
         btn = QToolButton(t)
         btn.setText("↗")
         btn.setToolTip("打开工坊页面（右键本行有更多动作）")
         btn.clicked.connect(
             lambda _=False, m=r["mid"]: self._open_workshop(m))
-        t.setCellWidget(row, 0, btn)
-        # 第 1 列：标题（全文进 tooltip，表格关了换行）
+        t.setCellWidget(row, 1, btn)
+        # 第 2 列：标题（全文进 tooltip，表格关了换行）
         ti = QTableWidgetItem(r["title"])
-        ti.setToolTip(f"{r['mid']}　{r['title']}")
-        t.setItem(row, 1, ti)
-        # 第 2 列：编号（UserRole = id，右键菜单按它找行数据）
+        ti.setToolTip(f"{r['mid']} {r['title']}")
+        t.setItem(row, 2, ti)
+        # 第 3 列：编号（UserRole = id，右键菜单按它找行数据）
         mi = QTableWidgetItem(str(r["mid"]))
         mi.setData(Qt.ItemDataRole.UserRole, r["mid"])
-        t.setItem(row, 2, mi)
-        # 第 3 列：分类（着色，一眼分清处置状态）
+        t.setItem(row, 3, mi)
+        # 第 4 列：分类（着色，一眼分清处置状态）
         ci = QTableWidgetItem(r["cat"])
         ci.setForeground(QBrush(QColor(
             _CAT_COLORS.get(r["cat"], _C_MUTED))))
-        t.setItem(row, 3, ci)
-        # 第 4 列：说明/原因（全文进 tooltip）
+        t.setItem(row, 4, ci)
+        # 第 5 列：说明/原因（全文进 tooltip）
         ni = QTableWidgetItem(r["note"])
         ni.setToolTip(r["note"])
-        t.setItem(row, 4, ni)
+        t.setItem(row, 5, ni)
 
     def _b4_row_at(self, row: int) -> dict | None:
         """表格行号 → 行数据（按编号列的 UserRole 找）。分组标题行
@@ -1317,7 +1471,7 @@ class ExceptionPage(QWidget):
         t = self._b4_table
         if t is None:
             return None
-        mi = t.item(row, 2)
+        mi = t.item(row, 3)  # v2.45：编号列 2 → 3（前面加了勾选列）
         if mi is None:
             return None
         mid = mi.data(Qt.ItemDataRole.UserRole)
@@ -1327,7 +1481,10 @@ class ExceptionPage(QWidget):
 
     def _on_b4_menu(self, pos) -> None:
         """桶④表格右键：按鼠标位置找行，按该行的分类装菜单
-        （_fill_row_menu 单一出口，参数裁剪可见动作）。"""
+        （_fill_row_menu 单一出口，参数裁剪可见动作）。
+        allow_cmd 跟 can_delete 走（v2.45）：红黄行（未删除、未替换）
+        都给「跳到命令生成页」——result=9 有时仍能下载成功，
+        先验证再处置（实测定口径）。"""
         t = self._b4_table
         if t is None:
             return
@@ -1341,7 +1498,7 @@ class ExceptionPage(QWidget):
         menu.setToolTipsVisible(True)  # QMenu 默认不显示 tooltip
         self._fill_row_menu(
             menu, r["mid"],
-            allow_cmd=False,
+            allow_cmd=r["can_delete"],
             allow_replace=r["can_replace"],
             allow_delete=r["can_delete"],
             replaced_by=r["replaced_by"])
@@ -1353,35 +1510,112 @@ class ExceptionPage(QWidget):
         r = self._b4_row_at(row)
         if r is not None:
             self._open_workshop(r["mid"])
+    def _on_b4_check(self, mid: int, on: bool) -> None:
+        """桶④勾选状态单一出口：记集合 + 批量按钮带数。"""
+        (self._b4_checked.add if on else self._b4_checked.discard)(mid)
+        n = len(self._b4_checked)
+        self._b4_batch_btn.setText(f"对勾选项({n}) ▾" if n else "对勾选项 ▾")
+
+    def _b4_checked_rows(self) -> list[dict]:
+        """勾选的行数据（按当前 _b4_rows 对表；顺序按编号）。"""
+        mids = set(self._b4_checked)
+        return sorted((r for r in self._b4_rows if r["mid"] in mids),
+                      key=lambda r: r["mid"])
+
+    def _b4_batch_open_pages(self) -> None:
+        rows = self._b4_checked_rows()
+        if not rows:
+            QMessageBox.information(self, "批量打开工坊页面",
+                                    "先勾选表格里的行。")
+            return
+        ret = QMessageBox.question(
+            self, "批量打开工坊页面",
+            f"在浏览器打开 {len(rows)} 个工坊页面？每个一页标签。")
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        for r in rows:
+            self._open_workshop(r["mid"])
+
+    def _b4_batch_open_dirs(self) -> None:
+        rows = self._b4_checked_rows()
+        if not rows:
+            QMessageBox.information(self, "批量打开文件夹",
+                                    "先勾选表格里的行。")
+            return
+        for r in rows:
+            self._open_folder(r["mid"])
+
+    def _b4_batch_soft_delete(self) -> None:
+        """批量软删除：只对可处置（can_delete）的行生效；列清单确认、
+        默认否（决策 69⒋）；逐条走 mark_deleted 正门（快照十字段与
+        单条同源）。都是确认失效的条目，整批一次确认成立。"""
+        rows = [r for r in self._b4_checked_rows() if r["can_delete"]]
+        skipped = len(self._b4_checked) - len(rows)
+        if not rows:
+            QMessageBox.information(
+                self, "批量软删除",
+                "勾选里没有可处置的条目（已替换/已删除的行不能再删）。")
+            return
+        preview = "\n".join(f"· {r['mid']} {r['title']}" for r in rows[:20]) \
+                  + ("\n…" if len(rows) > 20 else "")
+        tail = (f"\n\n另有 {skipped} 个勾选行不可处置（已替换/已删除），"
+                "将自动跳过。") if skipped else ""
+        ret = QMessageBox.question(
+            self, "批量软删除",
+            f"把以下 {len(rows)} 条失效记录整批软删除？\n{preview}{tail}\n\n"
+            "· 记录保留（含删除前快照），可到【mod 库】页右键「恢复」；\n"
+            "· 盘上文件不动。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        done = 0
+        for r in rows:
+            mod = self._repo.get_mod(r["mid"])
+            if mod is None:
+                continue
+            try:
+                self._repo.mark_deleted(mod.mod_id,
+                                        self._deleted_last_state(mod))
+                done += 1
+            except ValueError as exc:
+                self._log.error(f"软删除失败（mod {mod.mod_id}）：{exc}")
+        self._log.warn(f"批量软删除完成：{done}/{len(rows)} 条"
+                       "（记录保留可恢复，盘上文件未动）")
+        self._refresh_after_dispose()
+
 
     # ---------- 行列表与行菜单（桶①②③⑤ / 桶④共用）----------
 
-    def _add_id_list(self, card: _BucketCard,
-                     entries: list[tuple[int, str, str]], *,
-                     allow_cmd: bool) -> None:
+    def _add_id_list(self, card: _BucketCard, entries: list[tuple[int, str, str]], *,
+                     allow_cmd: bool, allow_dispose: bool = False) -> None:
         """编号清单 → 列表（每行 = 编号 + 标题 + 情况说明）。
         行数少时列表自然高，行数多时封顶内部滚动——卡片高度不失控，
-        整页滚动也不被撑爆。行右键 = 行菜单（_fill_row_menu）。"""
+        整页滚动也不被撑爆。行右键 = 行菜单（_fill_row_menu）。
+        allow_dispose（v2.45）：给行菜单开放处置动作（软删除/关联替换）
+        ——桶⑤查询失败的行用；疑似合集不开放（展开归检测页）。"""
         lw = QListWidget(card)
         lw.setWordWrap(False)
         lw.setAlternatingRowColors(True)
         # 高度：每行约 24px，下限 100 上限 240；行少时不留大片空白
         lw.setFixedHeight(min(240, max(100, 24 * len(entries) + 12)))
         for mid, title, note in entries:
-            text = f"{mid}　{title}"
+            text = f"{mid} {title}"
             if note:
-                text += f"　·　{note}"
+                text += f" · {note}"
             it = QListWidgetItem(text)
             # 编号塞进 UserRole：右键菜单从条目数据取，不按行号反查
             it.setData(Qt.ItemDataRole.UserRole, mid)
             lw.addItem(it)
         lw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         lw.customContextMenuRequested.connect(
-            lambda pos, w=lw: self._on_id_list_menu(w, pos, allow_cmd))
+            lambda pos, w=lw: self._on_id_list_menu(w, pos, allow_cmd,
+                                                    allow_dispose))
+        self._id_lists.append(lw)  # 查找框过滤要遍历（v2.45）
         card.add_widget(lw)
 
-    def _on_id_list_menu(self, lw: QListWidget, pos,
-                         allow_cmd: bool) -> None:
+    def _on_id_list_menu(self, lw: QListWidget, pos, allow_cmd: bool,
+                         allow_dispose: bool = False) -> None:
         """编号列表的右键菜单：按鼠标位置找行，按行的编号装菜单。"""
         it = lw.itemAt(pos)
         if it is None:
@@ -1389,10 +1623,12 @@ class ExceptionPage(QWidget):
         mid = it.data(Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
         menu.setToolTipsVisible(True)  # QMenu 默认不显示 tooltip，必须显式开
-        self._fill_row_menu(menu, mid,
-                            allow_cmd=allow_cmd,
-                            allow_replace=False,
-                            allow_delete=False)
+        # allow_dispose（v2.45）：桶⑤查询失败的行也开放处置——查询失败
+        # ≠确认失效（可能私有/波动），但确认没救的条目允许就地软删除/
+        # 关联替换，不用绕道 mod 库页；确认弹窗与 tooltip 里另有说明
+        self._fill_row_menu(menu, mid, allow_cmd=allow_cmd,
+                            allow_replace=allow_dispose,
+                            allow_delete=allow_dispose)
         menu.exec(lw.mapToGlobal(pos))
 
     def _fill_row_menu(self, menu: QMenu, mid: int, *,
@@ -1402,17 +1638,20 @@ class ExceptionPage(QWidget):
                        replaced_by: int | None = None) -> None:
         """给行菜单装动作的单一出口（所有行菜单共用，口径不漂移）。
         按参数裁剪可见项：
-        - 跳命令页：桶①②已入库条目（重下修复）；
-        - 关联替换：仅桶④有失效归档的行（无归档点了必报错，不给）；
-        - 软删除：桶④可处置的行（已替换/已删除的行不给）；
+        - 跳命令页：桶①②（修复重下）+ 桶④红黄行（result=9 有时
+          仍能下载成功，先试一次——v2.45 实测定口径）；
+        - 关联替换：有失效归档的行（桶⑤查询失败行归档有无未知，
+          点了无归档会弹窗说明）；确定无归档 = 置灰项 + 悬停说明；
+        - 软删除：桶④可处置的行与桶⑤查询失败行（已替换/已删除不给）；
         - 打开替代 mod 页面：仅已替换的行；
-        - 打开工坊页面 / 复制编号：人人都有。
+        - 打开工坊页面 / 打开 mod 文件夹 / 复制编号：人人都有。
         查看类在上、处置类在下，中间加分隔线。"""
         # ---- 查看类 ----
         act = QAction("打开工坊页面", menu)
         act.setToolTip(
             "在浏览器打开该 mod 的创意工坊页面"
-            "（失效条目也能打开，可看作者是否留了续作/说明）")
+            "（失效条目也能打开，可看作者是否留了续作/说明；"
+            "网页能打开的大概率还能下载）")
         act.triggered.connect(lambda: self._open_workshop(mid))
         menu.addAction(act)
         if replaced_by:
@@ -1421,6 +1660,12 @@ class ExceptionPage(QWidget):
             act.triggered.connect(
                 lambda: self._open_workshop(replaced_by))
             menu.addAction(act)
+        act = QAction("打开 mod 文件夹", menu)
+        act.setToolTip(
+            "在文件管理器打开该 mod 的下载内容文件夹"
+            "（steamcmd 工坊内容目录下以编号命名的文件夹）")
+        act.triggered.connect(lambda: self._open_folder(mid))
+        menu.addAction(act)
         act = QAction("复制编号", menu)
         act.setToolTip("把这个 mod 的工坊编号复制到剪贴板")
         act.triggered.connect(lambda: self._copy_id(mid))
@@ -1431,7 +1676,10 @@ class ExceptionPage(QWidget):
         if allow_cmd:
             act = QAction("跳到命令生成页（只勾这条）…", menu)
             act.setToolTip(
-                "跳到【下载命令生成】页并只勾选这个编号，生成重下命令")
+                "跳到【下载命令生成】页并只勾选这个编号，生成下载"
+                "命令。result=9 的条目有时仍能下载成功（接口看不见"
+                "≠内容服务器没有）——值得一试；下载成功后到"
+                "【mod 库】页点【扫描本地】入账")
             act.triggered.connect(
                 lambda: self._emit_command_gen([mid]))
             menu.addAction(act)
@@ -1439,16 +1687,31 @@ class ExceptionPage(QWidget):
             act = QAction("软删除此记录…", menu)
             act.setToolTip(
                 "账本记为已删除（记录保留可恢复，盘上文件不动）。"
-                "推荐三步的最后一步：找续作 → 加入新 mod → 删旧记录")
+                "三步主路径的最后一步：找续作 → 加入新 mod → "
+                "删旧记录。建议先试一次重下（result=9 偶尔仍能"
+                "下载成功）再决定")
             act.triggered.connect(lambda: self._soft_delete_failed(mid))
             menu.addAction(act)
         if allow_replace:
             act = QAction("关联替换…（进阶）", menu)
             act.setToolTip(
-                "把这条失效记录的备注/颜色标记/特别关注一键带给一个"
-                "已在库的替代条目，归档记「旧 → 新」证据链。"
-                "不想转移整理成果的话，直接用上面的软删除即可")
+                "把这条记录的备注/颜色标记/特别关注一键带给一个"
+                "已在库的替代条目，归档记「旧 → 新」证据链。\n"
+                "需要该条目有失效归档（由【更新检测】对 result=9 建立）；"
+                "没有归档时软件会弹窗说明原因")
             act.triggered.connect(lambda: self._replace_failed(mid))
+            menu.addAction(act)
+        elif allow_delete:
+            # 确定无归档（分类时 rec is None 已判定）：置灰 + 悬停说明
+            # ——红黄都可能无归档（刚联网确认还没建档的 / 从未下载过的）
+            act = QAction("关联替换…（进阶）", menu)
+            act.setEnabled(False)
+            act.setToolTip(
+                "这一行没有失效归档，暂不能关联替换——失效归档由"
+                "【更新检测】在确认条目失效（result=9）时建立，"
+                "本行目前还没有。\n"
+                "直接走三步主路径即可：找续作 → 加入新 mod → "
+                "软删除旧记录")
             menu.addAction(act)
 
     def _open_workshop(self, mid: int) -> None:
@@ -1470,6 +1733,42 @@ class ExceptionPage(QWidget):
         QApplication.clipboard().setText(str(mid))
         self._log.info(f"已复制编号 {mid}")
 
+    def _open_folder(self, mid: int) -> None:
+        """行菜单「打开 mod 文件夹」：实现单源 gui/modFolderOpener
+        （与 mod 库/更新对照页共用）。档案取渲染时锁定的 owner——
+        深检进行中切了档案也不会把文件夹开到别的游戏名下。"""
+        if self._owner_game is None:
+            QMessageBox.information(self, "打开 mod 文件夹",
+                                    "请先点【开始检测】再使用此动作。")
+            return
+        m = self._mods_by_id.get(mid)
+        if m is None:
+            QMessageBox.information(self, "打开 mod 文件夹",
+                                    f"账本里没有 mod {mid} 的记录。")
+            return
+        open_mod_folder(self, self._owner_game, m, log=self._log)
+
+    def _apply_item_filter(self) -> None:
+        """查找框出口：各编号列表逐项隐藏 + 桶④表格按关键词重灌。
+        只隐藏不销毁，清空即全回。"""
+        kw = self._filter_edit.text().strip().casefold()
+        for lw in self._id_lists:
+            for i in range(lw.count()):
+                it = lw.item(i)
+                it.setHidden(bool(kw) and kw not in it.text().casefold())
+        self._rebuild_b4_table()
+
+    @staticmethod
+    def _deleted_last_state(mod) -> dict:
+        """软删除前快照的十字段组装（repo 契约：调用方组装）——
+        单条与批量软删除共用，不再两处各抄一份。"""
+        return {"title": mod.title, "url": mod.url,
+                "time_updated": mod.time_updated,
+                "local_timeupdated": mod.local_timeupdated,
+                "manifest": mod.manifest, "local_size": mod.local_size,
+                "note": mod.note, "color_tag": mod.color_tag,
+                "is_special": mod.is_special, "local_path": mod.local_path}
+
     # ---------- 桶④处置一：软删除（主路径）----------
 
     def _soft_delete_failed(self, mid: int) -> None:
@@ -1479,9 +1778,10 @@ class ExceptionPage(QWidget):
         时刻）和 deleted_last_state（删除前元数据快照），"记录保留、
         可随时恢复"靠的就是这两列；update_status 只改 status，会把
         恢复凭据丢掉。本动作不动磁盘文件。
-        确认弹窗默认"否"（决策 69⒋）；last_state 十字段组装与
-        verifyPage._mark_removed / modListPage._soft_delete 逐字段
-        同款（repo 契约：调用方组装、repo 只管存取）。"""
+        确认弹窗默认"否"（决策 69⒋）；last_state 十字段组装走
+        _deleted_last_state 单源（与批量软删除同源）。
+        result=9 偶尔仍能下载成功（v2.45 实测）——弹窗提醒先试重下，
+        防止把能救的条目顺手删了（软删除可逆，但能不删就不删）。"""
         mod = self._repo.get_mod(mid)
         if mod is None:
             # 行是检测时读出来的，理论上不会消失；万一并发变动，
@@ -1500,22 +1800,15 @@ class ExceptionPage(QWidget):
             "· 记录保留（含删除前快照），可到【mod 库】页右键「恢复」；\n"
             "· 盘上文件不动——想清文件去【清理删除】模块"
             "（失效条目在那里正好只给「仅删文件」）；\n"
-            "· 本工具不再为它生成下载命令。",
+            "· 本工具不再为它生成下载命令。\n\n"
+            "提示：result=9 的条目偶尔仍能下载成功——若还没试过"
+            "重下，可先到【下载命令生成】页试一次再决定。",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)  # 默认否（决策 69⒋）
         if ret != QMessageBox.StandardButton.Yes:
             return
-        last_state = {"title": mod.title, "url": mod.url,
-                      "time_updated": mod.time_updated,
-                      "local_timeupdated": mod.local_timeupdated,
-                      "manifest": mod.manifest,
-                      "local_size": mod.local_size,
-                      "note": mod.note,
-                      "color_tag": mod.color_tag,
-                      "is_special": mod.is_special,
-                      "local_path": mod.local_path}
         try:
-            self._repo.mark_deleted(mid, last_state)
+            self._repo.mark_deleted(mid, self._deleted_last_state(mod))
         except ValueError as exc:
             self._log.error(f"软删除失败（mod {mid}）：{exc}")
             QMessageBox.critical(
