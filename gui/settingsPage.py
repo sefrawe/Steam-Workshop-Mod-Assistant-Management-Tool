@@ -1,17 +1,20 @@
 """设置页
 """
+
 r"""config/GlobalSettings.json 的读写界面。
 
 字段分五类，校验规则不同：
+
 - 路径类（kind="file"/"dir"）：带浏览按钮，检查存在性，填错也可保存——
   使用相关功能前修正即可
 - 数字类（kind="number"）：必须正整数，保存前校验，填错整批不落盘。
   数字填错比路径填错更糟：读取层会静默回退默认值，用户以为改成功了
   实际没生效，所以必须在保存这关拦住
-- 文本类（kind="text"）：普通单行文本，不做任何校验。
-  目前只有 steamcmd 登录命令一项：它是"整行原样发给 steamcmd"的命令，
-  内容对不对只有 steamcmd 自己知道，软件校验没有意义；
-  空着也允许——用到它的功能自己会提示去填
+- 文本类（kind="text"/"text_multi"）：不做任何校验。
+  登录命令现在是多行（决策 95）：一行一条、可存多个账号，
+  第一行 = 批量下载自动登录发送的命令，其余行在 steamcmd 终端的
+  「发送登录命令」下拉框里选发。内容对不对只有 steamcmd 自己知道，
+  软件校验没有意义；空着也允许——用到它的功能自己会提示去填
 - 开关类（kind="bool"）：勾选框，存 "1"/"0"，缺键按开（默认全开）。
   勾选状态即语义，不设说明/校验两层，hint 放 tooltip；
   目前用于 mod 库页列显示开关（T19⑯）
@@ -30,6 +33,7 @@ T19⑧⑨：字段区整体装进 QScrollArea（条目多 + 常驻说明，总�
 文本就是 _FIELDS 的 hint），校验状态单独一行、只对已填内容说话——
 说明层常驻、校验层按需，两层不再互相顶掉。
 """
+
 import time
 from pathlib import Path
 
@@ -41,45 +45,55 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
-    QWidget, QComboBox,
+    QWidget,
+    QComboBox,
 )
-from gui.theme import reapply_theme
 
+from gui.theme import reapply_theme
 from core.appSettings import DEFAULTS, AppSettings
 from core.steamPaths import ensure_steamcmd_exe
 
 # key / 中文标签 / 空值时的灰色提示 / 字段类型
 # （"file"=文件 / "dir"=目录 / "number"=正整数 / "text"=普通文本不校验
-#   / "bool"=勾选开关，hint 进 tooltip）
+# / "text_multi"=多行文本不校验（决策 95 登录命令）/ "bool"=勾选开关，
+# hint 进 tooltip）
 # 注意：这里的键集必须与 appSettings.DEFAULTS 完全一致（决策 12）
 _FIELDS = [
     ("steamcmd_path", "steamcmd 程序",
-     "steamcmd.exe 完整路径（请先自行安装），如 C:\\Program Files\\SteamCMD\\steamcmd.exe；"
+     "steamcmd.exe 完整路径（请先自行安装），"
+     "如 C:\\Program Files\\SteamCMD\\steamcmd.exe；"
      "也可以直接填包含 steamcmd.exe 的文件夹——保存时自动补全 exe 文件名。"
      "命令生成、本地扫描、新建档案时的下载目录推导，都按它定位",
      "file"),
-    # hint = 决策 12 v1.6 原文；末句"账号必须拥有对应游戏"来自决策 19，
-    # 属原文之外补充，要严格照原文可删
+    # 决策 95：登录命令改多行——一行一条、可存多个账号；第一行 =
+    # 批量下载自动登录发送的命令，其余行在 steamcmd 终端的
+    # 「发送登录命令」下拉框里选发
     ("steamcmd_login_cmd", "steamcmd 登录命令",
-     "整行原样发给 steamcmd，例：login 你的用户名。"
+     "一行一条，可存多个账号的登录命令（例：login 你的用户名）。"
+     "第一行 = 批量下载自动登录发送的命令；其余行在 steamcmd 终端的"
+     "「发送登录命令」下拉框里选发。"
      "首次登录需在 steamcmd 内输入密码与邮箱验证码，成功一次后本机缓存，"
-     "之后只需此命令等待验证即可；把密码写进命令不推荐"
-     "（会明文保存在本机设置文件里）。"
+     "之后只需此命令等待验证即可；把密码写进命令会明文保存在本机"
+     "设置文件里，注意保管。"
      "账号必须拥有对应游戏，否则下载其创意工坊内容会报错",
-     "text"),
+     "text_multi"),
     ("steam_client_library", "Steam 客户端库目录",
-     "Steam 客户端存放游戏内容库的位置（如 D:\\SteamLibrary），「首次使用 → 纳入已有 mod」"
-     "按它读取客户端的订阅记录；选库根、steamapps 或 workshop 层都可以。"
-     "它只关系到 Steam 客户端，与 steamcmd 的目录无关", "dir"),
-
+     "Steam 客户端存放游戏内容库的位置（如 D:\\SteamLibrary），"
+     "「首次使用 → 纳入已有 mod」按它读取客户端的订阅记录；"
+     "选库根、steamapps 或 workshop 层都可以。"
+     "它只关系到 Steam 客户端，与 steamcmd 的目录无关",
+     "dir"),
     ("api_request_interval_ms", "API 请求间隔（毫秒）",
-     "批量查询 Steam 工坊接口时，两次请求之间的等待时间；太小可能被服务器限流",
+     "批量查询 Steam 工坊接口时，两次请求之间的等待时间；"
+     "太小可能被服务器限流",
      "number"),
     ("api_max_retries", "API 重试次数",
-     "请求被服务器限流（429/503）时的自动重试上限，每次重试间隔会逐渐拉长",
+     "请求被服务器限流（429/503）时的自动重试上限，"
+     "每次重试间隔会逐渐拉长",
      "number"),
     ("slow_update_days", "慢更新提醒阈值（天）",
      "距上次已知更新超过这个天数的 mod，在更新检测结果里标红提示"
@@ -97,7 +111,7 @@ _FIELDS = [
      "全部备份合计的容量上限；超出后从最旧的备份开始清腾（钉住的除外）",
      "number"),
     # ↓ mod 库页列显示开关（T19⑯）：编号与标题两列永远显示，不设开关；
-    #   改完点保存，回 mod 库页点【刷新】生效，无需重启
+    # 改完点保存，回 mod 库页点【刷新】生效，无需重启
     ("mod_col_status", "列表显示：状态列",
      "关闭后 mod 库页隐藏「状态」列；改完点保存，回 mod 库页点【刷新】生效",
      "bool"),
@@ -122,6 +136,15 @@ _FIELDS = [
     ("mod_col_note", "列表显示：备注列",
      "关闭后 mod 库页隐藏「备注」列；改完点保存，回 mod 库页点【刷新】生效",
      "bool"),
+    # 批次自动登录开关（决策 91，全局开关）：关掉的使用场景 = 换账号
+    # 下载——终端手动 login 另一个账号后再开批次，批次不再自动把
+    # 设置里的登录命令抢先发出去
+    ("batch_auto_login", "批量下载自动登录",
+     "开：批次开始前自动发送设置页里的登录命令（默认，维持原行为）；\n"
+     "关：批次直接发下载命令——换账号时先关掉它，到 steamcmd 终端手动"
+     "执行 login 另一个账号再开批次；没登录的话批次会停在「需要登录」"
+     "等你处理",
+     "bool"),
 ]
 
 
@@ -130,6 +153,10 @@ class SettingsPage(QWidget):
         super().__init__(parent)
         self._settings = settings
         self._edits: dict[str, QLineEdit] = {}
+        # 多行文本（决策 95）：登录命令一项。QPlainTextEdit 的读写
+        # 接口与 QLineEdit 不同（toPlainText/setPlainText），分开收，
+        # 统一读取走 _field_text 助手
+        self._multi_edits: dict[str, QPlainTextEdit] = {}
         self._checks: dict[str, QCheckBox] = {}
         self._kinds: dict[str, str] = {}
         self._statuses: dict[str, QLabel] = {}
@@ -140,7 +167,6 @@ class SettingsPage(QWidget):
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
 
     # ---------- UI ----------
-
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -171,9 +197,18 @@ class SettingsPage(QWidget):
                 form.addRow(label, cb)
                 continue
 
-            edit = QLineEdit()
-            edit.textChanged.connect(self._refresh_states)
-            self._edits[key] = edit
+            if kind == "text_multi":
+                # 多行文本（决策 95）：登录命令一行一条、可存多个
+                # 账号。读写接口与 QLineEdit 不同，单独收进
+                # _multi_edits，统一读取走 _field_text 助手
+                edit = QPlainTextEdit()
+                edit.setFixedHeight(72)  # 约四行：多个账号一眼可见
+                edit.textChanged.connect(self._refresh_states)
+                self._multi_edits[key] = edit
+            else:
+                edit = QLineEdit()
+                edit.textChanged.connect(self._refresh_states)
+                self._edits[key] = edit
             self._kinds[key] = kind
 
             if kind == "number":
@@ -187,7 +222,6 @@ class SettingsPage(QWidget):
             v = QVBoxLayout(field)
             v.setContentsMargins(0, 0, 0, 0)
             v.setSpacing(2)
-
             if kind in ("file", "dir"):
                 # 路径行 = 输入框 + 浏览按钮并排；文本项直接放输入框。
                 # 不设最小宽度：QLineEdit 横向本来就是扩张策略，
@@ -212,7 +246,6 @@ class SettingsPage(QWidget):
             status.setWordWrap(True)
             self._statuses[key] = status
             v.addWidget(status)
-
             form.addRow(label, field)
 
         scroll.setWidget(body)
@@ -232,7 +265,6 @@ class SettingsPage(QWidget):
         theme_row.addWidget(self._theme_combo)
         theme_row.addStretch(1)
         root.addLayout(theme_row)
-
 
         # 按钮与反馈行在滚动区外：保存动作和它的结果永远可见
         btn_row = QWidget()
@@ -271,22 +303,31 @@ class SettingsPage(QWidget):
             edit.setText(str(path))  # Path 的字符串形式，跟原写法等价但更直白
 
     # ---------- 数据 ----------
-
     def _load_to_ui(self) -> None:
         for key, edit in self._edits.items():
             edit.setText(self._settings.get(key))
+        # 多行文本（决策 95）：整块原样回填——库里存的就是逐行
+        # 清理过的（见 _save），这里不必再加工
+        for key, multi in self._multi_edits.items():
+            multi.setPlainText(self._settings.get(key))
         # 开关项：存 "1"/"0"；缺键/其他值按开（默认全显示）
         for key, cb in self._checks.items():
             cb.setChecked(self._settings.get(key) != "0")
         # 记住打开时的开关状态：保存时对比，才知道"这次有没有动列显示"
-        self._bools_at_load = {k: cb.isChecked()
-                               for k, cb in self._checks.items()}
+        self._bools_at_load = {k: cb.isChecked() for k, cb in self._checks.items()}
         # 主题三态初始值（缺键/非法值回落 auto）
         mode = str(self._settings.get("theme_mode") or "auto").strip()
         i = self._theme_combo.findData(mode)
         self._theme_combo.setCurrentIndex(max(i, 0))
 
-
+    def _field_text(self, key: str) -> str:
+        """读字段现值：单行走 QLineEdit.text()，多行走 toPlainText()。
+        _refresh_states 等不关心控件差异的地方统一从这走。"""
+        multi = self._multi_edits.get(key)
+        if multi is not None:
+            return multi.toPlainText()
+        edit = self._edits.get(key)
+        return edit.text() if edit is not None else ""
 
     @staticmethod
     def _number_ok(text: str) -> bool:
@@ -298,7 +339,7 @@ class SettingsPage(QWidget):
 
     def _refresh_states(self) -> None:
         for key, status in self._statuses.items():
-            text = self._edits[key].text().strip()
+            text = self._field_text(key).strip()
             kind = self._kinds[key]
             if not text:
                 # 空值：状态行留白——解释已常驻在下方小字里（T19⑨），
@@ -324,7 +365,7 @@ class SettingsPage(QWidget):
                 valid = Path(text).is_dir()
                 ok_text = "路径有效"
                 bad_text = "路径不存在（可先保存，使用相关功能前修正即可）"
-            elif kind == "text":
+            elif kind in ("text", "text_multi"):
                 # 文本项没有"对错"概念，填了就算数——
                 # 内容对不对只有 steamcmd 用起来才知道
                 valid = True
@@ -349,7 +390,6 @@ class SettingsPage(QWidget):
             self._saved_label.setText(f"以下设置需要正整数，未保存：{labels}")
             self._saved_label.setStyleSheet("color: #e5484d;")
             return
-
         for key, edit in self._edits.items():
             value = edit.text().strip()
             if key == "steamcmd_path":
@@ -359,18 +399,20 @@ class SettingsPage(QWidget):
                 value = ensure_steamcmd_exe(value)
                 edit.setText(value)  # 界面同步显示保存后的真实值
             self._settings.set(key, value)
-
+        # 多行文本（决策 95）：逐行 strip、丢空行后按 \n 拼回入库——
+        # 下游（批次取首行、终端下拉框）拿到的每行都是干净命令
+        for key, multi in self._multi_edits.items():
+            lines = [ln.strip() for ln in multi.toPlainText().splitlines()]
+            self._settings.set(key, "\n".join(ln for ln in lines if ln))
         # 开关项（T19⑯）：勾选 → "1"/"0"
         for key, cb in self._checks.items():
             self._settings.set(key, "1" if cb.isChecked() else "0")
-
         self._settings.save()
         # 列显示的生效时机是"回 mod 库页点刷新"，不在保存瞬间——
         # 动过开关就提醒一句，别让用户以为没生效
         changed = [k for k, cb in self._checks.items()
                    if cb.isChecked() != self._bools_at_load.get(k, True)]
-        self._bools_at_load = {k: cb.isChecked()
-                               for k, cb in self._checks.items()}
+        self._bools_at_load = {k: cb.isChecked() for k, cb in self._checks.items()}
         msg = f"已保存 {time.strftime('%H:%M:%S')} → {self._settings.path}"
         if changed:
             msg += "\n列显示有改动：回 mod 库页点【刷新】生效"
@@ -389,7 +431,6 @@ class SettingsPage(QWidget):
             f"主题已切换为「{self._theme_combo.currentText()}」并保存")
         self._saved_label.setStyleSheet("color: #46a758;")
 
-
     def _reset(self) -> None:
         # 数字填回默认值，而不是留空（留空虽然也能被读取层兜底，
         # 但界面上显示具体默认数更直观）；路径和文本项清空 = 默认值
@@ -399,6 +440,9 @@ class SettingsPage(QWidget):
                 edit.setText(DEFAULTS[key])
             else:
                 edit.clear()
+        # 多行文本（决策 95）：清空 = 默认值（默认本来就是空）
+        for multi in self._multi_edits.values():
+            multi.clear()
         for cb in self._checks.values():
             cb.setChecked(True)
         self._saved_label.setText("已恢复默认值，点【保存】写入文件")

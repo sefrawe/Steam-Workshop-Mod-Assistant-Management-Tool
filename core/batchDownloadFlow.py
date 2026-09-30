@@ -126,11 +126,13 @@ class BatchDownloadFlow:
             self._emit("stop_requested", mod_id=self._current)
 
     def resume(self) -> None:
-        """NEED_LOGIN 状态下，用户在终端手动登录后点"继续"。
-
+        """NEED_LOGIN 状态下手动催批次继续（决策 94 之后的兜底入口：
+        登录成功会自动续批，正常流程用不到它——留着，万一自动续批
+        被终端杂音盖住时用户还能手动点）。
         不程序化验证登录态（steamcmd 没有可靠的查询命令）——
         信任用户；真没登录好，下一条会再报未登录，无害回到 NEED_LOGIN。
         """
+
         if self._state != ST_NEED_LOGIN:
             return
         self._advance()
@@ -162,7 +164,10 @@ class BatchDownloadFlow:
         # 多余的 Steam> 行、断线重试刷屏等都不会打扰状态机）
         if self._state == ST_LOGGING_IN:
             self._on_login_verdict(verdict)
+        elif self._state == ST_NEED_LOGIN:
+            self._on_need_login_verdict(verdict)  # 决策 94
         elif self._state == ST_RUNNING:
+
             self._on_download_verdict(verdict)
         elif self._state == ST_STOPPING:
             self._on_download_verdict(verdict)
@@ -184,12 +189,29 @@ class BatchDownloadFlow:
             self._advance()
             return
         if verdict.kind == outputAnalyzer.KIND_NOT_LOGGED_ON:
-            # 登录没成（比如密码错）——转手动：用户在终端里处理
+            # 登录没成（比如密码错）——转等手动登录；登录成功后
+            # 批次自动继续（决策 94），「继续批次」保留当手动兜底
             self._state = ST_NEED_LOGIN
             self._emit("need_login", note="登录命令没有成功，"
-                       "请在终端里手动完成登录，然后点「继续批次」")
+                                          "请在终端里完成登录，登录成功后批次自动继续"
+                                          "（也可点「继续批次」）")
             return
+
         # 其余结论（断线等）不影响等待登录，忽略
+    def _on_need_login_verdict(self, verdict) -> None:
+        """NEED_LOGIN（等手动登录）状态的结论（决策 94）。
+
+        只关心一件事：登录成功 → 自动续批，走 resume() 同一条路。
+        其余结论一律忽略——等登录期间终端里会有密码回显、验证码
+        提示等各类杂音，都不该惊动状态机；真没登录好，续发的那条
+        下载命令会再报未登录，无害回到本状态（与手动「继续批次」
+        同一套兜底）。"""
+        if verdict.kind == outputAnalyzer.KIND_LOGIN_OK:
+            # 卡片沿用 login_ok 事件画"登录完成"（与自动登录路径
+            # 同款），控制器借此写"批次自动继续"日志
+            self._emit("login_ok")
+            self._advance()
+
 
     def _on_download_verdict(self, verdict) -> None:
         """下载条目的结论（RUNNING / STOPPING 状态）。"""
@@ -207,13 +229,16 @@ class BatchDownloadFlow:
             self._emit("warn", note=verdict.note)
             return
         if kind == outputAnalyzer.KIND_NOT_LOGGED_ON:
-            # 未登录：当前条放回队首，转手动登录流程
+            # 未登录：当前条放回队首，暂停等登录（决策 94：终端里
+            # 登录成功后批次自动继续，不需要再点「继续批次」）
             self._pending.insert(0, self._current)
             self._current = None
             self._state = ST_NEED_LOGIN
             self._emit("need_login", note="steamcmd 未登录——请在终端"
-                       "里完成登录，然后点「继续批次」")
+                                          "里完成登录，登录成功后批次自动继续"
+                                          "（也可点「继续批次」手动催一下）")
             return
+
         if kind == outputAnalyzer.KIND_DOWNLOAD_SUCCESS:
             self._ok.append(ItemResult(
                 verdict.mod_id, ok=True, size_bytes=verdict.size_bytes))

@@ -62,9 +62,10 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
+    QComboBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
     QPushButton, QVBoxLayout, QWidget,
 )
+
 
 from core import outputAnalyzer
 from core.backupManager import steamcmd_running
@@ -169,6 +170,16 @@ class _CommandInput(QPlainTextEdit):
             return
         super().keyPressEvent(event)
 
+class _LoginCombo(QComboBox):
+    """登录命令下拉框（决策 95）：设置里一行一条登录命令，这里列出
+    全部供点选发送。showPopup 钩子：每次展开都先重读设置刷新条目——
+    用户在设置页改完存盘回来立即生效，不用重启终端。"""
+
+    about_to_show = Signal()  # 弹出前发一次：终端面板借此重读设置
+
+    def showPopup(self) -> None:
+        self.about_to_show.emit()
+        super().showPopup()
 
 class TerminalDock(QWidget):
     """steamcmd 终端：启动/停止子进程 + 原文输出 + 手动命令。"""
@@ -203,7 +214,7 @@ class TerminalDock(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(4, 4, 4, 4)
 
-        # 顶部：状态 + 三个控制按钮
+        # 顶部：状态 + 启动/停止 + 登录命令下拉框（决策 95）
         top = QHBoxLayout()
         self._lbl_state = QLabel("未启动", self)
         self._btn_start = QPushButton("启动 steamcmd", self)
@@ -214,22 +225,41 @@ class TerminalDock(QWidget):
         self._btn_stop.setToolTip(
             "先发 quit 优雅退出（保住登录缓存）；5 秒没退才强杀。\n"
             "下载批次进行中会先确认——停止 steamcmd = 中止批次")
-
-        self._btn_login = QPushButton("发送登录命令", self)
-        self._btn_login.setToolTip(
-            "把设置页里填的登录命令原样发给 steamcmd；"
+        # 发送登录命令（决策 95）：原按钮改下拉框——设置里一行一条
+        # 登录命令（可存多个账号），选中即发送；每次展开重读设置，
+        # 设置页改完存盘立即生效。还没有命令时显示占位条目指路设置页
+        self._login_combo = _LoginCombo(self)
+        self._login_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self._login_combo.setToolTip(
+            "列出设置页「steamcmd 登录命令」里的每一行（一行一个账号），"
+            "点选即把该行命令发给 steamcmd；\n每次展开都会重读设置，"
+            "设置页里改完存盘立即生效；\n"
             "还没填的话去设置页 → steamcmd 登录命令")
+        self._login_combo.setEnabled(False)
+        self._login_combo.activated.connect(self._on_send_login)
+        self._login_combo.about_to_show.connect(self._reload_login_items)
         self._btn_start.clicked.connect(self._on_start)
         self._btn_stop.clicked.connect(self._on_stop)
         self._btn_stop.setEnabled(False)
-        self._btn_login.clicked.connect(self._on_send_login)
-        self._btn_login.setEnabled(False)
         top.addWidget(self._lbl_state)
         top.addWidget(self._btn_start)
         top.addWidget(self._btn_stop)
-        top.addWidget(self._btn_login)
-        top.addStretch(1)  # T19⑥：弹簧挪到按钮后面——按钮靠左，与 mod 库页顶栏同风格
+        top.addWidget(self._login_combo)
+        top.addStretch(1)
+        # T19⑥：弹簧挪到按钮后面——按钮靠左，与 mod 库页顶栏同风格
         root.addLayout(top)
+        # 常驻提醒一行（用户需求）：单点登录顶下线 + 软件内外两个
+        # steamcmd 争目录。启动时的单实例弹窗只在"已有 steamcmd 在跑"
+        # 时出现，这行灰字常驻可见，补上"启动前"的知情。
+        # 开换行防窄窗撑宽（踩坑⑨），11px 灰字不抢输出区空间。
+        hint = QLabel(
+            "提醒：steamcmd 与 Steam 客户端同一账号只能登一处，"
+            "后登录的会把先登录的顶下线；也不建议在软件外另开一个 "
+            "steamcmd 同时下载——两边会争用同一个下载目录。", self)
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: gray; font-size: 11px;")
+        root.addWidget(hint)
 
         # 中部：输出区（等宽字体更像终端；上限 5000 行防内存膨胀，
         # 超出自动丢最旧行——与运行日志的 2000 行同理，实现都是一行设置）
@@ -419,7 +449,10 @@ class TerminalDock(QWidget):
         self._lbl_state.setText("运行中" if running else "未启动")
         self._btn_start.setEnabled(not running)
         self._btn_stop.setEnabled(running)
-        self._btn_login.setEnabled(running)
+        self._login_combo.setEnabled(running)
+        if running:
+            # 启动即重建下拉条目（决策 95）；之后每次展开还会重读
+            self._reload_login_items()
         self._input.setEnabled(running)
         self._btn_send.setEnabled(running)
 
@@ -543,18 +576,37 @@ class TerminalDock(QWidget):
             self._input.clear()
             self._log.info(head + "，进度见「下载批次」标签页，"
                                   "结束后自动扫描入账")
+    def _login_cmds(self) -> list[str]:
+        """设置里的登录命令清单（决策 95）：一行一条、去空行。
+        每次现读设置——不缓存，改完存盘立即生效。"""
+        raw = (str(self._settings.get(_LOGIN_CMD_KEY) or "")
+               if self._settings is not None else "")
+        return [ln.strip() for ln in raw.splitlines() if ln.strip()]
 
-    def _on_send_login(self) -> None:
-        """把设置页里的登录命令原样发给 steamcmd。
+    def _reload_login_items(self) -> None:
+        """重建下拉条目（启动时 + 每次展开时调，见 _LoginCombo）。
+        一条都没有时放占位条目——下拉保持能展开，点了在日志里
+        指路设置页，比置灰更能告诉用户"去哪填"。"""
+        self._login_combo.clear()
+        cmds = self._login_cmds()
+        if cmds:
+            for cmd in cmds:
+                self._login_combo.addItem(cmd)
+        else:
+            self._login_combo.addItem("（设置里还没有登录命令）")
+
+    def _on_send_login(self, index: int) -> None:
+        """下拉框选中一条登录命令 → 原样发给 steamcmd（决策 95）。
 
         登录命令可能有验证码等后续交互——那部分用户直接在下面的
         输入框里敲（这正是保留手动输入框的原因）。
         """
-        cmd = (str(self._settings.get(_LOGIN_CMD_KEY) or "").strip()
-               if self._settings is not None else "")
-        if not cmd:
+        cmds = self._login_cmds()  # 展开时刚重读过，这里再取一次对齐
+        if not cmds:
             self._log.warn("设置里还没填登录命令：设置页 → steamcmd 登录命令")
             return
-        if self.send_command(cmd):
+        if index < 0 or index >= len(cmds):
+            return  # 陈旧索引兜底：条目刚被重建过，这次点了不算
+        if self.send_command(cmds[index]):
             self._log.info("登录命令已发送，等 steamcmd 应答；"
                            "若提示验证码，直接在下方输入框输入即可")

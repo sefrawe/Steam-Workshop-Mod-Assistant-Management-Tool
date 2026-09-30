@@ -25,6 +25,7 @@ import sqlite3
 import sys
 import threading
 from pathlib import Path
+from gui.gameExitPage import GameExitPage
 
 from PySide6.QtCore import QSettings, QUrl, Qt
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QPixmap
@@ -91,6 +92,7 @@ _IDX_MIGRATION = 17  # 功能模块：换机迁移 = _pages 末尾 append 后落
 _IDX_DELETE = 18   # 功能模块：清理与删除 = _pages 末尾 append 后落位（决策 13 模式）
 _IDX_UNINSTALL = 19 # 功能模块：卸载与清理 = _pages 末尾 append 后落位（决策 13 模式）
 _IDX_UPDATE_COMPARE = 20  # 基础功能：更新对照 = _pages 末尾 append 后落位
+_IDX_GAME_EXIT = 21  # 功能模块：游戏退场 = _pages 末尾 append 后落位（决策 13 模式）
 
 
 
@@ -130,6 +132,7 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
 
         ("分享清单", _IDX_SHARE),  # 决策 34 第二档：文件菜单两项的第二入口 + 收尾引导
         ("卸载与清理", _IDX_UNINSTALL),  # 决策 70：便携形态的收尾——记忆迁移/注册表指引/盘点
+        ("游戏退场", _IDX_GAME_EXIT),  # 决策 96：退场五步引导
 
     ]),
     ("mod 库", 0),
@@ -271,7 +274,7 @@ class MainWindow(QMainWindow):
             DeletePage(self._repo, self._settings, self._stack, log=self._log),  # 18 功能模块：清理与删除（决策 69）
             UninstallPage(self._repo, self._settings, self._stack, log=self._log),  # 19 功能模块：卸载与清理（决策 70）
             UpdateComparePage(self._repo, self._stack),  # 20 基础功能：更新对照（只读）
-
+            GameExitPage(self._repo, self._settings, self._stack,log=self._log),  # 21 功能模块：游戏退场（决策 96）
 
         ]
         for page in self._pages:
@@ -358,6 +361,20 @@ class MainWindow(QMainWindow):
         # ⑦扫描确认：转调 mod 库页 quiet 扫描链（与"恢复旧版本"③同一条链）
         self._pages[_IDX_MIGRATION].rescan_requested.connect(
             self._on_migration_rescan)
+        # —— 功能模块「游戏退场」（决策 96）：四个转调，零新引擎 ——
+        # ①留后路两件：与文件菜单/分享清单模块同一批方法
+        self._pages[_IDX_GAME_EXIT].share_out_requested.connect(
+            self._export_sharepack)
+        self._pages[_IDX_GAME_EXIT].ledger_export_requested.connect(
+            self._export_ledger)
+        # ②备份处置：跳备份总览并按该档案过滤（删除对话框
+        # overview_requested 的同一落点）
+        self._pages[_IDX_GAME_EXIT].overview_requested.connect(
+            self._on_overview_requested)
+        # ⑤删除档案：转调档案切换器的删除对话框（「游戏」菜单同一份）
+        self._pages[_IDX_GAME_EXIT].delete_archive_requested.connect(
+            self._switcher.open_delete)
+
         # —— 功能模块「清理与删除」（决策 69）：孤儿认领的两条跳转 ——
         self._pages[_IDX_DELETE].goto_ledger_requested.connect(
             lambda: self._goto_page(0))   # mod 库页：扫描本地自动认领 / 右键手动确认
@@ -649,6 +666,9 @@ class MainWindow(QMainWindow):
                 self._pages[index].refresh()
             if index == _IDX_UPDATE_COMPARE:
                 # 检测/扫描在别的页跑完后切过来即最新（只读页，毫秒级）
+                self._pages[index].refresh()
+            if index == _IDX_GAME_EXIT:
+                # 进页重盘点：联接形态、盘上有无、steamcmd 是否在跑都可能刚变
                 self._pages[index].refresh()
 
     def _on_overview_requested(self, app_id: int) -> None:

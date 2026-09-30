@@ -182,8 +182,13 @@ class LinkGuideDialog(QDialog):
         btn_row = QWidget(self)
         bh = QHBoxLayout(btn_row)
         bh.setContentsMargins(0, 0, 0, 0)
+
         self._check_btn = QPushButton("检测", btn_row)
+        self._check_btn.setToolTip(
+            "判定你填的目录现在处于哪种连接状态，"
+            "并按状态给出对应的操作步骤与命令。")
         self._check_btn.clicked.connect(self._on_check)
+
         bh.addWidget(self._check_btn)
         bh.addStretch(1)
         v.addWidget(btn_row)
@@ -193,6 +198,10 @@ class LinkGuideDialog(QDialog):
         v.addWidget(self._state_label)
         self._detail_label = QLabel("", self)
         self._detail_label.setWordWrap(True)
+        # 解析出的目标路径要能选中复制，方便和自己的目录核对
+        self._detail_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+
         v.addWidget(self._detail_label)
 
         # 两个命令块：标题、内容、显隐全部由 _refresh 按状态分派
@@ -205,12 +214,17 @@ class LinkGuideDialog(QDialog):
         # 建新的），必须先摆在上面；旧版建链块固定在上，等于让人先做
         # 第 2 步——mklink 会因"目标已存在"直接报错。
         self._cmd_layout = v  # 存一份引用：_refresh 里个别状态还要微调次序
-        v.addWidget(self._remove_box)
-        v.addWidget(self._build_box)
-
+        # 步骤说明摆在命令块上方：像"需先搬运再建链"这种状态，执行顺序是
+        # 搬运（说明）→ 移除 → 建链，说明压在命令后面时用户先看到两条
+        # 命令、滚到底才明白第 1 步是什么——阅读顺序必须等于执行顺序。
         self._steps_label = QLabel("", self)
         self._steps_label.setWordWrap(True)
+        # 路径写进步骤里后要能选中复制（搬运目标、解析目标都靠它）
+        self._steps_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
         v.addWidget(self._steps_label)
+        v.addWidget(self._remove_box)
+        v.addWidget(self._build_box)
 
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
@@ -231,7 +245,10 @@ class LinkGuideDialog(QDialog):
         head = QHBoxLayout()
         title = QLabel("", box)
         title.setStyleSheet("font-weight: 600;")
+
         btn = QPushButton("复制", box)
+        btn.setToolTip("复制这条命令，粘贴到 cmd 窗口里回车执行。")
+
         btn.setFixedWidth(64)
         head.addWidget(title, 1)
         head.addWidget(btn)
@@ -359,22 +376,32 @@ class LinkGuideDialog(QDialog):
             steps = ("① 先执行移除命令——rmdir 只删得动空目录，里面有东西会"
                      "报错拒绝（这是保护）；② 再执行建链命令。"
                      "建议 steamcmd 空闲时操作。")
+
         elif report.state == "real_dir":
             show_build = True
             show_remove = True
-            build_title = "第 2 步：建链命令（在 cmd 里执行）"
+            # 三步重编号：旧版两块命令都叫"第 2 步"，第 1 步搬运
+            # 只活在底部说明里，照页面读会先做"第 2 步"
+            build_title = "第 3 步：建链命令（在 cmd 里执行）"
             build_cmd = f'cmd /c mklink /J "{link}" "{target}"'
             remove_title = "第 2 步：移除已搬空的目录（在 cmd 里执行）"
             remove_cmd = f'rmdir "{link}"'
-            steps = ("① 把该目录里的内容整体移动到下载目录（资源管理器剪切"
-                     "粘贴即可）；移动过去的非编号mod"
-                     "会出现在核验页「账未记」清单里，属正常——右键"
-                     "「确认已下载（手动）」即可收编；"
-                     "② 移空后：先执行移除命令，再执行建链命令。"
-                     "建议 steamcmd 空闲时操作。")
+            # 步骤里直接写明第 1 步搬到哪（路径可选中复制）；
+            # "非编号mod"改成人话；rmdir 报错是保护这点一并说清
+            steps = (
+                "第 1 步：把这个目录里的内容整体移动到下载目录：\n"
+                f"{target}\n"
+                "（资源管理器剪切 → 粘贴即可）。有工坊编号的 mod 搬过去"
+                "账本照常认识；没有编号的（手动放进去的）会出现在核验页"
+                "「账未记」清单里，属正常——右键「确认已下载（手动）」"
+                "即可收编。\n"
+                "第 2 步：移空后执行移除命令。rmdir 只删得动空目录——"
+                "没搬完它会报错拒绝，这是保护，搬完再执行即可。\n"
+                "第 3 步：执行建链命令。建议 steamcmd 空闲时操作。")
+
         elif report.state == "missing":
             show_build = True
-            build_title = "建链命令（在 cmd 命令提示符里执行）"
+            build_title = "建链命令（在 cmd 里执行）"
             build_cmd = f'cmd /c mklink /J "{link}" "{target}"'
             steps = ("① 确认上方路径的上级文件夹已存在（路径拼错是建链失败"
                      "最常见的原因）；② 在 cmd 里执行建链命令。"
@@ -409,10 +436,11 @@ class LinkGuideDialog(QDialog):
         if lay.indexOf(top) > lay.indexOf(bottom):
             lay.removeWidget(top)
             lay.removeWidget(bottom)
+            # 步骤说明已在命令块上方（见 _build_ui），重排时插在它
+            # 后面一格——锚点不带 +1 会把命令块插回步骤前面
             i = lay.indexOf(self._steps_label)
-            lay.insertWidget(i, top)
-            lay.insertWidget(i + 1, bottom)
-
+            lay.insertWidget(i + 1, top)
+            lay.insertWidget(i + 2, bottom)
 
         # ---- T19㉒：检测通过 → 广播"游戏读取目录"（写账归调用方）----
         # 只有两种"全通"状态算通过：正向 linked（游戏侧联接指对）、

@@ -59,8 +59,16 @@ DEFAULTS: dict[str, str] = {
     "mod_col_tags": "1",
     "mod_col_special": "1",
     "mod_col_note": "1",
-
+    # 批量下载自动登录开关（决策 91）：设置页 _FIELDS 里同名键的默认值。
+    # "1" = 批次开始前自动发送设置页里的登录命令（维持原行为；
+    # 旧配置文件没这个键时，load() 从 DEFAULTS 起底合并，自动落到这里）；
+    # "0" = 不预发登录命令——换账号场景：先在终端手动 login 另一账号，
+    # 再开批次。
+    # 决策 12 键集口径：进了设置页 _FIELDS 的键必须在这里有默认值，
+    # 否则设置页「恢复默认」取 DEFAULTS[key] 时缺键当场崩。
+    "batch_auto_login": "1",
 }
+
 
 
 class AppSettings:

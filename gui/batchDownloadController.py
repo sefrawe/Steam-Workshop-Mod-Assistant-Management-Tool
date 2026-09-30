@@ -35,6 +35,9 @@ from core.backupManager import BackupManager
 
 # 登录命令在设置里的键名（与 settingsPage._FIELDS 同名，决策 12）
 _LOGIN_CMD_KEY = "steamcmd_login_cmd"
+# 批次自动登录开关的键名（与 settingsPage._FIELDS 同名）
+_AUTO_LOGIN_KEY = "batch_auto_login"
+
 # 备份保留策略的两个键名（与 backupPage 同名同源，决策 12）
 _KEY_KEEP_PER_MOD = "backup_keep_per_mod"
 _KEY_QUOTA_GB = "backup_total_quota_gb"
@@ -286,9 +289,26 @@ class BatchDownloadController(QObject):
     # ---------------- 内部：接线管理 ----------------
 
     def _login_cmd(self) -> str:
+        """批次要预发的登录命令；返回空串 = 不预发、直接进下载。
+
+        多行口径（决策 95）：设置里一行一条登录命令，批量下载
+        默认发第一条非空行。老配置是单行值 = 只有一行 = 原行为。
+        开关「批量下载自动登录」关闭时永远返回空串，批次跳过登录
+        阶段——想换账号时先在终端手动 login，再开批次。关了开关
+        又没登录也不用担心：下载命令报未登录时批次转「需要登录」
+        暂停（现成流程），登录成功后批次自动继续（决策 94）。
+        """
         if self._settings is None:
             return ""
-        return str(self._settings.get(_LOGIN_CMD_KEY) or "").strip()
+        # bool 存 "1"/"0"，缺键按开（默认维持原行为）
+        if str(self._settings.get(_AUTO_LOGIN_KEY) or "1") == "0":
+            return ""
+        # 一行一条，取第一条非空行；空配置 = 不预发
+        for line in str(self._settings.get(_LOGIN_CMD_KEY) or "").splitlines():
+            line = line.strip()
+            if line:
+                return line
+        return ""
 
     def _detach(self, flow) -> None:
         """拆掉本批次的信号接线（批次结束 / 启动失败都要调）。
@@ -317,6 +337,12 @@ class BatchDownloadController(QObject):
         t = ev.get("type")
         if t == "need_login":
             self._log.warn(ev.get("note") or "批次暂停：需要手动登录")
+        elif t == "login_ok":
+            # 决策 94：等登录期收到登录成功 → 批次自动继续（自动
+            # 登录路径同样会发 login_ok，这句日志两种路径都成立；
+            # "登录成功"结论本身终端已写过日志，这里补批次视角）
+            self._log.info("检测到登录成功：下载批次自动继续")
+
         elif t == "batch_done":
             s = ev.get("summary") or {}
             # 备份阶段的失败清单并进汇总，一次交清（决策 40）
