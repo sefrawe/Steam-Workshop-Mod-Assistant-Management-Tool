@@ -370,6 +370,14 @@ class ModListPage(QWidget):
             "场景，未收录的编号照样能开；先预览再打开，全程不改账本")
         self._act_open_pages_list.triggered.connect(self._on_open_pages_paste)
         self._actions_menu.addAction(self._act_open_pages_list)
+        # 复制勾选编号（小件）：每行一个进剪贴板——可直接贴给
+        # 网址批量导入 / 快速命令查询 / 任何别的工具
+        self._act_copy_ids = QAction("复制勾选编号", self._actions_menu)
+        self._act_copy_ids.setToolTip(
+            "把勾选 mod 的工坊编号逐行复制进剪贴板（每行一个）："
+            "可直接贴进【网址批量导入】、快速命令查询或任何别的工具")
+        self._act_copy_ids.triggered.connect(self._on_copy_ids_checked)
+        self._actions_menu.addAction(self._act_copy_ids)
 
         # 菜单动作 tooltip 默认不显示，显式打开（T19⑩）
         self._actions_menu.setToolTipsVisible(True)
@@ -783,6 +791,10 @@ class ModListPage(QWidget):
             "（steamcmd 工坊内容目录下以编号命名的文件夹）")
         act_folder.triggered.connect(lambda: self._open_mod_folder(m))
         menu.addAction(act_folder)
+        act_copy = QAction("复制编号", menu)
+        act_copy.setToolTip("把这个 mod 的工坊编号复制到剪贴板")
+        act_copy.triggered.connect(lambda: self._copy_id(mid))
+        menu.addAction(act_copy)
 
         menu.addSeparator()
 
@@ -848,6 +860,20 @@ class ModListPage(QWidget):
             "删除后更新检测不再查询、命令生成不再列出")
         act_del.triggered.connect(lambda: self._soft_delete(m))
         menu.addAction(act_del)
+        # 彻底清账（决策 106）：只对已删除/已收录开放——downloaded 的
+        # 完整出口（删文件+清账/仅删文件）在【清理与删除】页，那里才有
+        # 文件处置选项。这里的缝隙是"账上记着 deleted/tracked、盘上又
+        # 没文件"的记录此前三个处置页都摸不到（v2.48 用户 todo）
+        if m.status in ("deleted", "tracked"):
+            act_purge = QAction("彻底清账（不可逆）…", menu)
+            act_purge.setToolTip(
+                "把这条记录从账本里物理删除：记录、版本快照、特别关注"
+                "提醒一并清除，不可恢复。\n磁盘上的文件一个不碰"
+                "（盘上还有内容目录的话，之后会以「孤儿目录」出现在"
+                "【异常处理】页）。\n名下有备份登记时可勾选一并删除登记"
+                "（磁盘备份文件夹仍保留）")
+            act_purge.triggered.connect(lambda: self._purge_record(m))
+            menu.addAction(act_purge)
 
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
@@ -957,6 +983,77 @@ class ModListPage(QWidget):
             f"已软删除 {len(targets)} 个"
             + (f"（跳过已是删除状态 {len(skipped)} 个）" if skipped else ""))
         self._reload()
+    def _copy_id(self, mid: int) -> None:
+        """右键「复制编号」：剪贴板 + 日志回执（决策 22③ 口径）。"""
+        QApplication.clipboard().setText(str(mid))
+        self._log.info(f"已复制编号 {mid}")
+
+    def _on_copy_ids_checked(self) -> None:
+        """【复制勾选编号】：勾选的 mod 编号每行一个进剪贴板。
+        与批量动作同一纪律：只收当前清单里显示的勾选。"""
+        if not self._require_game():
+            return
+        ids = self._model.checked_ids_in_rows()
+        if not ids:
+            QMessageBox.information(
+                self, "复制勾选编号", "先在表格第一列勾选要复制的 mod。")
+            return
+        QApplication.clipboard().setText(
+            "\n".join(str(i) for i in ids) + "\n")
+        self._log.ok(f"已复制 {len(ids)} 个编号（每行一个）")
+
+    def _purge_record(self, m) -> None:
+        """右键「彻底清账」（决策 106）：账本条目物理删除的终结出口，
+        走 repo.purge_mod 正门。补齐的缝隙：状态 deleted/tracked 且
+        盘上没文件的记录，此前清理页（只收盘上有目录的）、异常页
+        桶④（只收失效归档/failed）、核验页（只对账 downloaded）都
+        摸不到，唯一终点只能是永远躺在已删除筛选里。
+        本动作只删账：failed_mods 归档与 operations_log 刻意存活
+        （决策 69⑥）——异常页桶④会以「已清账」历史归档收档
+        （决策 102/104 的闭环在这里接上）。"""
+        box = QMessageBox(self)
+        box.setWindowTitle("彻底清账")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            f"确定将「{m.title or m.mod_id}」（mod {m.mod_id}）的记录"
+            "彻底清除？\n\n"
+            "· 记录、版本快照、特别关注提醒：物理删除，不可恢复；\n"
+            "· 磁盘：一个字节不动——下载内容、备份文件夹全部原样"
+            "（盘上还有内容目录的话，之后会以「孤儿目录」出现在"
+            "【异常处理】页，可再处置）；\n"
+            "· 失效归档与操作日志保留作历史证据（异常处理页状态筛"
+            "「已清账」可查）。")
+        cb = QCheckBox("同时删除备份登记（磁盘上的备份文件夹仍保留）", box)
+        cb.setToolTip("不勾：备份登记保留，成为无主登记；\n"
+                      "勾：只删登记，磁盘备份文件夹照旧保留")
+        box.setCheckBox(cb)
+        b_no = box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        b_yes = box.addButton("彻底清账",
+                              QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(b_no)  # 默认永远保守（决策 69⒋）
+        box.exec()
+        if box.clickedButton() is not b_yes:
+            self._log.info("已取消彻底清账：没有做任何改动")
+            return
+        try:
+            n_backups = self._repo.purge_mod(
+                m.mod_id, purge_backups=cb.isChecked())
+        except ValueError as exc:
+            # RESTRICT 闸：名下还有备份登记且没勾"同时删除"
+            self._log.error(f"彻底清账失败（mod {m.mod_id}）：{exc}")
+            QMessageBox.warning(
+                self, "无法彻底清账",
+                f"{exc}\n\n两条出路：\n"
+                "① 回到刚才的弹窗勾选「同时删除备份登记」再来一次；\n"
+                "② 到【清理与删除】页盘点处置（那里能连磁盘备份文件"
+                "一起勾掉）。")
+            return
+        self._log.warn(
+            f"mod {m.mod_id} 已彻底清账：记录物理删除"
+            + (f"，随账清除备份登记 {n_backups} 份" if n_backups else "")
+            + "；磁盘文件未动")
+        self._selected_mod_id = None  # 详情面板正显示的就是它，清掉
+        self._reload()
 
     def _restore_deleted(self, m) -> None:
         """右键「恢复（取消软删除）」（决策 69 回程票的兑现项）。
@@ -994,6 +1091,8 @@ class ModListPage(QWidget):
         self._act_special_on.setText(f"设为特别关注{label}")
         self._act_special_off.setText(f"取消特别关注{label}")
         self._act_open_pages.setText(f"打开工坊页面{label}")
+        self._act_copy_ids.setText(f"复制勾选编号{label}")
+
 
     def _require_game(self) -> bool:
         """操作菜单各入口的公共守卫（T15 批 1）：没选档案时弹窗指路，

@@ -1013,7 +1013,21 @@ class MainWindow(QMainWindow):
         为所属档案复扫入账（决策 26 现成链路），账本里没有的编号由
         复扫自动补录（决策 20 现成链路）。"""
         if command_app_ids:
-            app_id = command_app_ids[0]
+            apps = sorted(set(command_app_ids))
+            if len(apps) > 1:
+                # 混游戏命令守卫（决策 105 小件）：批次单 AppID，
+                # 混贴会把后面的全下成 No match——拦下说清，
+                # 指路快速命令查询（按条目生成归属正确的命令）
+                self._log.warn(
+                    f"这批命令混着 {len(apps)} 个游戏的条目（AppID "
+                    f"{'、'.join(str(a) for a in apps)}）：一个批次只能"
+                    "服务一个游戏，请按游戏分开粘贴；或到【下载命令生成"
+                    " → 快速命令查询】重新生成——那里按每个条目自己的"
+                    "游戏出命令，同游戏的行相邻")
+                self._console.terminal.batch_handoff_receipt(False)
+                return
+            app_id = apps[0]
+
             game = self._repo.get_game(app_id)
             if game is None:
                 self._log.info(

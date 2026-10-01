@@ -1052,19 +1052,27 @@ class ExceptionPage(QWidget):
             # 展开（「只看有问题的桶」也不藏它——历史不是问题）
             card.has_attention = any(r["cat"] != "已清账" for r in rows)
 
-            # 状态行：总数 + 分类计数。已清账是终结态历史归档，
-            # 不混进活账计数、单独报数（v2.48 决策 102）
+            # 状态行：活账数 + 分类计数。已清账是终结态历史归档，
+            # 不算异常、不进红色计数（v2.48 决策 104）——红字只属于
+            # 还有待处置活账的情形；只剩历史时整行灰字收场
             n_cat = {c: 0 for c in _CAT_ORDER}
             for r in rows:
                 n_cat[r["cat"]] += 1
             n_arch = n_cat["已清账"]
+            n_live = len(all_invalid) - n_arch
             live = [c for c in _CAT_ORDER if c != "已清账"]
             stat = " · ".join(f"{c} {n_cat[c]}" for c in live if n_cat[c])
-            if n_arch:
-                stat += (f" · 已清账 {n_arch}（彻底清账的历史归档，"
-                         "默认不显示，状态筛「已清账」可查）")
             extra = f"（含联网新确认 {len(newly)} 个）" if newly else ""
-            card.set_status(f"{len(all_invalid)} 个{extra}：{stat}", _C_FAIL)
+            if n_live:
+                if n_arch:
+                    stat += (f" · 已清账 {n_arch}（历史归档，默认不显示，"
+                             "状态筛「已清账」可查）")
+                card.set_status(f"{n_live} 个{extra}：{stat}", _C_FAIL)
+            else:
+                card.set_status(
+                    f"无待处置异常 · 已清账 {n_arch}"
+                    "（彻底清账的历史归档，默认不显示，状态筛「已清账」可查）",
+                    _C_MUTED)
 
             # -- 引导文字：先试重下（⓪）→ 三步主路径 → 进阶一句话 --
             card.add_text(
@@ -1195,8 +1203,13 @@ class ExceptionPage(QWidget):
         card.set_expanded(False)
 
         # ---- 汇总行 ----
+        # 已清账的归档行（账本条目已删 = 不在 lib_ids）不算"本地发现"——
+        # 它们是历史证据，不是异常（v2.48 决策 104）
+        n_purged_arch = sum(1 for mid in rep.failed_ids if mid not in lib_ids)
         local_total = (len(b1_ids) + len(rep.missing) + len(rep.orphans)
-                       + len(rep.failed_ids) + len(rep.non_numeric))
+                       + len(rep.failed_ids) - n_purged_arch
+                       + len(rep.non_numeric))
+
         if remote is not None:
             remote_total = (len(remote.invalid) + len(remote.query_failed)
                             + len(remote.suspected_collection))
@@ -1305,7 +1318,9 @@ class ExceptionPage(QWidget):
         combo_filter.setToolTip(
             "只显示所选分类的失效条目。「已收录·未下载」= 从未下载过"
             "就失效的条目（无可转移的整理内容，直接软删除即可）；"
-            "「已删除」= 本页软删除过的（可到 mod 库页恢复）。")
+            "「已删除」= 本页软删除过的（可到 mod 库页恢复）；"
+            "「已清账」= 彻底清账后的历史归档（只读）。")
+
         combo_filter.currentTextChanged.connect(self._on_b4_filter)
         bh.addWidget(combo_filter)
         lbl_v = QLabel("视图", bar)

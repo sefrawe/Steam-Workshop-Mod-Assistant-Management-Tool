@@ -167,7 +167,14 @@ def describe(v: Verdict) -> str:
     if v.kind == KIND_DOWNLOAD_SUCCESS:
         return f"mod {v.mod_id} 下载成功（{v.size_bytes} 字节）"
     if v.kind == KIND_DOWNLOAD_FAILED:
-        return f"mod {v.mod_id} 下载失败：{v.reason}"
+        base = f"mod {v.mod_id} 下载失败：{v.reason}"
+        if "no match" in (v.reason or "").casefold():
+            # No match = 该游戏名下没有这个条目：AppID 与编号多半
+            # 不匹配（条目属于别的游戏），或条目已不存在
+            base += "（该游戏名下没有此条目：AppID 与编号多半不匹配，" \
+                    "或条目已不存在）"
+        return base
+
     if v.kind == KIND_DOWNLOAD_TIMEOUT:
         return f"mod {v.mod_id} 下载超时（steamcmd 判定）"
     if v.kind == KIND_NOT_LOGGED_ON:

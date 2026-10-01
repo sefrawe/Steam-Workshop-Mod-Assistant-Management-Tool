@@ -112,6 +112,11 @@ class WorkshopItem:
     views: int | None
     tags: list[str]           # 无标签时为空列表（与库里"空列表=清空"语义对齐）
     preview_url: str | None
+    # 条目所属游戏（GetPublishedFileDetails 的 consumer_app_id 字段）。
+    # 快速命令查询（决策 105）用它给每条命令配正确的 AppID——
+    # 此前"匿名接口不返回所属游戏"的说法是错的，本字段一直都在
+    consumer_app_id: int | None = None
+
 
     @classmethod
     def from_api(cls, d: dict) -> "WorkshopItem":
@@ -131,8 +136,12 @@ class WorkshopItem:
             favorited=_to_int(d.get("favorited")),
             views=_to_int(d.get("views")),
             tags=tags,
+
             preview_url=(str(d["preview_url"])
-                         if d.get("preview_url") is not None else None),
+
+            if d.get("preview_url") is not None else None),
+            consumer_app_id=_to_int(d.get("consumer_app_id")),
+
         )
 
 

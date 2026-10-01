@@ -215,9 +215,17 @@ class AddModPage(QWidget):
             "未启动时会提示；\n批次结束后自动复扫并盘点第④步，不用再"
             "手动确认")
         self._btn_batch.clicked.connect(self._on_batch_download_clicked)
+        self._btn_verify = QPushButton("核验命令可行性…", self)
+        self._btn_verify.setToolTip(
+            "把上面生成的命令送进「快速命令查询」联网核实：游戏与 mod "
+            "是否对应、条目是否已被下架——确认没问题再复制去 steamcmd"
+            "（联网走官方接口；本页勾选与批次不受影响）")
+        self._btn_verify.clicked.connect(self._on_verify_clicked)
         row3.addWidget(self._btn_copy)
+        row3.addWidget(self._btn_verify)
         row3.addWidget(self._btn_batch)
         row3.addStretch(1)
+
         box3.addLayout(row3)
 
         # ④ 确认卡：说明 + 扫描确认按钮
@@ -317,6 +325,8 @@ class AddModPage(QWidget):
         self._btn_register.setEnabled(False)
         self._btn_register.setText("入库并生成命令")
         self._btn_copy.setEnabled(False)
+        self._btn_verify.setEnabled(False)
+
         self._btn_batch.setEnabled(False)
         self._btn_scan.setEnabled(False)
         self._btn_parse.setEnabled(self._game is not None)
@@ -335,7 +345,7 @@ class AddModPage(QWidget):
             self._set_card(self._d2, "把网址或命令文本粘贴到下方，点"
                                      "【解析预览】；这一步只解析与对表，不写入"
                                      "任何数据。", _C_MUTED)
-        self._set_card(self._d3, "先在第②步解析预览，确认无误后再入库。",
+        self._set_card(self._d3, "先在第②步解析预览，确认无误后再入库。下载命令粘贴进steamcmd前，可以到“下载命令生成”页的或下方的“快速命令查询”里联网验证哪些命令是否行得通（游戏与mod是否正确对应，mod是否被下架）",
                        _C_MUTED)
         self._set_card(self._d4, "入库后点【开批下载】（结束后自动确认），"
                                  "或复制命令到终端手动执行后回来点【扫描确认】。",
@@ -493,6 +503,8 @@ class AddModPage(QWidget):
         self._batch_app_id = app_id
         self._cmd_view.setPlainText(text)
         self._btn_copy.setEnabled(bool(text))
+        self._btn_verify.setEnabled(bool(text))
+
         self._btn_batch.setEnabled(bool(ids))
         self._btn_scan.setEnabled(True)
         self._set_card(
@@ -501,6 +513,20 @@ class AddModPage(QWidget):
             f"生成（{len(ids)} 行）。点【开批下载】交给控制台执行，或"
             "【复制命令】到终端手动粘贴。", _C_OK)
         self._log.ok(f"已入库 {n} 个新 mod，下载命令已生成（{len(ids)} 行）")
+    def _on_verify_clicked(self) -> None:
+        """【核验命令可行性…】：把第③步生成的命令原文预填进
+        「快速命令查询」对话框，查询由用户亲手点——命令行里旧
+        AppID 以重查结果为准，游戏与 mod 对不对得上、条目是否被
+        下架一眼看全（卡③文案里那句话的实体系）。命令框为空时
+        按钮本就置灰（与【复制命令】同生命周期）。就地 import：
+        本页唯一用点。"""
+        from gui.quickCommandDialog import QuickCommandDialog
+        dlg = QuickCommandDialog(self._repo, self._settings, self,
+                                 log=self._log, game=self._game)
+        text = self._cmd_view.toPlainText().strip()
+        if text:
+            dlg.set_input_text(text)  # 预填核验对象：只填不跑，防呆不省
+        dlg.exec()
 
     def _on_copy_clicked(self) -> None:
         text = self._cmd_view.toPlainText()

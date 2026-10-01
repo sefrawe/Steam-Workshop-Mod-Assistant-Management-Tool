@@ -170,6 +170,14 @@ class CommandGenPage(QWidget):
         btn_reload.clicked.connect(self._reload)
         top.addWidget(self._lbl_game, 1)
         top.addWidget(btn_reload)
+        btn_quick = QPushButton("快速命令查询…")
+        btn_quick.setToolTip(
+            "贴任意工坊网址 / 编号 / 命令行，联网查归属后生成"
+            "「条目自己游戏」的下载命令——不限于当前档案的游戏"
+            )
+        btn_quick.clicked.connect(self._on_quick_query)
+        top.addWidget(btn_quick)
+
         root.addLayout(top)
 
         # 第 2 块：用法提示 + 复制登录命令
@@ -525,6 +533,16 @@ class CommandGenPage(QWidget):
         return False
 
     # ---------------- 三个动作 ----------------
+
+    def _on_quick_query(self) -> None:
+        """【快速命令查询…】（决策 105）：弹对话框生成任意工坊条目的
+        下载命令。与账本无关，对话框自带联网查询；本页勾选清单不受
+        影响。就地 import：本页唯一用点。"""
+        from gui.quickCommandDialog import QuickCommandDialog
+        dlg = QuickCommandDialog(self._repo, self._settings, self,
+                                 log=self._log, game=self._game)
+
+        dlg.exec()
 
     def _on_copy_login(self):
         """复制设置页里的登录命令，原样进剪贴板（我们不解析、不拼装内容）。"""
