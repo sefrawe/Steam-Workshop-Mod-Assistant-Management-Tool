@@ -46,6 +46,10 @@ DEFAULTS: dict[str, str] = {
     "backup_keep_per_mod": "3",    # 每个 mod 保留的备份份数（超出淘汰最旧，钉住豁免）
     "backup_total_quota_gb": "10",  # 全部备份合计的容量上限 GB（超出从最旧清腾）
     "console_auto_show": "1",  # 控制台被关闭时来了新日志要不要自动弹出
+    # 关闭高级筛选窗口时自动清空条件（决策 97）："1" = 关窗即清空
+    # （默认，原行为）；"0" = 关窗保留条件，重开接着用
+    "advsearch_autoclear": "1",
+
     "theme_mode": "auto",  # 界面主题三态：auto=跟随系统 / dark / light（决策 66）
 
     # ↓ 两个"日常更新一条龙"开关（决策 26）：界面就地开关，不进设置页
@@ -67,6 +71,12 @@ DEFAULTS: dict[str, str] = {
     # 决策 12 键集口径：进了设置页 _FIELDS 的键必须在这里有默认值，
     # 否则设置页「恢复默认」取 DEFAULTS[key] 时缺键当场崩。
     "batch_auto_login": "1",
+    # 批次前清理 steamcmd 缓存开关（决策 100）：设置页 _FIELDS 同名键的
+    # 默认值。"1" = 每批下载开始前清 depotcache 与 workshop/downloads
+    # （防已删除 mod 复活、减少下载失败，RimSort 同款对策、同默认开）；
+    # "0" = 不清（保留缓存省流量，但删过的 mod 可能被 steamcmd 复活）
+    "steamcmd_clear_cache_before_batch": "1",
+
 }
 
 

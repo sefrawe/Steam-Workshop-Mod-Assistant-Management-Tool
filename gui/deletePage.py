@@ -256,8 +256,7 @@ class DeletePage(QWidget):
         lbl.setWordWrap(True)
         box2.addWidget(lbl)
 
-        lbl.setWordWrap(True)
-        box2.addWidget(lbl)
+
         # 工具条：过滤（mod 库页同款交互）
         self._bar_missing = QWidget(body)
         h1 = QHBoxLayout(self._bar_missing)
@@ -315,7 +314,7 @@ class DeletePage(QWidget):
             "所以推荐连账面一起处置，账实保持一致。想留着以后重下的，选"
             "「仅删文件」即可。\n"
             "回程票：删掉的文件重新下载就能回来（命令生成页勾选该编号）。"
-            "软删除的记录随时可在【mod 库】页右键恢复。", body)
+            "软删除的记录随时可在【mod 库】页右键恢复。执行键在第5步。", body)
         lbl.setWordWrap(True)
         box3.addWidget(lbl)
         # 工具条：状态 + 过滤 + 排序（mod 库页筛选条同款三件套）
@@ -359,7 +358,7 @@ class DeletePage(QWidget):
                        (C_SIZE, 110), (C_ACT, 280)):
             self._tbl_clean.setColumnWidth(col, w)
         self._sec_clean = _Section("清理清单（0 行）", body)
-        self._sec_clean.set_content(self._tbl_clean, 300)
+        self._sec_clean.set_content(self._tbl_clean, 600)
         box3.addWidget(self._sec_clean)
         btn_row = QHBoxLayout()
         self._btn_rec_clean = QPushButton("全选推荐", body)

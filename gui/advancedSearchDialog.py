@@ -5,7 +5,7 @@ r"""gui/advancedSearchDialog.py · mod 库页的高级筛选（T12，决策 63�
 形态（拍板记录）：入口在菜单栏顶级项「高级筛选(S)」（决策 63 修订
 后），非模态弹出——开着不影响主窗口继续操作（"边查边改"）。
 实例由 mod 库页持有（决策 36⑦ 同款道理：局部变量 + show() 出
-作用域会被回收，经典闪退），构造即创建不显示；关窗即清空条件
+作用域会被回收，经典闪退），构造即创建不显示；关窗即清空条件（已过时）
 （done() 统一漏斗，Esc / X / 关闭按钮三路全覆盖），重开为干净状态。
 
 筛选语义（全部拍板为"并且"关系）：
@@ -41,7 +41,7 @@ GUI 依赖，反向 import 不允许）。
 """
 from dataclasses import dataclass
 import time
-
+from core.appSettings import AppSettings
 from PySide6.QtCore import QDateTime, QTime, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -137,9 +137,14 @@ class AdvancedSearchDialog(QDialog):
     conditions_changed = Signal()  # 防抖后的"条件变了"，页面收到就 _reload
     go_to_results = Signal()       # 「到 mod 库查看结果」：MainWindow 负责跳页
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None,
+                 settings: AppSettings | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("mod 库高级筛选")
+        # 关窗清空开关（决策 97）：现读现判不缓存——设置页改完保存，
+        # 下一次关窗即按新值执行。None（未注入）按开处理 = 原行为
+        self._settings = settings
+
         # 防抖定时器：任何改动先等 300ms，停手才广播——
         # 连续打字不会一连串触发重查（与顶栏搜索框同一手感）
         self._debounce = QTimer(self)
@@ -156,9 +161,11 @@ class AdvancedSearchDialog(QDialog):
             "与顶栏筛选叠加：下面所有条件同时满足才会显示。\n"
             "改动即时生效（约 0.3 秒防抖）；窗口开着期间可以"
             "边看结果边改备注、勾选下载。\n"
-            "关闭本窗口（或点【清除全部】）即清空这里的高级条件，"
-            "列表恢复全量；\n顶栏的搜索框 / 状态 / 特别关注不受影响。",
+            "【清除全部】随时清空这里的高级条件；设置页「关闭高级筛选时"
+            "自动清空条件」开着（默认）时，关闭本窗口也会自动清空。\n"
+            "顶栏的搜索框 / 状态 / 特别关注不受影响。",
             self)
+
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
@@ -325,7 +332,10 @@ class AdvancedSearchDialog(QDialog):
         clear_btn.clicked.connect(self.clear_all)
         btns.addWidget(clear_btn)
         close_btn = QPushButton("关闭", self)
-        close_btn.setToolTip("关闭窗口并清空全部高级条件（列表恢复全量）")
+        close_btn.setToolTip(
+            "关闭窗口；条件是否随关窗自动清空由设置页"
+            "「关闭高级筛选时自动清空条件」决定")
+
         close_btn.clicked.connect(self.close)
         btns.addWidget(close_btn)
         root.addLayout(btns)
@@ -486,15 +496,23 @@ class AdvancedSearchDialog(QDialog):
             self._goto_btn.setEnabled(True)
 
     def done(self, result: int) -> None:
-        """关窗即清空（拍板修订）：所有关闭路径的单一漏斗。
-        QDialog 的三条关闭路——Esc / 窗口 X / 【关闭】按钮——最终全部
-        汇入 done()，三条路都覆盖、也只清一次。
-        ★ 勘误（实测）：主窗口退出时本对话框会被联动关闭，走与
-        Esc/× 完全相同的 closeEvent → reject → done() 路径；彼时
-        数据库已关闭。修法在消费侧：modListPage.shutdown() 在退出
-        路上先摘除 conditions_changed → _reload 的连接（断链），
-        本漏斗一行不改。"""
-        self.clear_all()
+        """所有关闭路径的单一漏斗（Esc / 窗口 X / 【关闭】按钮三路全覆盖，
+        也只走一次）。
+
+        关窗清空开关（决策 97）：设置页同名开关开着（默认）时照旧清空
+        ——重开为干净状态；关着（"0"）时跳过清空，条件与 mod 库页的
+        筛选指示原样保留，重开接着用。【清除全部】按钮不经过这里，
+        两种设置下都随时可用。
+
+        ★ 踩坑52 机制照旧成立：主窗口退出时本对话框被联动关闭，走与
+        Esc/× 相同的 closeEvent → reject → done() 路。开着清空时，退出
+        路上 modListPage.shutdown() 已先摘除 conditions_changed →
+        _reload 的连接（断链），广播落空不炸；关着清空时 done() 本就
+        不广播，两条路都碰不到已关闭的数据库。
+        """
+        if self._settings is None or \
+                self._settings.get("advsearch_autoclear") != "0":
+            self.clear_all()
         super().done(result)
 
     def clear_all(self) -> None:

@@ -37,6 +37,7 @@ import os
 from pathlib import Path
 from typing import NamedTuple
 
+import shutil  # 决策 100：清缓存删目录树用
 
 import vdf  # ValvePython：解析 libraryfolders.vdf（读 acf 的同一份依赖，零新增）
 
@@ -138,6 +139,72 @@ def ensure_steamcmd_exe(path: str) -> str:
         if candidate.is_file():
             return str(candidate)
     return text
+
+def _tree_size(p: Path) -> int:
+    """目录/文件的字节总量（尽力而为：读不到的按 0 计，只用于日志）。"""
+    if p.is_file():
+        try:
+            return p.stat().st_size
+        except OSError:
+            return 0
+    total = 0
+    for dirpath, _dirs, files in os.walk(p, onerror=lambda _e: None):
+        for name in files:
+            try:
+                total += (Path(dirpath) / name).stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def clear_download_caches(steamcmd_path: str | None) -> tuple[int, int, list[str]]:
+    """清空 steamcmd 的下载缓存（决策 100）：批次开始前调用，防已删除
+    mod 复活、减少下载失败（RimSort 的"自动清除仓库缓存"同款对策，
+    该工具默认开启；GitHub 亦有同现象的野生报告）。
+
+    机制背景（v2.48 定案）：steamcmd 把下载过的数据块缓存在
+    steamapps\\depotcache\\、把半成品暂存在 steamapps\\workshop\\downloads\\。
+    content 里的 mod 被删除后缓存还在；此后批次下载别的 mod 时，
+    steamcmd 可能用缓存把已删除的 mod 原样装配回 content 并写回 acf，
+    随后的自动复扫忠实入账 = "复活"。下载内容目录本体（content）
+    一概不碰——那是受保护的资产，不是缓存。
+
+    只清两个缓存目录的"内容"，目录本身保留（不存在也无妨）。
+    正被 steamcmd 占用的文件删除会失败——逐项尝试、失败的记入返回
+    清单跳过，绝不抛错、绝不阻塞批次（清理是优化，不是下载的前提）。
+    目录本身若是联接则整体跳过（联接红线：绝不穿透删除）。
+
+    返回 (释放字节数, 清掉的条目数, 被占用/联接跳过的路径清单)。
+    steamcmd 程序路径没填 → 返回 (0, 0, [])（没钥匙，调用方照常继续）。
+    """
+    root = steamcmd_root(steamcmd_path)
+    if root is None:
+        return 0, 0, []
+    freed = 0
+    cleared = 0
+    skipped: list[str] = []
+    for cache in (root / "steamapps" / "depotcache",
+                  root / "steamapps" / "workshop" / "downloads"):
+        if not cache.is_dir():
+            continue
+        if os.path.islink(str(cache)) or os.path.isjunction(str(cache)):
+            skipped.append(str(cache))  # 本身是联接：不动（红线）
+            continue
+        for child in list(cache.iterdir()):
+            size = _tree_size(child)
+            try:
+                if child.is_dir() and not child.is_symlink() \
+                        and not os.path.isjunction(str(child)):
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
+                freed += size
+                cleared += 1
+            except OSError:
+                skipped.append(str(child))
+    return freed, cleared, skipped
+
+
 class JunctionReport(NamedTuple):
     """联接状态判定结果（junction_state 的返回值）。
 

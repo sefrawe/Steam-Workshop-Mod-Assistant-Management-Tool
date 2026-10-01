@@ -31,12 +31,16 @@ start_batch 返回 False 时只说明"没受理"（steamcmd 没跑、没勾选�
 from PySide6.QtCore import QObject, QThread, Signal
 
 from core import batchDownloadFlow
+from core import steamPaths  # 决策 100：批次前清缓存
+
 from core.backupManager import BackupManager
 
 # 登录命令在设置里的键名（与 settingsPage._FIELDS 同名，决策 12）
 _LOGIN_CMD_KEY = "steamcmd_login_cmd"
 # 批次自动登录开关的键名（与 settingsPage._FIELDS 同名）
 _AUTO_LOGIN_KEY = "batch_auto_login"
+# 批次前清缓存开关的键名（与 settingsPage._FIELDS 同名，决策 100）
+_KEY_CLEAR_CACHE = "steamcmd_clear_cache_before_batch"
 
 # 备份保留策略的两个键名（与 backupPage 同名同源，决策 12）
 _KEY_KEEP_PER_MOD = "backup_keep_per_mod"
@@ -83,6 +87,27 @@ class _BackupPhaseWorker(QThread):
             self.one_done.emit(i, total, rep.ok, line)
         self.phase_done.emit(failed, False)
 
+class _CacheWipeWorker(QThread):
+    """批次前清缓存线程（决策 100）：调 steamPaths.clear_download_caches
+    删 depotcache 与 workshop/downloads 的内容。删除本身没有安全停止点，
+    但通常几秒内完成；done_wipe 的 skipped = 被占用/联接跳过的路径，
+    crashed 才是预期外异常（bug 性质）。"""
+    done_wipe = Signal(int, int, list)  # 释放字节, 清掉条数, 跳过清单
+    crashed = Signal(str)
+
+    def __init__(self, steamcmd_path: str) -> None:
+        super().__init__()
+        self._path = steamcmd_path
+
+    def run(self) -> None:
+        try:
+            freed, cleared, skipped = steamPaths.clear_download_caches(
+                self._path)
+        except Exception as exc:  # noqa: BLE001 —— 线程边界兜底
+            self.crashed.emit(str(exc))
+            return
+        self.done_wipe.emit(freed, cleared, skipped)
+
 
 class BatchDownloadController(QObject):
     """一个软件实例一个：管理当前批次（含备份阶段）的接线与生命周期。"""
@@ -101,6 +126,11 @@ class BatchDownloadController(QObject):
         self._phase_worker: _BackupPhaseWorker | None = None  # 备份阶段线程
         self._pending_batch: tuple[int, list[int]] | None = None  # 阶段后备次
         self._phase_backup_failed: list[int] = []  # 并进 batch_done 汇总
+        # 清缓存阶段（决策 100）：批次最前段，清完才进备份/下载
+        self._wipe_worker: _CacheWipeWorker | None = None
+        self._pending_after_wipe: tuple[int, list[int], list[int]] | None = None
+        self._wipe_stop = False  # 清理期间点了停止：清完不开批次
+
         step_list.stop_requested.connect(self._on_stop)
         step_list.resume_requested.connect(self._on_resume)
         # steamcmd 进程退出 → 立即中止在跑批次（v2.45 僵尸批次防线）
@@ -109,11 +139,12 @@ class BatchDownloadController(QObject):
 
 
     # ---------------- 对外 ----------------
-
     def is_active(self) -> bool:
         """是否有批次在跑（MainWindow 关窗确认 / 导入拒绝等用）。
-        备份阶段也算——它是批次的前半段，此时开新批次或清库会打架。"""
-        return self._flow is not None or self._phase_worker is not None
+        备份与清缓存阶段都算——它们是批次的前半段，此时开新批次或
+        清库会打架。"""
+        return (self._flow is not None or self._phase_worker is not None
+                or self._wipe_worker is not None)
 
     def start_batch(self, app_id: int, mod_ids: list[int],
                     backup_first: list[int] | None = None) -> bool:
@@ -123,7 +154,7 @@ class BatchDownloadController(QObject):
         返回是否受理成功（False 的原因以事件/日志为准）。
         有备份条目时先跑备份阶段（后台线程，进度进运行日志），备份
         完自动接着开下载批次。"""
-        if self._flow is not None or self._phase_worker is not None:
+        if self.is_active():  # 含清缓存阶段（决策 100）：清理中重开批会双开清理线程
             self._log.warn("已有批次在进行中：等它结束或先点【停止批次】")
             return False
         if not mod_ids:
@@ -133,6 +164,15 @@ class BatchDownloadController(QObject):
             self._log.error("steamcmd 未在运行：请先到 控制台 → steamcmd 终端 "
                             "启动并登录，再批量下载")
             return False
+
+        if self._settings is not None and \
+                str(self._settings.get(_KEY_CLEAR_CACHE) or "1") != "0":
+            # 决策 100：批次前清缓存（默认开）。清完自动按原路继续
+            # （有备份条目 → 备份阶段；否则直接开下载批次）
+            self._start_wipe_phase(app_id, list(mod_ids), backup_first)
+            return True
+
+
         if backup_first:
             self._start_backup_phase(app_id, list(mod_ids), list(backup_first))
             return True
@@ -150,6 +190,9 @@ class BatchDownloadController(QObject):
         if self._phase_worker is not None:
             self._phase_worker.stop()
             self._phase_worker.wait()
+        if self._wipe_worker is not None:
+            self._wipe_worker.wait()  # 清理不可中断，等它跑完
+
     def _on_process_exited(self, _status: int) -> None:
         """steamcmd 进程退出（quit / 强杀 / 崩溃都走这）：批次还在跑
         就立即强制中止。流程等的是"当前条的结论"与"空闲提示符"，
@@ -194,6 +237,74 @@ class BatchDownloadController(QObject):
             return False
         self._log.info(f"批量下载开始：共 {len(mod_ids)} 个 mod")
         return True
+
+    # ---------------- 批次前清缓存阶段（决策 100） ----------------
+    def _start_wipe_phase(self, app_id: int, mod_ids: list[int],
+                          backup_first: list[int] | None) -> None:
+        """批次最前段：清 steamcmd 下载缓存（后台线程）。清完按原路
+        继续：有备份条目走备份阶段，否则直接开下载批次；期间点了
+        【停止批次】→ 清完不开批次（与备份阶段同一停止语义：停在
+        下载开始之前，不留下半截状态）。"""
+        self._pending_after_wipe = (app_id, list(mod_ids),
+                                    list(backup_first or []))
+        self._wipe_stop = False
+        self._wipe_worker = _CacheWipeWorker(
+            self._settings.get("steamcmd_path") if self._settings else "")
+        self._wipe_worker.done_wipe.connect(self._on_wipe_done)
+        self._wipe_worker.crashed.connect(self._on_wipe_crashed)
+        self._wipe_worker.finished.connect(self._on_wipe_thread_finished)
+        self._wipe_worker.start()
+        self._log.info("正在清理 steamcmd 下载缓存（depotcache / "
+                       "workshop\\downloads）——防已删除 mod 复活、"
+                       "减少下载失败……")
+
+    def _on_wipe_done(self, freed: int, cleared: int, skipped: list) -> None:
+        """清理收尾：播报结果，接着走原定后续（备份阶段/下载批次）。
+        线程对象由 _on_wipe_thread_finished 清理（与备份阶段同款）。"""
+        pending = self._pending_after_wipe
+        self._pending_after_wipe = None
+        if pending is None:
+            return  # 双保险：正常流程到不了这里
+        app_id, mod_ids, backup_first = pending
+        if freed or cleared:
+            self._log.ok(f"缓存清理完成：清掉 {cleared} 项，"
+                         f"释放约 {freed / 1024 ** 2:.1f} MiB")
+        else:
+            self._log.info("缓存本就为空，无需清理")
+        for path in skipped:
+            self._log.warn(f"缓存清理跳过（被占用或为联接，不影响批次）："
+                           f"{path}")
+        if self._wipe_stop:
+            self._log.info("已停止：缓存清理完成后批次没有开始")
+            self.batch_done.emit({
+                "total": len(mod_ids), "ok": [], "failed": [],
+                "timeout": [], "stopped": True, "error": None})
+            return
+        if backup_first:
+            self._start_backup_phase(app_id, mod_ids, backup_first)
+            return
+        self._launch(app_id, mod_ids)
+
+    def _on_wipe_crashed(self, message: str) -> None:
+        """清理出预期外异常：不拦批次（清理只是优化），如实记日志后
+        照常继续后续阶段。"""
+        self._log.error(f"steamcmd 缓存清理出错（批次照常开始）：{message}")
+        pending = self._pending_after_wipe
+        self._pending_after_wipe = None
+        if pending is None:
+            return
+        app_id, mod_ids, backup_first = pending
+        if backup_first:
+            self._start_backup_phase(app_id, mod_ids, backup_first)
+        else:
+            self._launch(app_id, mod_ids)
+
+    def _on_wipe_thread_finished(self) -> None:
+        w = self._wipe_worker
+        self._wipe_worker = None
+        if w is not None:
+            w.wait()
+
 
     # ---------------- 批次前备份阶段（决策 40） ----------------
 
@@ -371,6 +482,12 @@ class BatchDownloadController(QObject):
     # ---------------- 内部：卡片按钮 ----------------
 
     def _on_stop(self) -> None:
+        if self._wipe_worker is not None:
+            self._wipe_stop = True
+            self._log.info("已请求停止：缓存清理完成后批次不会开始"
+                           "（清理本身不可中断，通常几秒内完成）")
+            return
+
         if self._phase_worker is not None:
             self._phase_worker.stop()
             self._log.info("已请求停止：当前这个 mod 备完就停，"

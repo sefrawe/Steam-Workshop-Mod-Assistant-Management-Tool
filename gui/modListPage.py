@@ -37,7 +37,7 @@ r"""后端调试主战场。
 T19⑯⑰⑱ 一批：
 - 列显隐开关在设置页（_COL_SETTING），编号与标题两列恒显示；
   每次刷新重读设置，改完保存、回本页点【刷新】即生效，无需重启；
-- 排序下拉与表头点击共用 _SORT_MAP 白名单、双向同步；列表当前
+- 排序唯一入口 = 工具条下拉（决策 99 撤销表头点击排序）；列表当前
   顺序 = 下载/备份批次的执行顺序；
 - 【刷新 ▾】= 主按钮刷新（重读数据库）+ 小箭头弹菜单（扫描本地），
   腾出的位置给统计条；统计条 = 档案全体概览，不受搜索/筛选影响
@@ -155,7 +155,7 @@ class ModListPage(QWidget):
         # Esc / X / 关闭按钮三路全覆盖），重开为干净状态。
         # 条件防抖后广播 → 本页 _reload 重查；_reload 里再喂标签清单给
         # 对话框（set_available_tags 内部 blockSignals，不会回环触发）
-        self._adv_dialog = AdvancedSearchDialog(self)
+        self._adv_dialog = AdvancedSearchDialog(self, settings=self._settings)
         self._adv_dialog.conditions_changed.connect(self._reload)
         # 对话框要跳页：转成页面级信号发出去，跳转归 MainWindow
         self._adv_dialog.go_to_results.connect(
@@ -176,6 +176,22 @@ class ModListPage(QWidget):
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
 
+        # 搜索范围下拉（决策 99，用户 todo）：决定搜索框查哪个字段。
+        # 全部 = 标题+备注合查（原行为，走 SQL 的 search 参数）；
+        # 标题/备注/编号 = 页面内存过滤（repo 契约零改动——与颜色
+        # 筛选同一哲学）；编号 = 完整编号精确匹配
+        self._search_field_combo = QComboBox(row)
+        for label, val in (("全部", "all"), ("标题", "title"),
+                           ("备注", "note"), ("编号", "id")):
+            self._search_field_combo.addItem(label, val)
+        self._search_field_combo.setToolTip(
+            "搜索框查什么：\n"
+            "全部：标题和备注都查（默认，原行为）；\n"
+            "标题 / 备注：只查对应字段；\n"
+            "编号：按完整编号精确匹配（输非数字 = 0 命中）")
+        self._search_field_combo.currentIndexChanged.connect(
+            self._on_search_field_changed)
+        h.addWidget(self._search_field_combo)
         self._search_edit = QLineEdit(row)
         self._search_edit.setPlaceholderText("搜索标题 / 备注…")
         self._search_edit.setClearButtonEnabled(True)
@@ -233,8 +249,9 @@ class ModListPage(QWidget):
                     f"按{_SORT_COL_NAME[col]}排（{_SORT_DIR_LABEL[(col, is_desc)]}）",
                     (col, order_by))
         self._sort_combo.setToolTip(
-            "排序方式；也可以直接点表头排序（再点一次换方向）。\n"
+            "排序方式（唯一排序入口）。\n"
             "下载/备份选中项按列表当前顺序执行")
+
         idx = self._sort_combo.findData((self._sort_col, self._order_by))
         self._sort_combo.setCurrentIndex(max(idx, 0))
         self._sort_combo.currentIndexChanged.connect(self._on_sort_combo)
@@ -306,6 +323,15 @@ class ModListPage(QWidget):
             "保留份数与配额按设置页执行")
         self._act_backup.triggered.connect(self._on_backup_checked)
         self._actions_menu.addAction(self._act_backup)
+        # 软删除选中项（决策 101）：对勾选行整批软删除——单条版在
+        # 右键菜单；批量一次确认（软删除可恢复，不必逐条问）
+        self._act_softdel = QAction("软删除选中项", self._actions_menu)
+        self._act_softdel.setToolTip(
+            "把勾选的 mod 整批标记为已删除：记录与「删除前快照」保留、"
+            "随时可恢复；磁盘上一个文件都不动。\n"
+            "已是删除状态的条目自动跳过")
+        self._act_softdel.triggered.connect(self._on_softdel_checked)
+        self._actions_menu.addAction(self._act_softdel)
 
         # —— 批量特别关注（T27）——
         # 设/取消对勾选行整批写；批量入口贴清单（T27a）。菜单项文字带勾选数，
@@ -399,12 +425,13 @@ class ModListPage(QWidget):
             self._table.setColumnWidth(col, self._saved_col_width(col, width))
         # 排序指示器初值跟真实方向走（T19⑤：恢复的排序可能是升序），
         # 与 _on_header_clicked 里"箭头跟排序串方向"同一纪律
-        header.setSortIndicator(
-            self._sort_col,
-            Qt.SortOrder.DescendingOrder
-            if self._order_by.upper().endswith(" DESC")
-            else Qt.SortOrder.AscendingOrder)
-        header.setSortIndicatorShown(True)
+        # 表头点击排序已撤（决策 99，用户拍板）：点表头不改排序、
+        # 下拉不跟着变的错位从此不存在——排序唯一入口 = 工具条下拉。
+        # 指示箭头一并隐藏：留着会邀请点击，点了没反应（界面三问）。
+        # 启动恢复的排序（_load_sort）照旧生效，只是不再显示箭头
+        header.setSortIndicatorShown(False)
+        header.setSectionsClickable(False)
+
         # 列宽落盘（T19⑤）：拖动期间 sectionResized 连发，用单发定时器
         # 合并成一次写（与搜索防抖同款思路）；启动恢复阶段的
         # setColumnWidth 不触发它（接线在设值之后），不会启动即写盘
@@ -434,7 +461,7 @@ class ModListPage(QWidget):
         self._search_edit.textChanged.connect(self._search_timer.start)
         self._status_combo.currentIndexChanged.connect(self._reload)
         self._special_check.toggled.connect(self._reload)
-        header.sectionClicked.connect(self._on_header_clicked)
+
         self._table.selectionModel().currentRowChanged.connect(self._on_current_row)
         self._table.customContextMenuRequested.connect(self._on_context_menu)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -462,6 +489,17 @@ class ModListPage(QWidget):
         （待其原文到手后安装）；本页只负责自己的布局——QSplitter 不给
         隐藏的子控件分配空间，表格自动占满整行。"""
         self._detail.setVisible(visible)
+    def _on_search_field_changed(self, _index: int) -> None:
+        """搜索范围切换（决策 99）：换占位文案 + 立即按新范围重查。
+        已输入的搜索词保留——换的是"查哪"，不是"查什么"。"""
+        field = self._search_field_combo.currentData()
+        self._search_edit.setPlaceholderText({
+                                                 "all": "搜索标题 / 备注…",
+                                                 "title": "搜索标题包含…",
+                                                 "note": "搜索备注包含…",
+                                                 "id": "输入完整编号（精确匹配）…",
+                                             }[field])
+        self._reload()
 
     # ---------- 查询 ----------
     def _apply_search(self) -> None:
@@ -475,11 +513,16 @@ class ModListPage(QWidget):
             self._adv_dialog.set_hit_count(None)  # 没档案就没有"命中"可言
             return
 
+        # 搜索范围分流（决策 99）：「全部」走 SQL 合查（原行为）；
+        # 标题/备注/编号三档不下发 search=——SQL 合查会把只命中
+        # 单侧的词先筛掉，内存过滤就无从谈起，所以这里必须放空，
+        # 过滤挪到下方页面内存做
+        search_field = self._search_field_combo.currentData()
         rows = self._repo.list_mods(
             self._game.app_id,
             status=self._status_combo.currentData(),
             special_only=self._special_check.isChecked(),
-            search=self._search or None,
+            search=(self._search or None) if search_field == "all" else None,
             order_by=self._order_by,
             **self._advanced_kwargs(),
         )
@@ -506,6 +549,22 @@ class ModListPage(QWidget):
         elif _color_sel is not None:
             rows = [m for m in rows
                     if normalize_color_tag(m.color_tag) == _color_sel]
+
+        # 搜索范围三档的内存过滤（决策 99；"全部"已在 SQL 合查，不进这里）。
+        # 放在颜色筛选之后、标签池/命中数之前——"共 N 个"与高级筛选
+        # 命中数看到的都是最终口径
+        if search_field == "title":
+            _q = self._search.casefold()
+            rows = [m for m in rows if _q in (m.title or "").casefold()]
+        elif search_field == "note":
+            _q = self._search.casefold()
+            rows = [m for m in rows if _q in (m.note or "").casefold()]
+        elif search_field == "id":
+            # 编号 = 精确匹配完整编号；非纯数字输入 = 0 命中
+            # （占位文案已提示"输入完整编号"）
+            _q = self._search.strip()
+            rows = ([m for m in rows if str(m.mod_id) == _q]
+                    if _q.isdigit() else [])
 
         # 作者 / 本地版本时间（v2.43）：高级筛选的"内存侧"条件——
         # repo 契约不动，取数后 Python 端过滤（颜色筛选同一哲学）。
@@ -665,31 +724,10 @@ class ModListPage(QWidget):
         q.setValue(_SES_SPLIT, ",".join(str(s) for s in self._split.sizes()))
 
     # ---------- 槽 ----------
-    def _on_header_clicked(self, col: int) -> None:
-        # 表头点击 → 排序串：映射表在 modListModel._SORT_MAP（白名单防注入，
-        # 本页只做"列号 → 用哪个排序串"的翻译，不自己拼 SQL 片段）。
-        # 白名单每一项是 (默认方向, 备选方向)，备选可为 None = 只许单向。
-        pair = _SORT_MAP.get(col)
-        if pair is None:
-            return
-        first, second = pair
-        # 当前已在默认方向且有备选 → 换备选；否则回到默认方向
-        new_order_by = second if (self._order_by == first and second) else first
-        self._order_by = new_order_by
-        self._sort_col = col
-        # 箭头方向必须跟排序串的真实方向走：白名单里有的列默认就是
-        # "从新到旧 / 从大到小"（如 time_updated DESC、local_size DESC），
-        # 若按"默认=升序箭头、备选=降序箭头"想当然写，箭头就和数据方向相反
-        order = (Qt.SortOrder.DescendingOrder
-                 if new_order_by.upper().endswith(" DESC")
-                 else Qt.SortOrder.AscendingOrder)
-        self._table.horizontalHeader().setSortIndicator(col, order)
-        self._sync_sort_combo()
-        self._save_sort()  # T19⑤：排序状态跟手落盘，下次启动照旧
-        self._reload()
+
 
     def _on_sort_combo(self, index: int) -> None:
-        """排序下拉（T19⑰）：与表头点击同一条路——写 _order_by / _sort_col、
+        """排序下拉（T19⑰）：（决策 99 起是唯一排序入口）——写 _order_by / _sort_col、
         同步表头箭头、重载。数据 = (列号, 排序串)，排序串源自 _SORT_MAP
         白名单，本方法不发明新排序串。"""
         data = self._sort_combo.itemData(index)
@@ -705,13 +743,6 @@ class ModListPage(QWidget):
         self._save_sort()  # T19⑤：与表头点击同款落盘
         self._reload()
 
-    def _sync_sort_combo(self) -> None:
-        """表头点击改变排序后，让下拉跟着走（程序设值不发信号）。"""
-        idx = self._sort_combo.findData((self._sort_col, self._order_by))
-        if idx >= 0:
-            self._sort_combo.blockSignals(True)
-            self._sort_combo.setCurrentIndex(idx)
-            self._sort_combo.blockSignals(False)
 
     def _on_current_row(self, current: QModelIndex, _prev: QModelIndex) -> None:
         if current.isValid():
@@ -863,15 +894,68 @@ class ModListPage(QWidget):
 
         if ret != QMessageBox.StandardButton.Yes:
             return
-        # last_state 由调用方组装、repo 只管存取（repo 契约如此）；
-        # 将来抽 flow 层时这段组装会一起搬走，GUI 目前代行
-        last_state = {"title": m.title, "url": m.url,
-                      "time_updated": m.time_updated,
-                      "local_timeupdated": m.local_timeupdated,
-                      "manifest": m.manifest, "local_size": m.local_size,
-                      "note": m.note, "color_tag": m.color_tag,
-                      "is_special": m.is_special, "local_path": m.local_path}
+        last_state = self._last_state_of(m)
+
         self._repo.mark_deleted(m.mod_id, last_state)
+        self._reload()
+    @staticmethod
+    def _last_state_of(m) -> dict:
+        """软删除前快照的组装（单条右键 / 批量选中两路共用单源）。
+        last_state 由调用方组装、repo 只管存取（repo 契约如此）；
+        将来抽 flow 层时这段组装会一起搬走，GUI 目前代行。"""
+        return {"title": m.title, "url": m.url,
+                "time_updated": m.time_updated,
+                "local_timeupdated": m.local_timeupdated,
+                "manifest": m.manifest, "local_size": m.local_size,
+                "note": m.note, "color_tag": m.color_tag,
+                "is_special": m.is_special, "local_path": m.local_path}
+
+    def _on_softdel_checked(self) -> None:
+        """【软删除选中项】（决策 101）：对勾选的 mod 整批软删除。
+        与下载/备份同一纪律：只收当前清单里显示的勾选；一次确认
+        整批执行——软删除可恢复，不必逐条问；已删除的跳过（幂等，
+        不重复写删除时间）。"""
+        if not self._require_game():
+            return
+        ids = self._model.checked_ids_in_rows()
+        if not ids:
+            QMessageBox.information(
+                self, "软删除选中项",
+                "先在表格第一列勾选要软删除的 mod。")
+            return
+        targets = []
+        skipped: list[int] = []
+        for mid in ids:
+            m = self._repo.get_mod(mid)
+            if m is None:
+                continue  # 勾选与落库之间刚被删（极端竞态）：跳过
+            if m.status == "deleted":
+                skipped.append(mid)
+            else:
+                targets.append(m)
+        if not targets:
+            QMessageBox.information(
+                self, "软删除选中项",
+                "勾选的条目都已处于「已删除」状态，没有可软删除的。")
+            return
+        ret = QMessageBox.question(
+            self, "软删除选中项",
+            f"确定将勾选的 {len(targets)} 个 mod 标记为已删除？\n"
+            "只动账本：记录与「删除前快照」保留，随时可逐个恢复"
+            "（本页状态筛选选「已删除」能找到它们，右键「恢复」）。\n"
+            "硬盘不动：下载的内容文件夹、备份文件、备份登记全部原样。\n"
+            "软删除后：更新检测不再查询、命令生成不再列出、扫描不再"
+            "收录；想腾空间到「清理与删除」页盘点。\n"
+            "（可恢复的软删除；不可恢复的「彻底清账」在清理与删除页。）")
+        if ret != QMessageBox.StandardButton.Yes:
+            self._log.info("已取消批量软删除：没有做任何改动")
+            return
+        with self._repo.transaction():
+            for m in targets:
+                self._repo.mark_deleted(m.mod_id, self._last_state_of(m))
+        self._log.ok(
+            f"已软删除 {len(targets)} 个"
+            + (f"（跳过已是删除状态 {len(skipped)} 个）" if skipped else ""))
         self._reload()
 
     def _restore_deleted(self, m) -> None:
@@ -905,6 +989,8 @@ class ModListPage(QWidget):
         label = f"（{n}）" if n else ""
         self._act_download.setText(f"下载选中项{label}")
         self._act_backup.setText(f"备份选中项{label}")
+        self._act_softdel.setText(f"软删除选中项{label}")
+
         self._act_special_on.setText(f"设为特别关注{label}")
         self._act_special_off.setText(f"取消特别关注{label}")
         self._act_open_pages.setText(f"打开工坊页面{label}")
