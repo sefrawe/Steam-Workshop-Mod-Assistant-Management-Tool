@@ -13,11 +13,13 @@ maximumBlockCount（上限 2000 行），超出自动丢弃最旧行，防止长
 运行内存膨胀——"最多 N 行"的全部实现就这一行设置。
 
 "新消息自动弹出"：控制台被整体关掉时来了新日志，用户根本无从
-得知（红点只对开着控制台的人有意义）。所以运行日志页提供了一个
-勾选框（默认开，持久化到设置的 console_auto_show 键）：勾着时
-新消息会把控制台停靠窗拉回屏幕并跳到运行日志页——本面板只负责
-"发现该弹了"并发 show_requested 信号，真正把停靠窗拉出来的是
-MainWindow（谁建的停靠窗谁来管）。关掉勾选就回到老行为。
+ 「有新消息时弹出控制台」（console_auto_show 键，v2.48 起唯一
+ 入口——旧版日志页里的就地勾选框已撤，两处显示不同步的问题
+ 不再存在）：开着时新消息把控制台停靠窗拉回屏幕并跳到运行
+ 日志页——本面板只负责"发现该弹了"并发 show_requested 信号，
+ 真正把停靠窗拉出来的是 MainWindow（谁建的停靠窗谁来管）。
+ 设置里关掉就回到老行为。
+
 
 控制台内容关程序即清空；需要持久化的操作历史走 operations_log 表
 （那是给程序读的结构化数据，这是给人看的结论），两层不混。
@@ -33,7 +35,7 @@ import time
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QHBoxLayout, QPlainTextEdit, QPushButton, QTabWidget,
+    QHBoxLayout, QPlainTextEdit, QPushButton, QTabWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -42,9 +44,8 @@ from PySide6.QtWidgets import (
 # 的 `from gui.consolePanel import LogBus` 原样可用——
 # 搬家不改门牌，其他文件一行都不用动
 from gui.logBus import LogBus  # noqa: F401
-
-from gui.terminalDock import TerminalDock
 from gui.stepCardList import StepCardList
+from gui.terminalDock import TerminalDock
 
 _LEVEL_COLORS = {
     "info": "#d4d4d4",   # 普通信息
@@ -97,14 +98,9 @@ class ConsolePanel(QWidget):
         clear.clicked.connect(self._log_view.clear)
         bottom_row.addWidget(clear)
 
-        self._auto_show = QCheckBox("新消息自动弹出", log_page)
-        self._auto_show.setToolTip(
-            "勾上：控制台被关闭期间来了新日志，自动把控制台拉回屏幕"
-            "并跳到运行日志页；\n"
-            "不勾：安静待着（红点只在控制台开着时才有意义）。")
-        self._auto_show.setChecked(self._load_auto_show())
-        self._auto_show.toggled.connect(self._on_auto_show_toggled)
-        bottom_row.addWidget(self._auto_show)
+        # 自动弹出开关的 UI 已撤（v2.48 决策 103）：唯一入口 = 设置页
+        # 「有新消息时弹出控制台」——旧版日志页勾选框与设置页同键
+        # 双显、互不同步，撤掉后状态只有一处
         bottom_row.addStretch(1)  # T19⑥：与终端页同拍，按钮/开关一律靠左
 
         log_layout.addLayout(bottom_row)
@@ -140,18 +136,14 @@ class ConsolePanel(QWidget):
         return self._step_list
 
     # ---------------- "新消息自动弹出" ----------------
-
-    def _load_auto_show(self) -> bool:
-        """读开关的持久化状态。没设置过/没给设置对象 → 默认开。"""
+    def _auto_show_enabled(self) -> bool:
+        """自动弹出开关现读设置（v2.48 决策 103）：唯一入口 = 设置页
+        同名开关，这里每次现读不缓存——设置页改完保存立即生效，
+        不存在第二处状态。没有设置对象 = 默认开（旧勾选框同兜底）。"""
         if self._settings is None:
             return True
-        value = str(self._settings.get(_KEY_AUTO_SHOW) or "").strip()
-        return value != "0"  # 只有明确写 0 才算关，其余一律开
+        return str(self._settings.get(_KEY_AUTO_SHOW) or "").strip() != "0"
 
-    def _on_auto_show_toggled(self, checked: bool) -> None:
-        """开关变化即落盘（数字/布尔一律字符串，项目约定）。"""
-        if self._settings is not None:
-            self._settings.set(_KEY_AUTO_SHOW, "1" if checked else "0")
 
     # ---------------- 日志接收与显示 ----------------
 
@@ -166,7 +158,7 @@ class ConsolePanel(QWidget):
 
         # 控制台整个被关掉（self 不可见）→ 弹出并跳到运行日志页。
         # 只发信号不动停靠窗——停靠窗是 MainWindow 建的，谁建谁管
-        if self._auto_show.isChecked() and not self.isVisible():
+        if self._auto_show_enabled() and not self.isVisible():
             self._tabs.setCurrentIndex(0)
             self.show_requested.emit()
 

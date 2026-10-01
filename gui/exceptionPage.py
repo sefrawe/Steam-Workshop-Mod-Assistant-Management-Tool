@@ -122,14 +122,20 @@ _C_FAIL = "#e5484d"  # 失效类（桶④）
 _C_WARN = "#f5a623"  # 需要人管
 _C_MUTED = "#8a8a8f" # 说明文字/未检测
 
-# 桶④表格的分类（顺序 = 分组视图的组序，也是排序键的序）
-_CAT_ORDER = ("归档失效", "已收录·未下载", "已替换", "已删除")
+# 桶④表格的分类（顺序 = 分组视图的组序，也是排序键的序）。
+# "已清账" = 彻底清账后的历史归档（账本条目已物理删除，只剩
+# failed_mods 证据行——按决策刻意存活）：默认视图不显示、
+# 状态筛「已清账」可查（v2.48 决策 102）
+_CAT_ORDER = ("归档失效", "已收录·未下载", "已替换", "已删除", "已清账")
+
 # 分类 → 文字颜色（表格"分类"列着色用）
 _CAT_COLORS = {
     "归档失效": _C_FAIL,
     "已收录·未下载": _C_WARN,
     "已替换": _C_MUTED,
     "已删除": "#6e6e73",  # 比说明文字更暗：已处理完的
+    "已清账": "#55555a",  # 比已删除更暗：彻底终结的历史归档
+
 }
 
 _ID_LIMIT = 20  # 卡片里编号列表最多原样列出多少个，超出折成"…"
@@ -996,14 +1002,26 @@ class ExceptionPage(QWidget):
                     cat, can_repl, can_del = "已替换", False, False
                 elif st == "tracked":
                     cat, can_repl, can_del = "已收录·未下载", False, True
+                elif m is None:
+                    # 账本条目已不存在（彻底清账后 mods 行物理删除，
+                    # failed_mods 证据行按决策刻意存活）——终结历史，
+                    # 不再给任何处置入口（软删除/替换/试下载全关）
+                    cat, can_repl, can_del = "已清账", False, False
                 else:
                     cat = "归档失效"
                     can_repl, can_del = rec is not None, True
+
                 # -- 说明列：每类的"说实话"文案 --
                 if st == "deleted":
                     note = "已软删除——恢复到【mod 库】页右键「恢复」"
                 elif replaced:
                     note = f"已替换 → mod {replaced}"
+
+                elif m is None:
+                    note = ("已彻底清账（在【清理与删除】执行）：账本条目"
+                            "与盘上文件均已清除；本行为失效归档的历史证据，"
+                            "默认不显示，状态筛「已清账」可查")
+
 
                 elif rec and rec.reason:
                     note = rec.reason
@@ -1030,15 +1048,24 @@ class ExceptionPage(QWidget):
                              "can_delete": can_del,
                              "replaced_by": replaced})
             self._b4_rows = rows
-            # 状态行：总数 + 分类计数（一眼看清各多少）
+            # 已清账历史不算"值得看"：只剩历史时桶④不亮红、不强制
+            # 展开（「只看有问题的桶」也不藏它——历史不是问题）
+            card.has_attention = any(r["cat"] != "已清账" for r in rows)
+
+            # 状态行：总数 + 分类计数。已清账是终结态历史归档，
+            # 不混进活账计数、单独报数（v2.48 决策 102）
             n_cat = {c: 0 for c in _CAT_ORDER}
             for r in rows:
                 n_cat[r["cat"]] += 1
-            stat = " · ".join(f"{c} {n_cat[c]}" for c in _CAT_ORDER
-                              if n_cat[c])
+            n_arch = n_cat["已清账"]
+            live = [c for c in _CAT_ORDER if c != "已清账"]
+            stat = " · ".join(f"{c} {n_cat[c]}" for c in live if n_cat[c])
+            if n_arch:
+                stat += (f" · 已清账 {n_arch}（彻底清账的历史归档，"
+                         "默认不显示，状态筛「已清账」可查）")
             extra = f"（含联网新确认 {len(newly)} 个）" if newly else ""
-            card.set_status(f"{len(all_invalid)} 个{extra}：{stat}",
-                            _C_FAIL)
+            card.set_status(f"{len(all_invalid)} 个{extra}：{stat}", _C_FAIL)
+
             # -- 引导文字：先试重下（⓪）→ 三步主路径 → 进阶一句话 --
             card.add_text(
                 "result=9 = Steam 接口看不见条目（作者删除/下架/"
@@ -1050,7 +1077,13 @@ class ExceptionPage(QWidget):
                 "导入】添加新编号 → ③ 回本行右键【软删除此记录】"
                 "（记录保留可恢复，盘上文件不动）。「关联替换」（进阶）"
                 "只对有失效归档的行可用——菜单里该项是活的即有归档、"
-                "置灰即没有（悬停看原因）。表格可按分类筛选/分组/排序。")
+                "置灰即没有（悬停看原因）。表格可按分类筛选/分组/排序。\n"
+                "处置闭环：右键软删除的行变「已删除」（记录保留，可到"
+                "【mod 库】页恢复）；在【清理与删除】彻底清账的行变"
+                "「已清账」——账本条目与盘上文件都已清除，不会再出现在"
+                "任何待办里，本表默认也不再显示（状态筛「已清账」可查"
+                "历史归档）。")
+
             # -- 归档缺口提示（v2.45 用户三次在此困惑的收口）：红行没归档
             # = 关联替换置灰。建档唯一出口在【更新检测】页（决策 86），
             # 本页深检是纯只读承诺、永不建档——把解锁路径送到眼前
@@ -1076,9 +1109,11 @@ class ExceptionPage(QWidget):
                       "更新检测会照常盯它们）",
                     _C_WARN)
             card.add_text(
-                "处置后点【开始检测】复检；远端数字要重跑【联网深度"
-                "检测】才会刷新。")
-            card.set_expanded(True)
+                "处置后点【开始检测】复检（软删除的行会变「已删除」）；"
+                "远端数字要重跑【联网深度检测】才会刷新。已清账的历史行"
+                "不受复检影响——账本条目已删，本地与远端都不会再查到"
+                "它们，属预期不是刷新失灵。")
+            card.set_expanded(card.has_attention)
 
         # ---- 桶⑤ 查询失败 / 疑似合集 ----
         card = self._card(
@@ -1374,11 +1409,19 @@ class ExceptionPage(QWidget):
             return
         rows = list(self._b4_rows)
         # 勾选剪除（v2.45）：检测结果刷新后不在最新清单里的勾选清掉，
-        # 集合不积灰（与 mod 库页模型 set_rows 的剪除同一思路）
-        self._b4_checked &= {r["mid"] for r in rows}
-        # 1. 状态筛选
+        # 集合不积灰（与 mod 库页模型 set_rows 的剪除同一思路）；
+        # 已清账行一并剪除——它们没有任何可批量动作
+        self._b4_checked &= {r["mid"] for r in rows
+                             if r["cat"] != "已清账"}
+        # 1. 状态筛选。「已清账」（彻底清账的历史归档，v2.48）不在
+        #    默认视图显示——全是终结态、永远不会再有动作，留在
+        #    「全部」里只会越积越多；入口 = 状态筛「已清账」
+        #    （决策 78 同款：隐藏必须留计数，计数在卡片状态行）
         if self._b4_filter != "全部":
             rows = [r for r in rows if r["cat"] == self._b4_filter]
+        else:
+            rows = [r for r in rows if r["cat"] != "已清账"]
+
         # 2. 查找框过滤（v2.45）：标题/编号/说明包含即留
         kw = self._filter_edit.text().strip().casefold()
         if kw:
