@@ -29,6 +29,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 from core.urlParser import WORKSHOP_URL_TEMPLATE
+from core import localScanner, steamPaths
+from core.backupManager import steamcmd_running
+
 from gui.consolePanel import LogBus
 from gui.formatters import abs_time
 
@@ -50,9 +53,11 @@ class PurgedPage(QWidget):
     """已清账黑名单管理台。refresh() 供主窗口切到本页时调用。"""
 
     def __init__(self, repo, parent: QWidget | None = None, *,
-                 log: LogBus | None = None) -> None:
+                 log: LogBus | None = None, settings=None) -> None:
         super().__init__(parent)
         self._repo = repo
+        # AppSettings：读 steamcmd 程序路径（「从账本移除」定位 acf 用）
+        self._settings = settings
         self._log = log if log is not None else LogBus()
         self._rows: list = []               # list[PurgedMod]（全量）
         self._row_by_id: dict[int, object] = {}
@@ -87,13 +92,23 @@ class PurgedPage(QWidget):
         tip = QLabel(
             "这里是「彻底清账」登记的黑名单：名单里的编号，扫描本地时"
             "一律拦截复活入库（steamcmd 把删掉的 mod 装配回来也不入账"
-            "——包括 RimSort 清单残留和\"毒 mod\"下载尝试触发的装配）。\n"
+            "——包括别的下载器清单残留和\"毒 mod\"下载尝试触发的装配）。\n"
+            "名词·毒 mod：一类下载永远超时的条目。steamcmd 尝试下载它"
+            "时，会对本游戏的工坊状态做整体校验装配，把缓存里的旧数据块"
+            "重新装配成内容文件夹并写回账本文件——这是\"已删 mod 复活\""
+            "的机制之一；黑名单能拦住它入账，但拦不住它反复占磁盘。\n"
+            "「从 steamcmd 账本移除」：把勾选条目从 steamcmd 自己的工坊"
+            "账本文件（acf）里删掉——黑名单只拦入账，账本文件里的记录"
+            "还在，steamcmd 仍会反复校验装配它们；移除后 steamcmd 彻底"
+            "忘了这些条目。steamcmd 运行中不可执行（它退出时会整个覆盖"
+            "写回）；操作前自动备份原账本文件，改坏可还原。\n"
             "想重新收录某个编号：勾选它 →「允许录入」，再回 mod 库页"
             "【扫描本地】。\n"
             "软件外手动删过文件夹、或从没入过账的\"毒 mod\"：用"
-            "【手动拉黑…】登记。本页只动黑名单，不碰账本与磁盘。",
+            "【手动拉黑…】登记。本页只动黑名单登记与账本文件条目，"
+            "不碰 mod 内容文件夹（要删内容文件夹去【清理与删除】页）。",
             self)
-        tip.setWordWrap(True)
+
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
 
@@ -142,6 +157,14 @@ class PurgedPage(QWidget):
             "——盘上已有文件的会正常入账")
         self._act_allow.triggered.connect(self._allow_checked)
         menu.addAction(self._act_allow)
+        self._act_acf = QAction("从 steamcmd 账本移除条目（acf）…", menu)
+        self._act_acf.setToolTip(
+            "把勾选条目从 steamcmd 的工坊账本文件（acf）里删除——"
+            "steamcmd 从此彻底忘了它们，不再校验装配、不再占磁盘。\n"
+            "steamcmd 运行中会拒绝执行；操作前自动备份原账本文件")
+        self._act_acf.triggered.connect(self._remove_from_acf_checked)
+        menu.addAction(self._act_acf)
+
         self._btn_sel.setMenu(menu)
         bh.addWidget(self._btn_sel)
         btn_black = QPushButton("手动拉黑…", bar)
@@ -271,6 +294,8 @@ class PurgedPage(QWidget):
         n = 0 if self._building else len(self._checked())
         has = n > 0
         self._act_allow.setEnabled(has)
+        self._act_acf.setEnabled(has)
+
         self._btn_sel.setText(f"对选中({n})" if n else "对选中")
 
     def _apply_filter(self) -> None:
@@ -402,6 +427,85 @@ class PurgedPage(QWidget):
                        "（扫描本地将拦截其复活入库）")
         self._reload()
 
+    def _remove_from_acf_checked(self) -> None:
+        """把勾选条目从 steamcmd 的工坊账本文件（acf）里移除。
+        黑名单拦截的是"入账"；账本文件里条目还在的话，steamcmd 每次
+        下载其他 mod 时仍会对它们做整体校验装配（毒 mod 复活机制）
+        ——把条目从账本文件里删掉才是断根。安全边界：
+        - steamcmd 在跑 → 拒绝执行（与恢复备份的引擎级拒绝同级）；
+        - 写前自动备份（同目录 .bak_时间戳），解析失败绝不落笔；
+        - 只删指定条目的登记子块，账本文件其余内容一字不动；
+        - 黑名单登记不受影响（条目继续被拦截入账）。
+        """
+        recs = self._checked()
+        if not recs:
+            QMessageBox.information(self, "从 steamcmd 账本移除",
+                                    "先勾选要移除的编号。")
+            return
+        if steamcmd_running():
+            QMessageBox.warning(
+                self, "steamcmd 正在运行",
+                "steamcmd 正在运行，现在改它的账本文件（acf）会在它"
+                "退出时被整个覆盖回去（等于白改）。\n\n请先停止 "
+                "steamcmd（控制台 → steamcmd 终端 → 停止），再回来执行。")
+            return
+        root = steamPaths.steamcmd_root(
+            self._settings.get("steamcmd_path") if self._settings else "")
+        if root is None:
+            QMessageBox.information(
+                self, "从 steamcmd 账本移除",
+                "尚未设置 steamcmd 程序路径，无法定位工坊账本文件。\n"
+                "请先到设置页填写 steamcmd 程序路径。")
+            return
+        # 黑名单跨档案：条目可能属于多个游戏，按档案分组定位各自的 acf
+        by_game: dict[int, list[int]] = {}
+        for r in recs:
+            by_game.setdefault(r.game_id, []).append(r.mod_id)
+        ret = QMessageBox.question(
+            self, "从 steamcmd 账本移除",
+            f"把 {len(recs)} 个编号从 steamcmd 的工坊账本文件（acf）里"
+            "移除？\n\n"
+            "· steamcmd 从此彻底忘了这些条目：不再校验装配、不再占磁盘；\n"
+            "· 已下载的内容文件夹不受影响，要删去【清理与删除】页；\n"
+            "· 操作前自动备份原账本文件（同目录 .bak_时间戳），"
+            "改坏可还原；\n"
+            "· 黑名单登记保留：条目继续被拦截入账（想重新收录走"
+            "「允许录入」）。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            self._log.info("已取消：工坊账本（acf）未动")
+            return
+        total_removed: list[int] = []
+        missing_acf: list[str] = []
+        for game_id, mids in sorted(by_game.items()):
+            gname = self._games.get(game_id, str(game_id))
+            acf = localScanner.locate_acf(root, game_id)
+            if acf is None:
+                missing_acf.append(gname)
+                continue
+            try:
+                removed, absent = localScanner.remove_items_from_acf(
+                    acf, mids)
+            except ValueError as exc:
+                self._log.error(f"「{gname}」的工坊账本（acf）移除失败"
+                                f"（条目未动）：{exc}")
+                continue
+            total_removed.extend(removed)
+            line = f"「{gname}」：已移除 {len(removed)} 个条目"
+            if absent:
+                line += f"；{len(absent)} 个编号账本里本来就没有" \
+                        "（无需处理）"
+            self._log.ok(line)
+        if total_removed:
+            self._log.warn(
+                f"共从 steamcmd 工坊账本（acf）移除 {len(total_removed)} 个"
+                "条目（原文件已自动备份在同目录；黑名单登记保留）")
+        for gname in missing_acf:
+            self._log.info(f"「{gname}」没有工坊账本文件（acf）——该游戏"
+                           "可能从没用本机 steamcmd 下载过，无需清理")
+        self._reload()
+
     # ---------- 表格交互 ----------
     def _on_cell_clicked(self, row: int, col: int) -> None:
         if col != COL_URL:
@@ -441,6 +545,14 @@ class PurgedPage(QWidget):
             lambda: (self._table.item(row, COL_CHECK).setCheckState(
                 Qt.CheckState.Checked), self._allow_checked()))
         menu.addAction(act_allow)
+        act_acf = QAction("从 steamcmd 账本移除条目（acf）…", menu)
+        act_acf.setToolTip("把这一个编号从 steamcmd 账本（acf）里删除"
+                           "（同批量动作，单条版）")
+        act_acf.triggered.connect(
+            lambda: (self._table.item(row, COL_CHECK).setCheckState(
+                Qt.CheckState.Checked), self._remove_from_acf_checked()))
+        menu.addAction(act_acf)
+
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def _copy_id(self, mid: int) -> None:

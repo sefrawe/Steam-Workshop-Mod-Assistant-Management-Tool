@@ -286,7 +286,8 @@ class MainWindow(QMainWindow):
             UpdateComparePage(self._repo, self._stack),  # 20 基础功能：更新对照（只读）
             GameExitPage(self._repo, self._settings, self._stack,log=self._log),  # 21 功能模块：游戏退场（决策 96）
             ApiKeyPage(self._settings, self._stack, log=self._log),  # 22 基础功能：Steam API 密钥（指引/保存/验证）
-            PurgedPage(self._repo, self._stack, log=self._log),  # 23 基础功能：已清账管理（黑名单）
+            PurgedPage(self._repo, self._stack, log=self._log,
+                       settings=self._settings),  # 23 已清账管理（黑名单 + acf 移除）
 
         ]
         for page in self._pages:
