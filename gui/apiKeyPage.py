@@ -1,56 +1,53 @@
-"""Steam Web API 密钥（注册指引 · 保存 · 在线验证） """
-"""
-本页解决一件事：把依赖检测需要的 Steam Web API key 引导到位。
+r"""gui/apiKeyPage.py · Steam Web API key：注册指引 + 现场验证器。
 
-为什么需要 key：匿名工坊接口（GetPublishedFileDetails）不返回 mod 的
-「必需物品」（依赖）清单——实测字段全集里没有 children；只有带 key 的
-IPublishedFileService/GetDetails 才返回。异常处理的新桶（缺依赖 /
-依赖变化）以此为主要数据源。
+本页解决一件事：把依赖检测需要的 Steam Web API key 引导到位，
+并提供一次性的现场验证。
 
-key 的纪律（与登录命令同待遇，R2）：
-- 只存本机设置（AppSettings 键 steam_api_key），绝不写入运行日志、
-  绝不进命令回显，界面只显示尾号四位；
+key 的纪律（用完即弃）：
+- 本软件不保存 key——不写设置文件、不进日志、不进会话缓存；
+  验证与【拉取依赖】都是现场粘贴，用完即弃；
+- 输入框在每次验证结束后自动清空：key 不在界面上过夜
+  （防截图、防旁人窥屏）；要再用，重新粘贴即可；
 - key 绑定 Steam 账号，泄露了随时到注册页重置（旧 key 立即失效）。
 
-「验证此 key」把探针（tools/probe_children_key.py 的思路）内置进来：
-拿一个工坊页明确写了必需物品的 mod 现查一次，回报 children 有没有、
-有几项——这是依赖检测方案的实测入口，把结果贴给开发即可定稿。
+为什么需要 key：匿名工坊接口（GetPublishedFileDetails）不返回 mod
+的「必需物品」（依赖）清单——实测字段全集里没有 children；只有带
+key 的 IPublishedFileService/GetDetails（includechildren=true）才返回。
+异常处理的「桶B 依赖检测」（缺依赖 / 依赖变化）以此为主要数据源。
 
-本页零 SQL、零 repo（记事本架构约定）：只读写 AppSettings 的一个键。
-key 未设置时依赖检测应降级为"未开启"并指向本页，属功能未配置，
-不是故障，不弹错。
+「验证此 key」= 现场探针：拿一个工坊页明确写了必需物品的 mod 现查
+一次，回报 children 有没有、有几项——key 有效性与数据管道一次验清。
+
+本页零 SQL、零 repo：不碰设置对象（不保存任何东西）、不碰数据库。
 """
 import re
 
 from PySide6.QtCore import Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-
 from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
+    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QVBoxLayout, QWidget,
 )
 
-# AppSettings 键名（将来设置页如收编同一键，两处同名即可）
-_KEY = "steam_api_key"
-# 注册页：免费，个人默认额度 10 万次/天，本工具每轮深检十几次调用
+# 注册页：免费，个人默认额度 10 万次/天，本工具每轮拉取个位数请求
 _REGISTER_URL = "https://steamcommunity.com/dev/apikey"
+
 # 验证样本：Better Architect Menu（3563882422）——工坊页明确写了
 # 3 个必需物品（Harmony / Architect Icons / Architect Menu Optimizer），
-# 正好用来对照接口给不给 children
+# 验证通过 = key 有效 + 依赖数据管道畅通（children 应报 3 项）
 _DEFAULT_PROBE_ID = "3563882422"
+
 # Steam Web API key 的标准形状：32 位十六进制
 _HEX32 = re.compile(r"[0-9a-fA-F]{32}")
 
 
 class _ProbeWorker(QThread):
     """后台验证线程：带 key 现查一次 GetDetails，回报 children 形状。
-    联网必须走工作线程（R11），证书走 truststore（踩坑⑦同款解法，
-    与主程序一致）。"""
+
+    联网必须走工作线程（R11），证书走 truststore（与主程序一致）。
+    key 以构造参数传入本线程内部，结束后随对象销毁——不落任何缓存。
+    """
+
     done = Signal(dict)  # {"ok": bool, "children": list[str], "msg": str}
 
     def __init__(self, key: str, mod_id: str, parent=None) -> None:
@@ -75,14 +72,14 @@ class _ProbeWorker(QThread):
                     "includemetadata": "true",
                     "includechildren": "true",
                 },
-
                 timeout=30,
             )
             if resp.status_code == 403:
                 # 无效/被重置的 key，Steam 的表现就是 403 Forbidden
                 self.done.emit({"ok": False, "children": [],
-                                "msg": "服务器拒绝（403）：key 无效或已被重置。"
-                                       "请回 steamcommunity.com/dev/apikey "
+                                "msg": "服务器拒绝（403）：key 无效或已被"
+                                       "重置。请回 "
+                                       "steamcommunity.com/dev/apikey "
                                        "核对或重新注册一个"})
                 return
             resp.raise_for_status()
@@ -106,13 +103,12 @@ class _ProbeWorker(QThread):
                 return
             ids = [str(c.get("publishedfileid", "?"))
                    for c in raw if isinstance(c, dict)]
-
             title = item.get("title") or "?"
             banned = item.get("banned")
             msg = (f"接口通了：《{title}》 banned={banned}，"
                    f"children（必需物品）共 {len(ids)} 项"
-                   + (f"，前几项：{'、'.join(ids[:5])}" if ids else "。"
-                      "——这个编号工坊页写了必需物品却没有 children？"
+                   + (f"，前几项：{'、'.join(ids[:5])}" if ids else
+                      "。——这个编号工坊页写了必需物品却没有 children？"
                       "请把此结果告诉开发者"))
             self.done.emit({"ok": True, "children": ids, "msg": msg})
         except Exception as exc:  # noqa: BLE001 —— 线程边界兜底
@@ -121,10 +117,12 @@ class _ProbeWorker(QThread):
 
 
 class ApiKeyPage(QWidget):
-    """注册指引 + 保存 + 在线验证，一页闭环。"""
+    """注册指引 + 现场验证，一页闭环。不保存任何东西。"""
 
     def __init__(self, settings, stack, log=None) -> None:
         super().__init__(stack)
+        # settings 参数按主窗口现有接线原样保留；本页不再读写设置
+        # ——key 用完即弃，没有任何需要持久化的状态
         self._settings = settings
         self._log = log
         self._worker: _ProbeWorker | None = None  # 验证线程（shutdown 要等）
@@ -144,29 +142,37 @@ class ApiKeyPage(QWidget):
         intro = QLabel(
             "依赖检测（异常处理的「缺依赖 / 依赖变化」）需要一把免费的 "
             "Steam Web API key：匿名接口拿不到 mod 的「必需物品」清单，"
-            "只有带 key 的官方接口才返回。key 只保存在本机设置里，"
-            "绝不写入日志；泄露了随时可在注册页重置。", self)
+            "只有带 key 的官方接口才返回。", self)
         intro.setWordWrap(True)
         root.addWidget(intro)
 
-        # 状态行 + 输入行
-        self._status = QLabel(self)
+        # 提醒行（固定文案）：纪律一次说清
+        self._status = QLabel(
+            "本软件不保存 key：验证与【拉取依赖】都是现场粘贴、用完即弃；"
+            "绝不写入设置文件与日志。验证结束后输入框会自动清空。"
+            "泄露了随时到注册页点【重置】，旧 key 立即失效。", self)
+        self._status.setWordWrap(True)
+        self._status.setStyleSheet("color: gray;")
         root.addWidget(self._status)
 
+        # key 输入行：粘完直接点验证（没有保存按钮——不保存）
         row = QHBoxLayout()
+        row.addWidget(QLabel("key：", self))
         self._input = QLineEdit(self)
-        self._input.setPlaceholderText("把 32 位 key 粘贴到这里")
+        self._input.setPlaceholderText(
+            "粘贴 32 位 key（仅本次使用，验证后自动清空）")
         row.addWidget(self._input, 1)
-        btn_save = QPushButton("保存", self)
-        btn_save.clicked.connect(self._on_save)
-        row.addWidget(btn_save)
-        btn_clear = QPushButton("清除", self)
-        btn_clear.clicked.connect(self._on_clear)
-        row.addWidget(btn_clear)
+        self._verify_btn = QPushButton("验证此 key（联网查询一次）", self)
+        self._verify_btn.setToolTip(
+            "现场探针：用下面的验证编号现查一次官方接口，回报该 mod "
+            "的必需物品清单——通过 = key 有效、依赖数据管道畅通。\n"
+            "验证结束后输入框自动清空（本软件不保存 key）")
+        self._verify_btn.clicked.connect(self._on_verify)
+        row.addWidget(self._verify_btn)
         root.addLayout(row)
 
-        btn_open = QPushButton("打开 Steam 注册页（steamcommunity.com/dev/apikey）",
-                               self)
+        btn_open = QPushButton(
+            "打开 Steam 注册页（steamcommunity.com/dev/apikey）", self)
         btn_open.clicked.connect(self._on_open_register)
         root.addWidget(btn_open)
 
@@ -176,15 +182,25 @@ class ApiKeyPage(QWidget):
             '2. 打开 <a href="https://steamcommunity.com/dev/apikey">'
             "steamcommunity.com/dev/apikey</a><br>"
             "3. 域名一栏随便填（例如 localhost），勾选同意条款，点【注册】"
-            "<br>4. 复制页面上 32 位的 key，粘贴到上面输入框，点【保存】"
+            "<br>4. 复制页面上 32 位的 key，粘贴到上面输入框点【验证此 "
+            "key】试一把；到异常处理页【拉取依赖（联网）】时也会现场问"
+            "你粘贴——本软件不保存 key，用完即弃。"
             "<br><br>忘了 key 是什么？回注册页点【重置】拿一个新的即可，"
             "旧 key 同时失效。"
             "<br><br><b>看到「拒绝访问」？</b>新注册或消费未满 $5 的受限"
             "账户暂时拿不到 key（在别的平台买的 CDKey 激活不计入消费"
             "额度）。在 Steam 商店直接消费满 $5（约 ¥36，买游戏/充钱包"
-            "都算）后回来重试即可。注册不了不影响本软件其他功能：依赖"
-            "检测保持未开启，其余一切照常。", self)
-
+            "都算）后回来重试即可。\n除了要求消费，还要求账号在 steam "
+            "app 中开启 QR 码验证身份方式防止盗号。steam app 下载地址："
+            "https://store.steampowered.com/mobile?l=schinese，可以直接"
+            "找到 app 的下载链接而不用通过 geogle play，手机登录和开启 "
+            "QR 码相关操作不用加速，电脑端问你要域名用“localhost”就行，"
+            "之后接收授权密钥的信息需要（电脑显示“正在等待来自您 steam "
+            "令牌手机验证器的确认”）加速，手机推荐“biubiu加速器”，加速"
+            "后点第四个铃铛图标“notifications”，刷新等显示“1 pending "
+            "confirmation”就点它，点进去授权就能在电脑上看到密钥。\n"
+            "注册不了不影响本软件其他功能：依赖检测保持未开启，"
+            "其余一切照常。", self)
         guide.setTextFormat(Qt.TextFormat.RichText)
         guide.setOpenExternalLinks(True)
         guide.setTextInteractionFlags(
@@ -192,24 +208,23 @@ class ApiKeyPage(QWidget):
         guide.setWordWrap(True)
         root.addWidget(guide)
 
-        # ---- 在线验证区 ----
-        verify_title = QLabel("<b>在线验证（可选，但强烈建议）</b>", self)
-        verify_title.setTextFormat(Qt.TextFormat.RichText)
-        root.addWidget(verify_title)
+        # ---- 现场验证区 ----
         verify_hint = QLabel(
-            "保存之后，用下面这个 mod 现查一次接口：它的工坊页明确写了 "
-            "3 个必需物品，正好用来验证接口给不给依赖清单。验证结果请"
-            "反馈给开发者（决定依赖检测的最终实现）。", self)
+            "<b>现场验证（可选，但强烈建议）</b>：探针用下面这个 mod 现查"
+            "一次接口——它的工坊页明确写了 3 个必需物品，children 应报 "
+            "3 项。通过 = key 有效、依赖数据管道畅通，之后到异常处理页"
+            "【拉取依赖（联网）】再粘一次就能用。", self)
+        verify_hint.setTextFormat(Qt.TextFormat.RichText)
         verify_hint.setWordWrap(True)
         root.addWidget(verify_hint)
 
         vrow = QHBoxLayout()
+        vrow.addWidget(QLabel("验证编号（默认即可）：", self))
         self._probe_input = QLineEdit(_DEFAULT_PROBE_ID, self)
-        vrow.addWidget(QLabel("验证编号：", self))
+        self._probe_input.setToolTip(
+            "探针查询的工坊编号：默认这个 mod 的必需物品数已知"
+            "（3 项），适合当对照样本；一般不用改")
         vrow.addWidget(self._probe_input, 1)
-        self._verify_btn = QPushButton("验证此 key（联网查询一次）", self)
-        self._verify_btn.clicked.connect(self._on_verify)
-        vrow.addWidget(self._verify_btn)
         root.addLayout(vrow)
 
         self._result = QLabel(self)
@@ -221,71 +236,40 @@ class ApiKeyPage(QWidget):
         root.addStretch(1)
 
     # ---------------- 槽 ----------------
-    def _on_save(self) -> None:
+    def _on_verify(self) -> None:
         key = self._input.text().strip()
         if not key:
             QMessageBox.information(
-                self, "保存密钥", "输入框是空的：要清掉已保存的 key 请点【清除】。")
+                self, "验证密钥",
+                "先粘贴 key（本软件不保存：用完即弃，要再用重新粘贴）。")
             return
         if not _HEX32.fullmatch(key):
             ret = QMessageBox.question(
                 self, "格式不像 key",
                 "Steam Web API key 通常是 32 位十六进制字符，当前输入不是"
-                "这个形状——可能是没复制全。\n\n仍要保存吗？",
+                "这个形状——可能是没复制全。\n\n仍要验证吗？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No)
             if ret != QMessageBox.StandardButton.Yes:
                 return
-        # AppSettings 的写入方法按项目惯例叫 set；万一版本不同没有这个
-        # 方法，明确告诉用户要补什么，而不是甩一个 traceback
-        setter = getattr(self._settings, "set", None)
-        if setter is None:
-            QMessageBox.warning(
-                self, "无法保存",
-                "设置对象不支持写入（缺 set 方法）——请把 core/appSettings.py "
-                "发给开发者补一行。")
-            return
-        setter(_KEY, key)
-        self._input.clear()
-        self.refresh()
-        if self._log is not None:
-            self._log.ok(f"Steam API 密钥已保存（尾号 {key[-4:]}）")
-
-    def _on_clear(self) -> None:
-        setter = getattr(self._settings, "set", None)
-        if setter is None:
-            QMessageBox.warning(
-                self, "无法清除",
-                "设置对象不支持写入——请把 core/appSettings.py 发给开发者。")
-            return
-        setter(_KEY, "")
-        self.refresh()
-        if self._log is not None:
-            self._log.info("已清除 Steam API 密钥")
-
-    def _on_open_register(self) -> None:
-        QDesktopServices.openUrl(QUrl(_REGISTER_URL))
-
-    def _on_verify(self) -> None:
-        key = (self._settings.get(_KEY) or "").strip()
-        if not key:
-            QMessageBox.information(
-                self, "验证密钥", "还没有保存 key：先粘贴并【保存】，再验证。")
-            return
         target = self._probe_input.text().strip() or _DEFAULT_PROBE_ID
         if not target.isdigit():
             QMessageBox.information(
                 self, "验证编号", "验证编号应是纯数字的工坊编号。")
             return
         self._verify_btn.setEnabled(False)
-        self._result.setText("正在查询……")
+        self._result.setText("正在查询……（验证结束后输入框会自动清空）")
         self._worker = _ProbeWorker(key, target, self)
         self._worker.done.connect(self._on_probe_done)
         self._worker.start()
 
     def _on_probe_done(self, payload: dict) -> None:
         self._verify_btn.setEnabled(True)
-        self._result.setText(payload.get("msg") or "")
+        # 用完即弃的落实点：无论成败，验证一结束就清空输入框——
+        # key 不在界面上残留；失败要重试，重新粘贴即可
+        self._input.clear()
+        msg = payload.get("msg") or ""
+        self._result.setText(msg + "\n（输入框已清空——本软件不保存 key）")
         if self._log is not None:
             if payload.get("ok"):
                 n = len(payload.get("children") or [])
@@ -294,18 +278,15 @@ class ApiKeyPage(QWidget):
             else:
                 self._log.warn(f"API key 验证未通过：{payload.get('msg')}")
 
+    def _on_open_register(self) -> None:
+        QDesktopServices.openUrl(QUrl(_REGISTER_URL))
+
     # ---------------- 对外 ----------------
     def refresh(self) -> None:
-        """进页刷新（MainWindow _on_nav_changed 调用）：重读设置。"""
-        key = ""
-        if self._settings is not None:
-            key = (self._settings.get(_KEY) or "").strip()
-        if key:
-            self._status.setText(
-                f"当前状态：已设置（尾号 {key[-4:]}）——依赖检测可用")
-        else:
-            self._status.setText(
-                "当前状态：未设置——依赖检测暂不可用，按下面四步注册即可")
+        """进页刷新（MainWindow _on_nav_changed 调用）：清空输入框与
+        上次结果——key 不在界面上过夜；提醒行是固定文案。"""
+        self._input.clear()
+        self._result.setText("")
 
     def shutdown(self) -> None:
         """主窗口关窗前的收尾（MainWindow closeEvent 统一回调）：

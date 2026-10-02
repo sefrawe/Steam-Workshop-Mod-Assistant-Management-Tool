@@ -364,6 +364,16 @@ class ModListPage(QWidget):
             "只收当前清单里显示的勾选；颜色随时可改可清")
         self._act_batch_color.triggered.connect(self._on_batch_color)
         self._actions_menu.addAction(self._act_batch_color)
+        # 批量编辑备注（维护版）：三模式 = 开头插入 / 结尾插入 / 替换
+        # （替换留空 = 清空，危险档另有确认）。单条版在右键菜单
+        self._act_batch_note = QAction("批量编辑备注…", self._actions_menu)
+        self._act_batch_note.setToolTip(
+            "对勾选的 mod 整批编辑备注：在现有备注的开头或结尾插入一段"
+            "文字（不动原内容），或整批替换/清空。\n"
+            "只收当前清单里显示的勾选")
+        self._act_batch_note.triggered.connect(self._on_batch_note)
+        self._actions_menu.addAction(self._act_batch_note)
+
 
 
         self._act_open_pages = QAction("打开工坊页面", self._actions_menu)
@@ -1102,6 +1112,8 @@ class ModListPage(QWidget):
         self._act_open_pages.setText(f"打开工坊页面{label}")
         self._act_copy_ids.setText(f"复制勾选编号{label}")
         self._act_batch_color.setText(f"批量颜色标记{label}")
+        self._act_batch_note.setText(f"批量编辑备注{label}")
+
 
 
 
@@ -1180,6 +1192,70 @@ class ModListPage(QWidget):
                     "未收录条目需先入库才能标记：可到「功能模块 → 加入新 mod」"
                     "或「基础功能 → 网址批量导入」粘贴同一份清单")
             self._reload()
+
+    def _on_batch_note(self) -> None:
+        """【批量编辑备注…】（维护版）：三模式整批写备注。
+        插入语义 = 新文本 + 换行 + 原备注（原备注为空时自然退化为
+        直接写入）；替换/清空覆盖原内容——清空走确认且默认否
+        （决策 69⒋）。与批量颜色同一纪律：只收当前显示的勾选；
+        一个事务，要么全写要么不动。"""
+        if not self._require_game():
+            return
+        ids = self._model.checked_ids_in_rows()
+        if not ids:
+            QMessageBox.information(
+                self, "批量编辑备注", "先在表格第一列勾选要编辑的 mod。")
+            return
+        mode, ok = QInputDialog.getItem(
+            self, "批量编辑备注",
+            f"对勾选的 {len(ids)} 个 mod 的备注执行：",
+            ("在开头插入…", "在结尾插入…", "替换为…", "清空备注"),
+            current=0, editable=False)
+        if not ok:
+            return
+        text = ""
+        if mode != "清空备注":
+            text, ok = QInputDialog.getMultiLineText(
+                self, "批量编辑备注",
+                f"{mode.rstrip('…')}（确定后对 {len(ids)} 个 mod 生效）：", "")
+            if not ok:
+                return
+            text = text.strip()
+            if not text and mode != "替换为…":
+                QMessageBox.information(
+                    self, "批量编辑备注", "插入内容为空：没有做任何改动。")
+                return
+        if mode == "清空备注" or (mode == "替换为…" and not text):
+            ret = QMessageBox.question(
+                self, "清空备注",
+                f"确定清空 {len(ids)} 个 mod 的现有备注？原备注内容将被"
+                "移除（不可撤销）。",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if ret != QMessageBox.StandardButton.Yes:
+                self._log.info("已取消批量备注：没有做任何改动")
+                return
+        with self._repo.transaction():
+            for mid in ids:
+                m = self._repo.get_mod(mid)
+                if m is None:
+                    continue  # 勾选与落库之间刚被清账（极端竞态）：跳过
+                old = m.note or ""
+                if mode == "在开头插入…":
+                    new = f"{text}\n{old}" if old else text
+                elif mode == "在结尾插入…":
+                    new = f"{old}\n{text}" if old else text
+                else:  # 替换为… / 清空备注
+                    new = text
+                self._repo.set_note(mid, new.strip() or None)
+        verb = {"在开头插入…": "已在备注开头插入",
+                "在结尾插入…": "已在备注结尾插入",
+                "替换为…": "已替换备注",
+                "清空备注": "已清空备注"}[mode]
+        self._log.ok(f"{verb}：{len(ids)} 个")
+        self._reload()
+
+
     def _on_batch_color(self) -> None:
         """【批量颜色标记…】（v2.49）：对勾选行整批上色/清除。
         与批量特别关注同一纪律：只收当前清单里显示的勾选。

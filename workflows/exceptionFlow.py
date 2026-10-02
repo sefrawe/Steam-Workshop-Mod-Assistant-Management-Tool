@@ -394,3 +394,47 @@ def classify_dependencies(entries: list[dict], lib_ids: set[int],
     return DepFindings(missing=missing, changed=changed,
                        undetermined=undetermined, childless=childless,
                        skipped=skipped, fetched=fetched)
+# ============================================================
+# 桶C（维护版 v1.2）：本地标题关键词提醒 —— 离线、毫秒级、零联网
+# ============================================================
+# 词表默认值：只收高置信度词（与桶A远端弃坑词表同一哲学：宁可漏报
+# 不误报）。设置页「本地标题提醒关键词」可自行增删，留空 = 停用。
+# 中文词不进默认：本地标题含中文弃坑词的少且误报难判，需要再自己加。
+DEFAULT_TITLE_KEYWORDS = "abandoned,deprecated,discontinued,unmaintained,outdated"
+
+@dataclass
+class LocalTitleFindings:
+    """桶C 判定结果：本地标题含提醒关键词的条目。纯数据，页面渲染用。"""
+    hits: dict[int, list[str]] = field(default_factory=dict)  # 编号 → 命中的词
+
+    @property
+    def total(self) -> int:
+        return len(self.hits)
+
+
+def classify_local_titles(local_titles: dict[int, str],
+                          keywords_raw: str | None) -> LocalTitleFindings:
+    """桶C 分类核心（纯函数：不碰库不碰网，与 classify_health 同纪律）。
+
+    keywords_raw = 设置页原文：逗号/中文逗号/分号/空白分隔均可（宽容
+    解析），大小写不敏感子串匹配；解析后为空 = 功能停用（返回空）。
+    误报要明示：调用方必须在行内显示命中的词——"Abandoned Mines"
+    这类地图名同样会命中，只提醒不处置，判断权在用户。只扫本地账本
+    标题；远端侧的弃坑检测在桶A（classify_health），两桶词表独立。
+    """
+    out = LocalTitleFindings()
+    raw = str(keywords_raw or "").strip()
+    if not raw:
+        return out
+    kws = sorted({k.casefold()
+                  for k in re.split(r"[,，;；\s]+", raw) if k.strip()})
+    if not kws:
+        return out
+    for mid, title in local_titles.items():
+        t = str(title or "").casefold()
+        if not t:
+            continue
+        hit = [k for k in kws if k in t]
+        if hit:
+            out.hits[mid] = hit
+    return out

@@ -70,6 +70,8 @@ from gui.gameSwitcher import GameSwitcher
 from gui.importPage import ImportPage
 from gui.migrationPage import MigrationPage
 from gui.modListPage import ModListPage
+from gui.purgedPage import PurgedPage
+
 from gui.rescuePage import RescuePage
 from gui.settingsPage import SettingsPage
 from gui.shareListPage import ShareListPage
@@ -96,6 +98,8 @@ _IDX_UNINSTALL = 19 # 功能模块：卸载与清理 = _pages 末尾 append 后�
 _IDX_UPDATE_COMPARE = 20  # 基础功能：更新对照 = _pages 末尾 append 后落位
 _IDX_GAME_EXIT = 21  # 功能模块：游戏退场 = _pages 末尾 append 后落位（决策 13 模式）
 _IDX_API_KEY = 22 # 基础功能：Steam API 密钥 = _pages 末尾 append 后落位（决策 13 模式）
+_IDX_PURGED = 23  # 基础功能：已清账管理 = _pages 末尾 append 后落位
+
 
 
 
@@ -149,6 +153,7 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
         ("账实核验", 6),
         ("异常处理", 7),
         ("Steam API 密钥", _IDX_API_KEY),
+        ("已清账管理", _IDX_PURGED),  # 维护版：黑名单管理台
 
     ]),
     ("备份管理", [
@@ -281,6 +286,7 @@ class MainWindow(QMainWindow):
             UpdateComparePage(self._repo, self._stack),  # 20 基础功能：更新对照（只读）
             GameExitPage(self._repo, self._settings, self._stack,log=self._log),  # 21 功能模块：游戏退场（决策 96）
             ApiKeyPage(self._settings, self._stack, log=self._log),  # 22 基础功能：Steam API 密钥（指引/保存/验证）
+            PurgedPage(self._repo, self._stack, log=self._log),  # 23 基础功能：已清账管理（黑名单）
 
         ]
         for page in self._pages:
@@ -679,6 +685,10 @@ class MainWindow(QMainWindow):
             if index == _IDX_API_KEY:
                 # 进页重读设置：注册完回来、或别处改过 key 即最新
                 self._pages[index].refresh()
+            if index == _IDX_PURGED:
+                # 黑名单可能刚被右键彻底清账/清理页改动，进页重读
+                self._pages[index].refresh()
+
 
 
     def _on_overview_requested(self, app_id: int) -> None:

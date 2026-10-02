@@ -164,7 +164,16 @@ _FIELDS = [
      "开：关闭高级筛选窗口即清空全部条件，列表恢复全量（默认，原行为）；\n"
      "关：关窗保留条件，重开窗口接着用——mod 库页工具条的「高级筛选 ✕」"
      "指示按钮和窗口里的【清除全部】随时可手动清",
-     "bool"),
+     "bool"),    # 本地标题提醒词表（桶C，维护版）：异常处理页【开始检测】顺带扫
+    # 本地标题，命中即黄字提醒。留空 = 停用；默认值与
+    # workflows/exceptionFlow.DEFAULT_TITLE_KEYWORDS 同文
+    ("local_title_warn_keywords", "本地标题提醒关键词",
+     "mod 库里标题含这些词的条目，在【异常处理 → 开始检测】结果里"
+     "黄字提醒（离线、毫秒级）。逗号或空格分隔，大小写不影响匹配；"
+     "留空 = 停用。默认：abandoned, deprecated, discontinued, "
+     "unmaintained, outdated——像 \"Abandoned Mines\" 这类地图名也会"
+     "被命中，只是提醒不是判定，误报就把对应词删掉", "text"),
+
 
 ]
 

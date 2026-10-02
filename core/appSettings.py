@@ -46,6 +46,7 @@ DEFAULTS: dict[str, str] = {
     "backup_keep_per_mod": "3",    # 每个 mod 保留的备份份数（超出淘汰最旧，钉住豁免）
     "backup_total_quota_gb": "10",  # 全部备份合计的容量上限 GB（超出从最旧清腾）
     "console_auto_show": "1",  # 控制台被关闭时来了新日志要不要自动弹出
+    "local_title_warn_keywords": "abandoned,deprecated,discontinued,unmaintained,outdated",
     # 关闭高级筛选窗口时自动清空条件（决策 97）："1" = 关窗即清空
     # （默认，原行为）；"0" = 关窗保留条件，重开接着用
     "advsearch_autoclear": "1",
@@ -76,9 +77,7 @@ DEFAULTS: dict[str, str] = {
     # （防已删除 mod 复活、减少下载失败，RimSort 同款对策、同默认开）；
     # "0" = 不清（保留缓存省流量，但删过的 mod 可能被 steamcmd 复活）
     "steamcmd_clear_cache_before_batch": "1",
-    # Steam Web API 密钥（v2.49）：只进本文件与 apiKeyPage，不进设置页
-    # _FIELDS（与"界面就地开关"同类口径）；纪律同 R2——绝不入日志
-    "steam_api_key": "",
+
 
 }
 
@@ -113,6 +112,10 @@ class AppSettings:
                 value = str(value)
             if isinstance(value, str):
                 merged[key] = value
+        # 密钥不落地（用户拍板）：旧版本可能已在文件里存过 key——
+        # 内存里就地抹掉，下次 save() 时文件里那行也随之消失
+        merged.pop("steam_api_key", None)
+
         self._data = merged
 
     def get(self, key: str, default: str = "") -> str:

@@ -275,8 +275,10 @@ class _DepWorker(QThread):
         except SteamApiError as exc:
             if "403" in str(exc):
                 self.failed.emit(
-                    "服务器拒绝（403）：key 无效或已被重置——到"
-                    "【Steam API 密钥】页核对或重置后再试")
+                    "服务器拒绝（403）：key 无效或已被重置——重新"
+                    "拉取并粘贴正确的 key（注册方法见【Steam API "
+                    "密钥】页）")
+
             else:
                 self.failed.emit(str(exc))
             return
@@ -431,6 +433,7 @@ class ExceptionPage(QWidget):
         self._dep_baseline: dict[int, list[int]] = {}
         self._dep_lib_ids: set[int] = set()
         self._dep_first_fetch = True
+        self._last_titles: exceptionFlow.LocalTitleFindings | None = None
 
         self._owner_game: Game | None = None
         self._b4_checked: set[int] = set()   # 桶④勾选（按 mid，跨重建存活）
@@ -520,8 +523,9 @@ class ExceptionPage(QWidget):
         self._dep_btn.setToolTip(
             "带 key 批量拉取全部未删除 mod 的必需物品清单：\n"
             "缺什么（账本里没有的依赖）、变了什么（与上次拉取的"
-            "差异）一次说清。\n需要先在【Steam API 密钥】页保存 "
-            "key；与深度检测共用联网互斥闸")
+            "差异）一次说清。\n拉取时会请你粘贴 Steam Web API key"
+            "（本软件不保存）；与深度检测共用联网互斥闸")
+
         self._dep_btn.clicked.connect(self._start_dep)
         self._dep_stop_btn = QPushButton("停止", btn_row)
         self._dep_stop_btn.setEnabled(False)
@@ -605,13 +609,13 @@ class ExceptionPage(QWidget):
             "· 桶⑥ 多前端环境冲突——无法自动检测，对照桶⑥卡里的"
             "清单自查。")
         c.add_text(
-            "· 桶A 远端健康（v2.49）——随【联网深度检测】一并判定，"
+            "· 桶A 远端健康——随【联网深度检测】一并判定，"
             "匿名接口就能查、不需要 API key：标题不符（作者改名/内容"
             "顶替信号，黄）、标题含弃坑关键词（红）、banned=1（被 "
             "Steam 封禁，红）。都是提醒不是损坏——动作是打开工坊"
             "页面看一眼，再决定去留。")
         c.add_text(
-            "· 桶B 依赖检测（v2.49）——mod 的「必需物品」清单由带 "
+            "· 桶B 依赖检测——mod 的「必需物品」清单由带 "
             "key 的官方接口拉取（点【拉取依赖（联网）】，需先在"
             "【Steam API 密钥】页保存免费 key）：清单里编号不在账本"
             " = 缺依赖（红，一键复制编号去【网址批量导入】入库）；"
@@ -683,6 +687,7 @@ class ExceptionPage(QWidget):
         self._last_health = None
         self._last_deps = None
         self._dep_game_id = None
+        self._last_titles = None
 
         self._owner_game = None
 
@@ -912,14 +917,20 @@ class ExceptionPage(QWidget):
         game = self._latest_game()
         if game is None:
             return
-        key = (self._settings.get("steam_api_key") or "").strip()
-        if not key:
-            QMessageBox.information(
-                self, "拉取依赖",
-                "依赖检测需要 Steam Web API key（免费）：\n到【基础"
-                "功能 → Steam API 密钥】页按四步注册并保存，再回来"
-                "拉取。")
+        # key 用完即弃（用户拍板）：不落盘、不进日志、不进会话缓存
+        # ——每次拉取现场粘贴；取消或空 = 什么都不发生
+        key, ok = QInputDialog.getText(
+            self, "拉取依赖",
+            "粘贴 Steam Web API key（本软件不保存，用完即弃）：\n"
+            "还没有 key？【Steam API 密钥】页有四步注册指引。")
+        if not ok:
             return
+        key = key.strip()
+        if not key:
+            QMessageBox.information(self, "拉取依赖",
+                                    "key 为空：本次没有做任何事。")
+            return
+
         # 与深检同款：先跑本地快检（毫秒级），渲染才有本地半边
         if self._run_local(game) is None:
             return
@@ -1507,8 +1518,9 @@ class ExceptionPage(QWidget):
             tip="必需物品清单由带 key 的官方接口拉取（【拉取依赖】"
                 "按钮）：清单里编号不在账本 = 缺依赖（红，一键复制"
                 "编号去【网址批量导入】添加）；与上次拉取有差 = 依赖"
-                "变化（黄，作者增删了依赖，以最新为准）。需要 "
-                "Steam API 密钥。",
+                "变化（黄，作者增删了依赖，以最新为准）。拉取时粘贴 "
+                "key（本软件不保存）。",
+
             attention=bool(deps is not None and deps_bad > 0))
         if deps is None:
             card.set_status(
@@ -1517,7 +1529,9 @@ class ExceptionPage(QWidget):
             card.add_text(
                 "点上方【拉取依赖（联网）】：带 key 批量查询全部未"
                 "删除 mod 的必需物品清单，缺什么、变了什么一次说清。"
-                "需要先在【Steam API 密钥】页保存 key。")
+                "拉取时会请你粘贴 key（本软件不保存）；注册方法见"
+                "【Steam API 密钥】页。")
+
             card.set_expanded(False)
         elif deps_bad == 0:
             card.set_status(
@@ -1579,6 +1593,49 @@ class ExceptionPage(QWidget):
                 + "。依赖指向的条目虽在账本但已失效/删除的，去桶④"
                   "处置——本桶不重复报。")
             card.set_expanded(True)
+        # ---- 桶C 本地标题关键词提醒（维护版）：随本地快检出 ----
+        # 离线零联网；词表来自设置页（留空 = 停用）。设置里没有该键
+        # （从未保存过）时回退引擎默认词表——None 与 "" 语义不同：
+        # None = 键不存在用默认，"" = 用户主动清空 = 停用
+        _kw_raw = self._settings.get("local_title_warn_keywords")
+        if _kw_raw is None:
+            _kw_raw = exceptionFlow.DEFAULT_TITLE_KEYWORDS
+        _titles_map = {m.mod_id: (m.title or "")
+                       for m in self._mods_by_id.values()}
+        lt = exceptionFlow.classify_local_titles(_titles_map, _kw_raw)
+        self._last_titles = lt
+        _kw_empty = not str(_kw_raw or "").strip()
+        card = self._card(
+            "bc", "桶C 本地标题提醒：关键词命中",
+            tip="本地账本标题里含提醒关键词的条目（词表在设置页"
+                "「本地标题提醒关键词」自行增删，留空 = 停用）。\n"
+                "作者常把 Abandoned / Deprecated 写进标题表示不再维护"
+                "——但地图名也可能含这些词（如 \"Abandoned Mines\"），"
+                "命中词在行内明示，只是提醒不是判定。离线毫秒级，随"
+                "【开始检测】一并完成。",
+            attention=bool(lt.total > 0))
+        if _kw_empty:
+            card.set_status("已停用（设置页关键词为空）", _C_MUTED)
+            card.set_expanded(False)
+        elif lt.total == 0:
+            card.set_status("无命中", _C_OK)
+            card.set_expanded(False)
+        else:
+            card.set_status(f"{lt.total} 个标题含关键词", _C_WARN)
+            card.add_text(
+                "本地记录的标题里含提醒关键词（可能是作者弃坑/停更的"
+                "信号，也可能名字本来就带这个词）。打开工坊页面对照"
+                "一眼：内容真的停更了再决定去留；误报的把对应词从"
+                "设置页词表里删掉即可。", _C_WARN)
+            self._add_id_list(
+                card,
+                [(mid, self._title_of(mid), "命中：" + "、".join(kws))
+                 for mid, kws in sorted(lt.hits.items())],
+                allow_cmd=False)
+            card.add_text(
+                "改词表：设置页 →「本地标题提醒关键词」。远端侧的弃坑"
+                "检测在桶A（联网深检时判定），两处词表相互独立。")
+            card.set_expanded(True)
 
         # ---- 附加发现：非数字内容 ----
         if rep.non_numeric:
@@ -1627,7 +1684,8 @@ class ExceptionPage(QWidget):
         # `not (remote_total or 0)` 把"深检没跑(None)"和"跑了零发现"
         # 一视同仁
         if local_total == 0 and not flags and not (remote_total or 0) \
-                and n_health == 0 and deps_bad == 0:
+                and n_health == 0 and deps_bad == 0 and lt.total == 0:
+
             tail = "（含联网深度检测）" if remote is not None else ""
             self._summary.setStyleSheet(f"color: {_C_OK};")
             self._summary.setText(f"六桶检查完毕{tail}：未发现异常。")
@@ -1635,8 +1693,8 @@ class ExceptionPage(QWidget):
             self._apply_card_filter()
             return
         # 本身零发现、只有未能检查的旗标：专用的友好汇总
-        if not local_total and not (remote_total or 0) and flags \
-                and n_health == 0:
+        if (not local_total and not (remote_total or 0) and flags
+                and n_health == 0 and deps_bad == 0 and lt.total == 0):
             self._summary.setStyleSheet(f"color: {_C_WARN};")
             self._summary.setText(
                 "可判范围内未发现异常；有未能检查的部分，见上方横幅。")
@@ -1655,6 +1713,9 @@ class ExceptionPage(QWidget):
                          "banned）")
         if deps_bad:
             parts.append(f"依赖异常 {deps_bad} 处（缺依赖/依赖变化）")
+        if lt.total:
+            parts.append(f"本地标题提醒 {lt.total} 个")
+
         self._summary.setStyleSheet(f"color: {_C_WARN};")
 
         self._summary.setText(
@@ -2352,16 +2413,15 @@ class ExceptionPage(QWidget):
             f"跳转命令生成页并勾选 {len(ids)} 个编号（异常修复重下）")
         self.command_gen_requested.emit(list(ids))
 
+def _ids_text(ids: list[int], limit: int = _ID_LIMIT) -> str:
+    """编号清单 → 展示文本：最多列 limit 个，超出折成"…"。"""
+    head = "、".join(str(i) for i in ids[:limit])
+    if len(ids) > limit:
+        head += f" …（共 {len(ids)} 个）"
+    return head
 
-    def _ids_text(ids: list[int], limit: int = _ID_LIMIT) -> str:
-        """编号清单 → 展示文本：最多列 limit 个，超出折成"…"。"""
-        head = "、".join(str(i) for i in ids[:limit])
-        if len(ids) > limit:
-            head += f" …（共 {len(ids)} 个）"
-        return head
 
-    def _fmt_ts(ts: int | None) -> str:
-        if not ts:
-            return "从未"
-        return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
-
+def _fmt_ts(ts: int | None) -> str:
+    if not ts:
+        return "从未"
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
