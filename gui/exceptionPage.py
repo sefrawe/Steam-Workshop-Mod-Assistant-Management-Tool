@@ -1840,6 +1840,15 @@ class ExceptionPage(QWidget):
         a_del.setToolTip("把勾选中「可处置」的失效条目整批软删除"
                          "（列清单确认、默认否；已替换/已删除的行自动跳过）")
         a_del.triggered.connect(self._b4_batch_soft_delete)
+        a_purge = QAction("批量彻底清账…", bm)
+        a_purge.setToolTip(
+            "把勾选中「已删除」分类的行整批物理删除账本记录（不可恢复，"
+            "自动登记黑名单）；其他分类的行自动跳过。\n"
+            "磁盘一个字节不动；名下有备份登记的条目默认被拒绝，"
+            "确认框里勾选才连带删登记")
+        a_purge.triggered.connect(self._b4_batch_purge)
+        bm.addAction(a_purge)
+
         for a in (a_pages, a_dirs, a_del):
             bm.addAction(a)
         self._b4_batch_btn.setMenu(bm)
@@ -2075,6 +2084,59 @@ class ExceptionPage(QWidget):
             return
         for r in rows:
             self._open_folder(r["mid"])
+
+    def _b4_batch_purge(self) -> None:
+        """批量彻底清账（对勾选中「已删除」分类的行）。与 mod 库页
+        批量清账同一纪律：逐条走 purge_mod 正门（每条独立事务，被拒
+        的跳过报数）、自动登记黑名单、磁盘一个字节不动。「已删除」行
+        = 已软删除的条目（多数盘上已无文件，正是清账缝隙的正主）；
+        名下有备份登记的被引擎拒绝，确认框里勾选才连带删登记
+        （磁盘备份文件夹仍保留）。"""
+        rows = [r for r in self._b4_checked_rows() if r["cat"] == "已删除"]
+        skipped = len(self._b4_checked) - len(rows)
+        if not rows:
+            QMessageBox.information(
+                self, "批量彻底清账",
+                "勾选里没有可清账的条目（只有「已删除」分类的行支持——"
+                "失效/已替换/已清账的行不能在这里清）。")
+            return
+        preview = "\n".join(f"· {r['mid']} {r['title']}" for r in rows[:20]) \
+                  + ("\n…" if len(rows) > 20 else "")
+        tail = (f"\n\n另有 {skipped} 个勾选行不可清账，将自动跳过。"
+                if skipped else "")
+        box = QMessageBox(self)
+        box.setWindowTitle("批量彻底清账")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            f"把以下 {len(rows)} 条记录从账本里彻底清除？\n{preview}{tail}\n\n"
+            "· 记录、版本快照、特别关注提醒：物理删除，不可恢复；\n"
+            "· 自动登记「已清账」黑名单：扫描不再录入（含 steamcmd 复活）；\n"
+            "· 磁盘一个字节不动；\n"
+            "· 名下有备份登记的条目会被跳过（勾选下方复选框才连带删登记，"
+            "磁盘备份文件夹仍保留）。")
+        cb = QCheckBox("同时删除备份登记（磁盘上的备份文件夹仍保留）", box)
+        box.setCheckBox(cb)
+        b_no = box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        b_yes = box.addButton("彻底清账",
+                              QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(b_no)  # 默认永远保守
+        box.exec()
+        if box.clickedButton() is not b_yes:
+            self._log.info("已取消批量彻底清账：没有做任何改动")
+            return
+        done = 0
+        blocked = 0
+        for r in rows:
+            try:
+                self._repo.purge_mod(r["mid"], purge_backups=cb.isChecked())
+                done += 1
+            except ValueError:
+                blocked += 1
+        self._log.warn(
+            f"批量彻底清账完成：{done} 条记录物理删除、已登记黑名单"
+            + (f"；{blocked} 条被跳过（名下有备份登记未一并删除——到"
+               "【备份总览】页处置登记后再来）" if blocked else ""))
+        self._refresh_after_dispose()
 
     def _b4_batch_soft_delete(self) -> None:
         """批量软删除：只对可处置（can_delete）的行生效；列清单确认、

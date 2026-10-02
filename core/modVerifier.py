@@ -90,23 +90,37 @@ class VerifyResult:
     untracked_content: list[tuple[int, str | None]] = field(default_factory=list)
     non_numeric: list[str] = field(default_factory=list)
     healthy: int = 0
+    stale_top: list[tuple[int, int, int]] = field(default_factory=list)
+    # 「账新盘旧」疑似：(mod_id, 账本 local_timeupdated, 顶层目录 mtime)。
+    # 精确语义 = 顶层目录的直接子项在账本时刻之后没有增删过——
+    # NTFS 目录 mtime 只反映直接子项增删，不反映深层文件改写（实证：
+    # 超时写入 .git 内部，顶层 mtime 纹丝不动）。因此两个已知边界：
+    # 误报 = 只覆盖文件、没增删的成功更新也会命中；漏报 = 超时若已往
+    # 顶层写入新子项则不命中。mtime 层面与正常更新原理上不可区分，
+    # 权威裁决只有 validate（按 manifest 逐文件核对）。
+
+    _STALE_TOP_SEC = 3600
 
 
 def _dir_is_empty(p: Path) -> bool:
     """目录里是否一个条目都没有（只看一层，理由见模块头）。"""
     with os.scandir(p) as it:
         return next(it, None) is None
-
-
 def verify(
         download_dir: str | Path | None,
         status_by_id: Mapping[int, str],
+        *,
+        local_times: Mapping[int, int] | None = None,
 ) -> VerifyResult:
     """对账主入口。
 
     download_dir：档案的 steamcmd 工坊内容目录（…/workshop/content/<appid>）
     status_by_id：{mod_id: 状态}，调用方用 list_mods 取全后传字典
                   （要含 deleted/failed——它们决定"盘上有目录"算不算异常）
+    local_times：{mod_id: 本地版本时间}（账本 local_timeupdated，来自 acf）。
+                  可选；给了才做「账新盘旧」疑似检查——比较的是**顶层目录
+                  mtime**（= 那次下载/更新的本地时刻），不是文件 mtime
+                  （文件 mtime 混着 Steam 保留的服务器侧时间，不可比）。
     """
     if not download_dir:
         return VerifyResult(download_dir=Path(""), dead_root=True)
@@ -115,7 +129,7 @@ def verify(
         # 死根短路：不逐条报 missing（全是噪音），让 GUI 去走重推导流程
         return VerifyResult(download_dir=root, dead_root=True)
 
-    numeric: dict[int, str] = {}   # 编号 → 目录名（保留原名，防前导零错位）
+    numeric: dict[int, str] = {}  # 编号 → 目录名（保留原名，防前导零错位）
     non_numeric: list[str] = []
     for entry in root.iterdir():
         if entry.is_dir() and entry.name.isdigit():
@@ -126,7 +140,9 @@ def verify(
 
     missing: list[int] = []
     empty: list[int] = []
+    stale_top: list[tuple[int, int, int]] = []
     healthy = 0
+    times = local_times or {}
     for mod_id, status in status_by_id.items():
         if status != "downloaded":
             continue
@@ -137,6 +153,16 @@ def verify(
             empty.append(mod_id)
         else:
             healthy += 1
+            # ---- 「账新盘旧」疑似检查（弱信号，判定口径见 VerifyResult 注释）----
+            lt = times.get(mod_id)
+            if lt:
+                try:
+                    dir_mtime = int((root / name).stat().st_mtime)
+                except OSError:
+                    dir_mtime = 0
+                # 只报"账比盘新"：目录比账新（外部动过顶层）不算可疑
+                if dir_mtime and lt - dir_mtime > _STALE_TOP_SEC:
+                    stale_top.append((mod_id, lt, dir_mtime))
 
     # 盘上有数字目录、账本却不是 downloaded：全部收进 untracked_content，
     # 状态原样携带（None = 不在库中），怎么解读交给 GUI
@@ -145,7 +171,6 @@ def verify(
         for mod_id in numeric
         if status_by_id.get(mod_id) != "downloaded"
     ]
-
     return VerifyResult(
         download_dir=root,
         missing=sorted(missing),
@@ -153,6 +178,7 @@ def verify(
         untracked_content=sorted(untracked),
         non_numeric=sorted(non_numeric),
         healthy=healthy,
+        stale_top=sorted(stale_top),
     )
 
 

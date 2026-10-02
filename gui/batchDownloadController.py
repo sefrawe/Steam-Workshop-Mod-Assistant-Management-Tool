@@ -34,6 +34,12 @@ from core import batchDownloadFlow
 from core import steamPaths  # 决策 100：批次前清缓存
 
 from core.backupManager import BackupManager
+from types import SimpleNamespace
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import QApplication, QMessageBox
+from core.urlParser import WORKSHOP_URL_TEMPLATE
+from gui.modFolderOpener import open_mod_folder
 
 # 登录命令在设置里的键名（与 settingsPage._FIELDS 同名，决策 12）
 _LOGIN_CMD_KEY = "steamcmd_login_cmd"
@@ -133,6 +139,8 @@ class BatchDownloadController(QObject):
 
         step_list.stop_requested.connect(self._on_stop)
         step_list.resume_requested.connect(self._on_resume)
+        step_list.ids_action.connect(self._on_ids_action)  # 行右键/重试按钮
+
         # steamcmd 进程退出 → 立即中止在跑批次（v2.45 僵尸批次防线）
         terminal.process_exited.connect(self._on_process_exited)
         self._shutting_down = False  # closeEvent 置位后不再响应退出事件
@@ -140,6 +148,8 @@ class BatchDownloadController(QObject):
         # 成功一次即清零；程序重启归零。只用于把失败解释的措辞升级，
         # 不进账本、不进设置（先简单后复杂）。
         self._fail_streak: dict[int, int] = {}
+        self._last_app_id: int | None = None  # 最近一批的档案（收尾后右键/重试仍可用）
+
 
 
 
@@ -224,7 +234,10 @@ class BatchDownloadController(QObject):
 
     def _launch(self, app_id: int, mod_ids: list[int]) -> bool:
         """真正开下载批次：接线 → 复位卡片 → 启动流程状态机。"""
+        self._last_app_id = app_id  # 记下归属：批次结束后右键/重试还要用
+
         flow = batchDownloadFlow.BatchDownloadFlow(
+
             app_id, list(mod_ids), send_command=self._terminal.send_command,
             on_event=self._on_event)
         self._flow = flow
@@ -488,19 +501,78 @@ class BatchDownloadController(QObject):
                 self.batch_done.emit(s)
 
     # ---------------- 失败解释（v2.49 新增） ----------------
+    def _on_ids_action(self, action: str, ids: list) -> None:
+        """批次卡片的行右键 / 重试按钮的动作落点（卡片只画界面，
+        动作实现住这里）。open_folders 需要档案归属（拼下载目录）——
+        用 _last_app_id（批次开始时记下，批次结束后仍可用）。
+        """
+        if not ids:
+            return
+        if action == "copy":
+            QApplication.clipboard().setText("\n".join(str(i) for i in ids))
+            self._log.info(f"已复制 {len(ids)} 个编号（每行一个）")
+            return
+        if action == "open_pages":
+            if len(ids) == 1:
+                url = WORKSHOP_URL_TEMPLATE.format(ids[0])
+                if not QDesktopServices.openUrl(QUrl(url)):
+                    self._log.warn(f"浏览器没有响应，请手动打开：{url}")
+                return
+            ret = QMessageBox.question(
+                self._step_list, "打开工坊页面",
+                f"在浏览器打开 {len(ids)} 个工坊页面？每个一页标签。")
+            if ret != QMessageBox.StandardButton.Yes:
+                return
+            for mid in ids:
+                QDesktopServices.openUrl(QUrl(
+                    WORKSHOP_URL_TEMPLATE.format(mid)))
+            return
+        if action == "open_folders":
+            game = (self._repo.get_game(self._last_app_id)
+                    if self._last_app_id is not None else None)
+            if game is None:
+                self._log.warn("打开文件夹失败：找不到这一批所属的游戏档案")
+                return
+            for mid in ids:
+                # 批次条目可能不在账本（终端粘贴的编号）：喂两字段
+                # 兜底对象（核验页同款做法，打开实现只摸这两个字段）
+                m = self._repo.get_mod(mid) or SimpleNamespace(
+                    mod_id=mid, local_path=None)
+                open_mod_folder(self._step_list, game, m, log=self._log)
+            return
+        if action == "retry":
+            if self._last_app_id is None:
+                self._log.error("重试失败：找不到这一批所属的游戏档案")
+                return
+            self._log.info(
+                f"重试上一批的 {len(ids)} 个失败/超时条目（同一游戏，"
+                "换时段重试常能过）…")
+            self.start_batch(self._last_app_id, list(ids))
+            return
+
     def _explain_failures(self, summary: dict, ok_n: int) -> None:
         """批次正常收尾时，对失败/超时条目给人话解释：为什么、怎么办。
-
         只解释、不记账：半成品本就入不了账（决策 23 的质量谓词），
         这里纯粹是运行日志层的安抚与指引。措辞两档——首次失败说
         "可能是什么"，连续失败（≥2 批）说"该干什么"；同批有成功
         就顺手把"通道没问题"说清，省得用户怀疑软件或网络全坏了。
         连续失败计数只住内存（self._fail_streak），成功即清零。
+
+        汇总里的 ok/failed/timeout 三份清单是批次流程塞进来的
+        ItemResult 对象列表（带 .mod_id 属性），不是编号列表——
+        取号一律走下面的 _mid，绝不能直接 int(条目)（那会当场
+        TypeError，把批次收尾的整条事件链炸断：接线不拆、
+        batch_done 信号发不出、批次结束自动复扫也跟着丢）。
         """
-        for mid in summary.get("ok") or []:
-            self._fail_streak.pop(int(mid), None)  # 成功一次：清零
-        bad = [int(m) for m in (summary.get("failed") or [])] + \
-              [int(m) for m in (summary.get("timeout") or [])]
+
+        def _mid(item) -> int:
+            """汇总条目 → mod 编号：ItemResult 取 .mod_id；裸 int 原样兼容。"""
+            return int(getattr(item, "mod_id", item))
+
+        for item in summary.get("ok") or []:
+            self._fail_streak.pop(_mid(item), None)  # 成功一次：清零
+        bad = [_mid(m) for m in (summary.get("failed") or [])] + \
+              [_mid(m) for m in (summary.get("timeout") or [])]
         if not bad:
             return
         for mid in bad:
@@ -509,8 +581,8 @@ class BatchDownloadController(QObject):
         if ok_n > 0:
             self._log.warn(
                 f"同批其余 {ok_n} 条下载成功——网络通道与登录状态都没"
-                f"问题，失败集中在 {len(bad)} 个条目身上："
-                + "、".join(str(m) for m in bad))
+                f"问题，失败集中在 {len(bad)} 个条目身上：" +
+                "、".join(str(m) for m in bad))
         else:
             self._log.warn(
                 f"本批 {len(bad)} 条全部失败——多半是网络通道或登录状态"
@@ -541,10 +613,10 @@ class BatchDownloadController(QObject):
             purged = set()
         if purged:
             self._log.warn(
-                "注意：" + "、".join(str(m) for m in sorted(purged))
-                + " 在「已清账」黑名单里——即使哪天下载成功，扫描也不会"
-                  "把它录入账本；不想再尝试下载它，把它从更新检测/下载"
-                  "清单里移除即可")
+                "注意：" + "、".join(str(m) for m in sorted(purged)) +
+                " 在「已清账」黑名单里——即使哪天下载成功，扫描也不会"
+                "把它录入账本；不想再尝试下载它，把它从更新检测/下载"
+                "清单里移除即可")
 
     # ---------------- 内部：卡片按钮 ----------------
 

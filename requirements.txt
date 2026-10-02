@@ -3,7 +3,7 @@ requests>=2.31
 loguru>=0.7
 pyqtdarktheme-fork>=2.3.2
 pyinstaller>=6.0
-vdf>=4.0
+vdf>=3.4
 pytest>=8.0
 truststore
 psutil
