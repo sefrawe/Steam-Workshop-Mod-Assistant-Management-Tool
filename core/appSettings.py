@@ -76,6 +76,9 @@ DEFAULTS: dict[str, str] = {
     # （防已删除 mod 复活、减少下载失败，RimSort 同款对策、同默认开）；
     # "0" = 不清（保留缓存省流量，但删过的 mod 可能被 steamcmd 复活）
     "steamcmd_clear_cache_before_batch": "1",
+    # Steam Web API 密钥（v2.49）：只进本文件与 apiKeyPage，不进设置页
+    # _FIELDS（与"界面就地开关"同类口径）；纪律同 R2——绝不入日志
+    "steam_api_key": "",
 
 }
 

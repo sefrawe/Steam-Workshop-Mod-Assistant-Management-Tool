@@ -58,6 +58,7 @@ except Exception:  # 没安装 / 环境不支持 → 退回 certifi 默认行为
 DETAILS_URL = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
 COLLECTION_URL = "https://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v1/"
 STORE_APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
+KEYED_DETAILS_URL = "https://api.steampowered.com/IPublishedFileService/GetDetails/v1/"
 
 # 官方接口的单次查询上限：超过 100 个必须自己分批
 _BATCH = 100
@@ -116,6 +117,10 @@ class WorkshopItem:
     # 快速命令查询（决策 105）用它给每条命令配正确的 AppID——
     # 此前"匿名接口不返回所属游戏"的说法是错的，本字段一直都在
     consumer_app_id: int | None = None
+    # banned=1 = 条目被 Steam 封禁（v2.49 桶A 用）。Steam 原始响应
+    # 本来就带这个字段，此前只是没解析——补上即可，接口行为零变化
+    banned: int | None = None
+
 
 
     @classmethod
@@ -141,8 +146,37 @@ class WorkshopItem:
 
             if d.get("preview_url") is not None else None),
             consumer_app_id=_to_int(d.get("consumer_app_id")),
+            banned=_to_int(d.get("banned")),
 
         )
+@dataclass
+class KeyedItem:
+    """keyed GetDetails 的单条解析结果——依赖检测（桶B）专用。
+    children 三态：list = 清单（可为空 = 真无依赖）；None = 响应
+    条目里没有 children 键（includechildren 未生效/接口行为变了）
+    ——两种状态绝不混同（绝不静默口径）。"""
+    mod_id: int | None
+    result: int | None
+    title: str | None
+    children: list[int] | None
+
+    @classmethod
+    def from_api(cls, d: dict) -> "KeyedItem":
+        raw = d.get("children")
+        children: list[int] | None = None
+        if raw is not None:
+            children = []
+            if isinstance(raw, list):
+                for c in raw:
+                    cid = _to_int(c.get("publishedfileid")) \
+                        if isinstance(c, dict) else None
+                    if cid is not None:
+                        children.append(cid)
+        return cls(
+            mod_id=_to_int(d.get("publishedfileid")),
+            result=_to_int(d.get("result")),
+            title=str(d["title"]) if d.get("title") is not None else None,
+            children=children)
 
 
 class SteamApiClient:
@@ -286,6 +320,38 @@ class SteamApiClient:
             if cid is not None:
                 ids.append(cid)
         return ids
+    # ---------- 对外：keyed 批量查条目（依赖检测专用）----------
+    def query_details_keyed(self, mod_ids: Iterable[int], key: str,
+                            *, batch: int = 100) -> list[KeyedItem]:
+        """带 key 的 GetDetails：唯一返回 children（必需物品清单）
+        的官方接口。分批（官方上限 100）+ 批间礼貌间隔 + 取消检查
+        点；重试/退避复用 _request_json 一份逻辑。请求形状与密钥页
+        探针（已实测打通的那次）完全一致：GET + includechildren。
+        403 = key 无效/被重置——不重试（非 429/503 的既定行为），
+        消息由调用方转译成人话。只发请求和解析，不碰库不碰界面。"""
+        ids = list(dict.fromkeys(int(i) for i in mod_ids))
+        items: list[KeyedItem] = []
+        for start in range(0, len(ids), batch):
+            self._check_cancel()
+            chunk = ids[start:start + batch]
+            params: dict[str, str] = {
+                "key": key,
+                "includechildren": "true",
+                "includemetadata": "true",
+            }
+            for i, mid in enumerate(chunk):
+                params[f"publishedfileids[{i}]"] = str(mid)
+            data = self._get_json(KEYED_DETAILS_URL, params)
+            response = data.get("response") if isinstance(data, dict) else None
+            details = response.get("publishedfiledetails") \
+                if isinstance(response, dict) else None
+            if not isinstance(details, list):
+                raise SteamApiError("GetDetails 响应缺少 publishedfiledetails 列表")
+            items.extend(KeyedItem.from_api(d) for d in details
+                         if isinstance(d, dict))
+            if start + batch < len(ids):
+                self._sleep_cancellable(self._interval_ms / 1000)
+        return items
 
     # ---------- 内部：带重试的请求 ----------
 

@@ -15,6 +15,9 @@
     桶⑤ 查询失败与疑似合集（result 非 1 非 9 / file_size 缺失或 0）
 - 桶⑥ 多前端冲突无法程序化检测，静态文案 MULTIFRONTEND_NOTE
   供界面直接展示。
+   - classify_health（v2.49 桶A）—— 远端健康异常（标题不符/弃坑/
+   banned），匿名接口数据即可判，无需 API key
+
 
 本引擎不发明新检测：桶①来自 localScanner 的质量谓词（决策 23），
 桶②③来自 modVerifier 的只读对账（与核验页同源），桶④账本半边
@@ -46,6 +49,8 @@ GUI 壳按桶引导（复用核验页修复三选的形态）。
   文件），不报。
 """
 from collections.abc import Callable, Iterable
+import re
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -70,6 +75,10 @@ MULTIFRONTEND_NOTE = (
     "· 同一个 steamcmd 目录可能被多个工具指挥（如 RimSort）。"
     "别的工具清单里还留着的 mod，随时可能被它指挥 steamcmd 下回来"
     "——这就是「已删 mod 复活」的常见原因；\n"
+    "· 双前端铁律：谁下载谁独占——本工具跑下载批次时，RimSort 等"
+    "其它前端不要同时配置同一个 steamcmd 目录；反过来用 RimSort "
+    "下载时，本工具这边也别开批次。谁在指挥，另一边就放手，"
+    "两边同时指挥就是互相踩脚的源头；\n"
     "· 想永久删除一个 mod：先在本工具标记为已移除，再删盘上文件夹，"
     "并到其他工具的清单里一并移除——所有指挥这台 steamcmd 的工具"
     "都移除才算删干净；\n"
@@ -78,7 +87,6 @@ MULTIFRONTEND_NOTE = (
     "· 排查「下载内容反复损坏」时可手动清理 steamcmd 的 depotcache"
     "（仓库缓存），日常无需理会。"
 )
-
 
 def _to_int(value) -> int | None:
     """决策 17 口径的宽容转换：Steam 返回的数字几乎全是字符串，
@@ -244,3 +252,145 @@ def classify_entries(entries: Iterable[dict]) -> RemoteFindings:
     out.query_failed.sort()
     out.suspected_collection.sort()
     return out
+# ============================================================
+# 桶A（v2.49）：远端健康异常 —— 匿名接口可判，无需 API key
+# ============================================================
+
+# 弃坑关键词（对远端标题 casefold 后子串匹配）。宁可漏报不误报：
+# 只收高置信度词；"最终版""别更新了"之类赌气命名不收，免得满屏狼烟
+_ABANDONED_KEYWORDS = (
+    "abandoned", "deprecated", "discontinued", "unmaintained",
+    "no longer", "不再维护", "不再更新", "停止更新", "停更", "弃坑",
+)
+
+# 标题比较前剥掉的版本记号：作者常把版本号写进标题（v1.6 / [1.6]），
+# 每更新一次标题就变一次——不剥掉"标题不符"会误报成灾。
+# 剥完再比，剩下的差异才算真改名
+_VERSION_TOKEN = re.compile(r"v?\d+\.\d+(\.\d+)?", re.IGNORECASE)
+
+
+def _normalize_title(text: str) -> str:
+    """标题规范化：剥版本记号 → 压空白 → casefold。只用于比较。"""
+    t = _VERSION_TOKEN.sub(" ", text)
+    return " ".join(t.split()).casefold()
+
+
+@dataclass
+class HealthFindings:
+    """桶A 分桶结果：远端实况与账本记录对不上的三类信号。
+
+    - title_mismatch：规范化后标题不一致（作者改名/上传内容被顶替
+      的信号）——元素 = (编号, 本地标题, 远端标题)，黄字提醒；
+    - abandoned：远端标题含弃坑关键词——作者明示不再维护，红字；
+    - banned：远端 banned=1——被 Steam 封禁的条目，红字。
+    missing_banned_field：整批响应都没带 banned 字段（= 客户端封装
+    没解析它；Steam 原始响应恒有）时置位——"没查成要说明原因"
+    口径：调用方必须把这件事说出口，绝不静默当"没人被封禁"。
+    """
+    title_mismatch: list[tuple[int, str, str]] = field(default_factory=list)
+    abandoned: list[int] = field(default_factory=list)
+    banned: list[int] = field(default_factory=list)
+    missing_banned_field: bool = False
+
+    @property
+    def total(self) -> int:
+        """三类合计（汇总行与日志用）。"""
+        return (len(self.title_mismatch) + len(self.abandoned)
+                + len(self.banned))
+
+
+def classify_health(entries: Iterable[dict],
+                    local_titles: dict[int, str]) -> HealthFindings:
+    """桶A 分类核心：对深检拿回的条目字典做健康判定。
+    与 classify_entries 同一注入边界（纯数据进出，不 import 客户端
+    类型）；local_titles = 账本 编号 → 本地标题（页面侧一次取齐传入）。
+
+    判定口径：
+    - 只对 result=1 的条目判——查询失败/失效的归桶⑤桶④，不重复报；
+    - 标题比较：双方剥版本记号、压空白、casefold 后比较——剥完还
+      不一致才算"标题不符"；
+    - 弃坑关键词只扫远端标题（扫描述误报率不可控，刻意不扫）；
+    - banned 字段缺席 → missing_banned_field 置位，绝不静默当 0。
+    """
+    out = HealthFindings()
+    saw_result1 = False
+    banned_known = False
+    for entry in entries:
+        pid = _to_int(entry.get("publishedfileid"))
+        if pid is None or _to_int(entry.get("result")) != 1:
+            continue
+        saw_result1 = True
+        remote_title = str(entry.get("title") or "").strip()
+        raw_banned = entry.get("banned")
+        if raw_banned is not None:
+            banned_known = True
+            if _to_int(raw_banned) == 1:
+                out.banned.append(pid)
+        if not remote_title:
+            continue
+        low = remote_title.casefold()
+        if any(k in low for k in _ABANDONED_KEYWORDS):
+            out.abandoned.append(pid)
+        local = str(local_titles.get(pid) or "").strip()
+        if local and _normalize_title(local) != _normalize_title(remote_title):
+            out.title_mismatch.append((pid, local, remote_title))
+    out.title_mismatch.sort(key=lambda t: t[0])
+    out.abandoned.sort()
+    out.banned.sort()
+    out.missing_banned_field = saw_result1 and not banned_known
+    return out
+@dataclass
+class DepFindings:
+    """桶B（依赖检测）判定结果（v2.49）。纯数据，页面渲染用。"""
+    missing: dict[int, list[int]]   # mod 编号 → 缺失的必需编号
+    changed: list[tuple[int, list[int], list[int]]]  # (mod, 旧边, 新边)
+    undetermined: list[int]         # children 键缺席（未判定）
+    childless: list[int]            # 真无依赖（正常）
+    skipped: int                    # 远端失效/查询失败条数（桶④⑤管）
+    fetched: int                    # 本次拿到清单的条目数
+
+
+def classify_dependencies(entries: list[dict], lib_ids: set[int],
+                          baseline: dict[int, list[int]], *,
+                          first_fetch: bool) -> DepFindings:
+    """桶B 判定：账实对照 + 依赖变化。纯函数：不碰库不碰网，数据
+    由页面注入（与 classify_entries / classify_health 同一纪律）。
+    entries 条目形状 {"mod_id","result","title","children"}；children
+    三态：list / None=键缺席。baseline = 拉取前账本旧边；first_fetch
+    = 依赖表还空着（首拉只建基线，一切差异都不算"变化"）。
+    判定口径：
+    - missing：result=1 且必需编号不在 lib_ids。依赖指向的编号即使
+      在账本但 failed/deleted 也不报——桶③④已管，不重复报；
+    - changed：非首拉且 set(旧边)≠set(新清单)。刚导入的新 mod 首次
+      被拉取也会以"新增依赖"出现在这里——信息无害，照实展示；
+    - undetermined：children 键缺席——绝不冒充"无依赖"入账；
+    - result≠1 的条目不判依赖（失效/私有无从谈起），只计数。"""
+    missing: dict[int, list[int]] = {}
+    changed: list[tuple[int, list[int], list[int]]] = []
+    undetermined: list[int] = []
+    childless: list[int] = []
+    fetched = skipped = 0
+    for e in entries:
+        mid = e.get("mod_id")
+        if mid is None:
+            continue
+        if e.get("result") != 1:
+            skipped += 1
+            continue
+        children = e.get("children")
+        if children is None:
+            undetermined.append(mid)
+            continue
+        fetched += 1
+        new_set = set(children)
+        lack = sorted(i for i in new_set if i not in lib_ids and i != mid)
+        if lack:
+            missing[mid] = lack
+        old = baseline.get(mid) or []
+        if not first_fetch and set(old) != new_set:
+            changed.append((mid, sorted(set(old)), sorted(new_set)))
+        if not new_set:
+            childless.append(mid)
+    return DepFindings(missing=missing, changed=changed,
+                       undetermined=undetermined, childless=childless,
+                       skipped=skipped, fetched=fetched)

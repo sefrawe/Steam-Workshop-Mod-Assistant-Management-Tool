@@ -356,6 +356,15 @@ class ModListPage(QWidget):
             "把已在库、还没标特别关注的条目一次标上")
         self._act_batch_special.triggered.connect(self._on_batch_special)
         self._actions_menu.addAction(self._act_batch_special)
+        # 批量颜色标记（v2.49）：勾选行整批上色/清除——单条版右键有、
+        # 批量版一直缺的最后一块，与批量特别关注同一纪律
+        self._act_batch_color = QAction("批量颜色标记…", self._actions_menu)
+        self._act_batch_color.setToolTip(
+            "给勾选的 mod 整批设置同一种颜色标记（或清除标记）：\n"
+            "只收当前清单里显示的勾选；颜色随时可改可清")
+        self._act_batch_color.triggered.connect(self._on_batch_color)
+        self._actions_menu.addAction(self._act_batch_color)
+
 
         self._act_open_pages = QAction("打开工坊页面", self._actions_menu)
         self._act_open_pages.setToolTip(
@@ -1092,6 +1101,8 @@ class ModListPage(QWidget):
         self._act_special_off.setText(f"取消特别关注{label}")
         self._act_open_pages.setText(f"打开工坊页面{label}")
         self._act_copy_ids.setText(f"复制勾选编号{label}")
+        self._act_batch_color.setText(f"批量颜色标记{label}")
+
 
 
     def _require_game(self) -> bool:
@@ -1169,6 +1180,32 @@ class ModListPage(QWidget):
                     "未收录条目需先入库才能标记：可到「功能模块 → 加入新 mod」"
                     "或「基础功能 → 网址批量导入」粘贴同一份清单")
             self._reload()
+    def _on_batch_color(self) -> None:
+        """【批量颜色标记…】（v2.49）：对勾选行整批上色/清除。
+        与批量特别关注同一纪律：只收当前清单里显示的勾选。
+        颜色是纯展示属性、随时可改可清——不设确认弹窗，选完即写
+        （先简单后复杂：真需要预览确认时再加）。"""
+        if not self._require_game():
+            return
+        ids = self._model.checked_ids_in_rows()
+        if not ids:
+            QMessageBox.information(
+                self, "批量颜色标记", "先在表格第一列勾选要标记的 mod。")
+            return
+        names = [*_COLORS.keys(), "（清除标记）"]
+        name, ok = QInputDialog.getItem(
+            self, "批量颜色标记",
+            f"给勾选的 {len(ids)} 个 mod 设置颜色标记：",
+            names, current=0, editable=False)
+        if not ok:
+            return
+        tag = None if name.startswith("（") else _COLORS[name]
+        with self._repo.transaction():
+            for mid in ids:
+                self._repo.set_color_tag(mid, tag)
+        self._log.ok(("已清除颜色标记" if tag is None else f"已标记为「{name}」")
+                     + f"：{len(ids)} 个")
+        self._reload()
 
     def _on_open_pages_checked(self) -> None:
         """【打开工坊页面】（操作▾，批量订阅场景）：把勾选 mod 的工坊页
@@ -1402,6 +1439,11 @@ class ModListPage(QWidget):
             self._log.warn(
                 f"发现 {n_interrupted} 条疑似下载中断的条目，未入账："
                 f"{ids_text}；如需修复请重新下载（命令生成页勾选对应编号）")
+        # v2.49：两道闸（已清账黑名单 + 账实核对）的拦截回执——被拦的
+        # "复活"条目必须让人看见，否则用户只看到数字对不上。notes 是
+        # apply 准备好的人话句子，原样转述即可；没有拦截时什么都不说
+        for note in rep.notes:
+            self._log.warn(f"扫描本地：{note}")
 
         # size 类异常不拦入账，扫描器聚合好的警告原样转述
         for w in result.warnings:

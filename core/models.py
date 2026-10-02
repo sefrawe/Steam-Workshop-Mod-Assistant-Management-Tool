@@ -125,3 +125,15 @@ class Alert:
     note: str | None = None
     alert_at: int | None = None
     id: int | None = None
+# ------------------------------------------------------------
+# 已清账黑名单一行（v2 新增）
+# 不是账本主表，是"用户意志"记录：彻底清账过的编号在这里留底，
+# 防止 steamcmd 让它复活后被扫描自动补录入库。
+# ------------------------------------------------------------
+@dataclass
+class PurgedMod:
+    mod_id: int          # 工坊编号（全工坊唯一，本表主键）
+    game_id: int         # 清账那一刻所属的档案 AppID（冗余存档，无外键）
+    title: str | None    # 清账时的标题快照（可能为 NULL）
+    note: str | None     # 手动加入时可写一句原因
+    purged_at: int       # 登记时间（Unix 秒）

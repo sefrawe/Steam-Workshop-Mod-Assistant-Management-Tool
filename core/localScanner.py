@@ -17,6 +17,8 @@ locate_acf(steamcmd 布局基路径, app_id) → 定位 acf；找不到返回 No
 scan_acf(path) → 解析出条目清单 + 跳过清单
 diff_plan(items, 库中状态) → 生成回填 / 新入库计划，不碰任何 IO
 apply(repo, plan) → 整个计划包进一个事务，要么全成要么全败
+                   （v2.49 起入库前还有两道闸：已清账黑名单 + 下载目录
+                     账实核对，细节见 apply 的 docstring）
 
 状态规则：
 - 对库中已有 id：三件套全量回填；状态只允许 tracked → downloaded 这一个
@@ -116,14 +118,18 @@ class ScanPlan:
     updates: list[PlannedUpdate]
     inserts: list[PlannedInsert]
 
-
 @dataclass
 class ScanApplyReport:
-    """落库计数。只描述"计划执行了什么"，不代表"数据有没有变化"。"""
+    """落库计数。只描述"计划执行了什么"，不代表"数据有没有变化"。
+    v2.49 增加拦截记录：blocked_* 是被两道闸拦下的编号清单，
+    notes 是给人看的一句话原因（调用方原样转述到日志即可）。"""
+    updated: int  # 回填条数（含跃迁）
+    transitioned: int  # 其中 tracked → downloaded
+    inserted: int  # 新入库条数
+    blocked_blacklist: list[int] = field(default_factory=list)   # 黑名单命中
+    blocked_no_content: list[int] = field(default_factory=list)  # acf 有、盘上无
+    notes: list[str] = field(default_factory=list)  # 人话原因，调用方转述
 
-    updated: int      # 回填条数（含跃迁）
-    transitioned: int # 其中 tracked → downloaded
-    inserted: int     # 新入库条数
 
 
 def locate_acf(base_path: str | Path | None, app_id: int) -> Path | None:
@@ -274,16 +280,32 @@ def diff_plan(
                 to_downloaded=(status == "tracked"),
             ))
     return ScanPlan(game_id=game_id, updates=updates, inserts=inserts)
-
-
 def apply(repo: ModRepository, plan: ScanPlan) -> ScanApplyReport:
     """把计划落库：整个计划包在一个事务里，要么全成要么全败。
-
-    回填走 update_local_state（status=None = 状态不动；manifest/size 传
-    None = acf 没这字段，保持库中现值）。新入库走 add_mod，status 直接
+    回填走 update_local_state（status=None = 状态不动；manifest/size 传 None = acf 没这字段，保持库中现值）。新入库走 add_mod，status 直接
     是 downloaded，url 现拼不联网，标题等远端字段留 NULL 待更新检测补全。
+
+    v2.49 新增两道入库闸（只拦"新入库"，不拦已入库条目的版本回填——
+    黑名单针对的是"复活入库"，不是已收录 mod 的正常回填）：
+    - 已清账黑名单：编号在 purged_mods 里 → 跳过。用户明确不要的编号，
+      steamcmd 把它复活也不入账；想重新收录 = 到「已清账」页允许录入；
+    - 账实核对：acf 说装了、下载目录里却没有这个编号的文件夹（或文件夹
+      是空的）→ 跳过。这是决策 23"账本只记确信下载成功"口径的延伸到
+      盘面：账上不能有盘上不存在的东西（空壳复活不入账）。
+      下载目录本身不存在时不拦：无从核对就不做无依据的拦截（目录没
+      配好 / 测试环境 / 档案退场后整目录删除，都不是该拦的场景）。
+    被拦的编号与原因进 report 的 blocked_* 与 notes，由调用方转述；
+    本模块不写日志（core 无 GUI，零 Qt 约定）。
     """
     report = ScanApplyReport(updated=0, transitioned=0, inserted=0)
+
+    # ---- 闸的原料，一次备好、循环里只查：黑名单命中集合 + 下载目录 ----
+    insert_ids = [ins.item.mod_id for ins in plan.inserts]
+    blacklisted = repo.filter_purged(insert_ids) if insert_ids else set()
+    game = repo.get_game(plan.game_id)
+    content_root = (Path(game.download_dir)
+                    if game is not None and game.download_dir else None)
+
     with repo.transaction():
         for u in plan.updates:
             repo.update_local_state(
@@ -297,11 +319,30 @@ def apply(repo: ModRepository, plan: ScanPlan) -> ScanApplyReport:
             if u.to_downloaded:
                 report.transitioned += 1
         for ins in plan.inserts:
+            mod_id = ins.item.mod_id
+            if mod_id in blacklisted:
+                report.blocked_blacklist.append(mod_id)
+                report.notes.append(
+                    f"已拦截复活 mod {mod_id}：在「已清账」黑名单中"
+                    "（要重新收录请到「已清账」页允许录入后再扫描）")
+                continue
+            if content_root is not None and content_root.is_dir():
+                mod_dir = content_root / str(mod_id)
+                try:
+                    on_disk = mod_dir.is_dir() and any(mod_dir.iterdir())
+                except OSError:
+                    on_disk = False
+                if not on_disk:
+                    report.blocked_no_content.append(mod_id)
+                    report.notes.append(
+                        f"已拦截疑似复活 mod {mod_id}：acf 有记录，"
+                        "但下载目录里没有它的文件夹（空壳不入账）")
+                    continue
             repo.add_mod(Mod(
-                mod_id=ins.item.mod_id,
+                mod_id=mod_id,
                 game_id=plan.game_id,
                 status="downloaded",
-                url=WORKSHOP_URL_TEMPLATE.format(ins.item.mod_id),
+                url=WORKSHOP_URL_TEMPLATE.format(mod_id),
                 local_timeupdated=ins.item.timeupdated,
                 manifest=ins.item.manifest,
                 local_size=ins.item.size,

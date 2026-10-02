@@ -53,6 +53,8 @@ from core.appSettings import AppSettings
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
 from gui.addModPage import AddModPage
+from gui.apiKeyPage import ApiKeyPage
+
 from gui.backupOverviewPage import BackupOverviewPage
 from gui.backupPage import BackupPage
 from gui.batchDownloadController import BatchDownloadController
@@ -93,6 +95,7 @@ _IDX_DELETE = 18   # 功能模块：清理与删除 = _pages 末尾 append 后�
 _IDX_UNINSTALL = 19 # 功能模块：卸载与清理 = _pages 末尾 append 后落位（决策 13 模式）
 _IDX_UPDATE_COMPARE = 20  # 基础功能：更新对照 = _pages 末尾 append 后落位
 _IDX_GAME_EXIT = 21  # 功能模块：游戏退场 = _pages 末尾 append 后落位（决策 13 模式）
+_IDX_API_KEY = 22 # 基础功能：Steam API 密钥 = _pages 末尾 append 后落位（决策 13 模式）
 
 
 
@@ -145,6 +148,8 @@ _NAV_SCHEMA: list[tuple[str, int | list[tuple[str, int | None]]]] = [
         ("下载命令生成", 5),
         ("账实核验", 6),
         ("异常处理", 7),
+        ("Steam API 密钥", _IDX_API_KEY),
+
     ]),
     ("备份管理", [
         ("备份与恢复", 2),
@@ -275,6 +280,7 @@ class MainWindow(QMainWindow):
             UninstallPage(self._repo, self._settings, self._stack, log=self._log),  # 19 功能模块：卸载与清理（决策 70）
             UpdateComparePage(self._repo, self._stack),  # 20 基础功能：更新对照（只读）
             GameExitPage(self._repo, self._settings, self._stack,log=self._log),  # 21 功能模块：游戏退场（决策 96）
+            ApiKeyPage(self._settings, self._stack, log=self._log),  # 22 基础功能：Steam API 密钥（指引/保存/验证）
 
         ]
         for page in self._pages:
@@ -670,6 +676,10 @@ class MainWindow(QMainWindow):
             if index == _IDX_GAME_EXIT:
                 # 进页重盘点：联接形态、盘上有无、steamcmd 是否在跑都可能刚变
                 self._pages[index].refresh()
+            if index == _IDX_API_KEY:
+                # 进页重读设置：注册完回来、或别处改过 key 即最新
+                self._pages[index].refresh()
+
 
     def _on_overview_requested(self, app_id: int) -> None:
         """删除对话框「先去备份总览看看」→ 跳总览页并按该档案过滤。"""

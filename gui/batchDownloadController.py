@@ -136,6 +136,11 @@ class BatchDownloadController(QObject):
         # steamcmd 进程退出 → 立即中止在跑批次（v2.45 僵尸批次防线）
         terminal.process_exited.connect(self._on_process_exited)
         self._shutting_down = False  # closeEvent 置位后不再响应退出事件
+        # 连续失败计数（v2.49，仅内存）：mod_id → 连续失败的批次数。
+        # 成功一次即清零；程序重启归零。只用于把失败解释的措辞升级，
+        # 不进账本、不进设置（先简单后复杂）。
+        self._fail_streak: dict[int, int] = {}
+
 
 
     # ---------------- 对外 ----------------
@@ -471,13 +476,75 @@ class BatchDownloadController(QObject):
                                f"超时 {to_n}")
             else:
                 self._log.info(f"批次完成：成功 {ok_n}，失败 {fail_n}，"
-                               f"超时 {to_n}")
+                           f"超时 {to_n}")
+                # v2.49：收尾解释——对失败/超时条目说人话（只解释不记账）
+                self._explain_failures(s, ok_n)
+
             flow = self._flow
             if flow is not None:
                 self._detach(flow)
                 # 拆线完成后再广播：订阅方（主窗口自动复扫）同步执行，
                 # 不能让它在旧批次还挂着接线时看到事件
                 self.batch_done.emit(s)
+
+    # ---------------- 失败解释（v2.49 新增） ----------------
+    def _explain_failures(self, summary: dict, ok_n: int) -> None:
+        """批次正常收尾时，对失败/超时条目给人话解释：为什么、怎么办。
+
+        只解释、不记账：半成品本就入不了账（决策 23 的质量谓词），
+        这里纯粹是运行日志层的安抚与指引。措辞两档——首次失败说
+        "可能是什么"，连续失败（≥2 批）说"该干什么"；同批有成功
+        就顺手把"通道没问题"说清，省得用户怀疑软件或网络全坏了。
+        连续失败计数只住内存（self._fail_streak），成功即清零。
+        """
+        for mid in summary.get("ok") or []:
+            self._fail_streak.pop(int(mid), None)  # 成功一次：清零
+        bad = [int(m) for m in (summary.get("failed") or [])] + \
+              [int(m) for m in (summary.get("timeout") or [])]
+        if not bad:
+            return
+        for mid in bad:
+            self._fail_streak[mid] = self._fail_streak.get(mid, 0) + 1
+        # 定性第一句：同批有成功 = 通道与账号都没问题，是个别条目的事
+        if ok_n > 0:
+            self._log.warn(
+                f"同批其余 {ok_n} 条下载成功——网络通道与登录状态都没"
+                f"问题，失败集中在 {len(bad)} 个条目身上："
+                + "、".join(str(m) for m in bad))
+        else:
+            self._log.warn(
+                f"本批 {len(bad)} 条全部失败——多半是网络通道或登录状态"
+                "的问题（而不是这些条目本身）：先回终端看原文里有没有"
+                "断线 / 未登录，再决定怎么重试")
+            return  # 全败时先修通道，逐条建议是噪音
+        if summary.get("timeout"):
+            self._log.warn(
+                "其中超时的条目：steamcmd 对它的传输一直完不成——常见"
+                "原因是该条目最近刚更新、CDN 各节点还没同步齐（几小时到"
+                "一天自愈），或下载暂存里有它的坏残留。每批开始前的自动"
+                "清缓存（设置页默认开）已经把残留清掉了；若下一批仍超时"
+                "，多半就是 CDN 侧的事，换时段重试即可")
+        streak = max(self._fail_streak[m] for m in bad)
+        if streak >= 2:
+            self._log.warn(
+                f"以上条目已连续 {streak} 批失败——不是偶然抖动。三个"
+                "办法按顺序试：① 换个时段再跑一批（CDN 同步/线路波动"
+                "常自愈）；② 用 Steam 客户端订阅该 mod 一次，让客户端"
+                "走自己的通道下载（内容落客户端库，游戏照常能用，下次"
+                "扫描会如实对账）；③ 还不行=条目在服务器侧有问题，等"
+                "作者或 Valve 处理")
+        # 与「已清账」黑名单的交集：黑名单只拦入库、不拦下载——
+        # 失败清单里若混着黑名单编号，把话说明白，免得以为它没生效
+        try:
+            purged = self._repo.filter_purged(bad)
+        except Exception:
+            purged = set()
+        if purged:
+            self._log.warn(
+                "注意：" + "、".join(str(m) for m in sorted(purged))
+                + " 在「已清账」黑名单里——即使哪天下载成功，扫描也不会"
+                  "把它录入账本；不想再尝试下载它，把它从更新检测/下载"
+                  "清单里移除即可")
 
     # ---------------- 内部：卡片按钮 ----------------
 

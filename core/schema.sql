@@ -2,7 +2,8 @@
 
 -- ============================================================
 -- Steam Workshop Mod Assistant Management Tool
--- core/schema.sql · v1.1 · 7 张表
+-- core/schema.sql · v1.2 · 8 张表
+
 --
 -- 全局约定：
 --   1. 所有时间字段一律存 Unix 时间戳（秒 / INTEGER），与 Steam API
@@ -19,7 +20,8 @@
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
-PRAGMA user_version = 1;   -- schema 版本号，将来表结构变更时 +1，用于迁移判断
+PRAGMA user_version = 3; -- schema 版本号，将来表结构变更时 +1，用于迁移判断
+
 
 -- ------------------------------------------------------------
 -- games  游戏档案
@@ -170,3 +172,32 @@ CREATE TABLE special_mod_alerts (
 );
 
 CREATE INDEX idx_alerts_mod ON special_mod_alerts(mod_id, alert_at);
+-- ------------------------------------------------------------
+-- purged_mods 已清账黑名单（v2 新增）
+-- 彻底清账（repo.purge_mod）时自动登记一行。作用：扫描本地发现这个
+-- 编号"复活"（steamcmd 从 acf 残条/下载暂存把它重新装配回来）时，
+-- 拦截自动入库，除非用户在「已清账」页明确允许录入（移出名单）。
+-- 刻意不设外键：黑名单表达的是"这个编号永远不要"的用户意志，
+-- 档案删除重建之后这份意志依然有效（game_id 只是冗余存档）。
+-- 已知边界：本表不在 LEDGER_TABLES 里 → 账本导出不含它、导入不清
+-- 它（本地意志，换机暂不随行；跨机需求出现时再随 dataExporter 一起扩）。
+-- ------------------------------------------------------------
+CREATE TABLE purged_mods (
+                             mod_id INTEGER PRIMARY KEY,          -- 工坊编号（全工坊唯一，直接做主键）
+                             game_id INTEGER NOT NULL,            -- 清账那一刻所属的档案 AppID（冗余记录）
+                             title TEXT,                          -- 清账时的标题快照（界面显示用）
+                             purged_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
+                             note TEXT                            -- 手动加入时可写一句原因
+);
+-- ── v3：mod_dependencies（依赖检测，桶B）──────────────────────
+-- 边表：mod_id = 账本条目（mods.mod_id 同源，工坊编号全局唯一）；
+-- required_mod_id = 必需物品的工坊编号，刻意不做外键——它多半
+-- 不在账本里（在 = 正常，不在 = 桶B 要报的"缺依赖"）。
+CREATE TABLE IF NOT EXISTS mod_dependencies (
+                                                mod_id          INTEGER NOT NULL,
+                                                required_mod_id INTEGER NOT NULL,
+                                                fetched_at      INTEGER NOT NULL,
+                                                PRIMARY KEY (mod_id, required_mod_id)
+);
+CREATE INDEX IF NOT EXISTS idx_dep_req ON mod_dependencies(required_mod_id);
+

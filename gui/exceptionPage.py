@@ -23,6 +23,7 @@ r"""六类异常的汇聚诊断台（gui/exceptionPage.py）。
 - 【联网深度检测】后台线程重查库内全部未删除 mod 的远端实况，
   补桶④另一半（result=9 确认真失效）与桶⑤。
   纯读诊断：不写库、不改元数据、不拍快照。
+  写库例外（v2.49）：【拉取依赖】更新依赖清单表 mod_dependencies；其余检测仍只读。
   写库仅桶④的处置动作（右键【软删除此记录】/「关联替换」），
   且逐条确认后才发生。
 
@@ -143,16 +144,17 @@ _ID_LIMIT = 20  # 卡片里编号列表最多原样列出多少个，超出折�
 # 每批查询的条目数：Steam 官方接口单次上限就是 100（与更新检测页同款）
 _BATCH = 100
 
-
 def _item_to_dict(item: WorkshopItem) -> dict:
     """WorkshopItem → 引擎 QueryFn 契约的纯数据条目。
-
-    只转分类要用的三个字段；引擎保持不 import 客户端类型
-    （决策 28④ 的注入边界），转换这层"翻译"放在页面侧。"""
-    return {"publishedfileid": item.mod_id,
-            "result": item.result,
-            "file_size": item.file_size}
-
+    只转分类要用的字段；引擎保持不 import 客户端类型（决策 28④ 的
+    注入边界），转换这层"翻译"放在页面侧。
+    title/banned（桶A 用）用 getattr 宽容提取：客户端封装暂时没带
+    这个字段时返回 None，由引擎的 missing_banned_field 口径显式
+    降级说明——绝不静默当 0。"""
+    return {"publishedfileid": item.mod_id, "result": item.result,
+            "file_size": item.file_size,
+            "title": getattr(item, "title", None),
+            "banned": getattr(item, "banned", None)}
 
 class _DeepWorker(QThread):
     """联网深检后台线程：分批查询全部条目，每批报告一次进度。
@@ -217,6 +219,71 @@ class _DeepWorker(QThread):
             return
         self.succeeded.emit(entries)
 
+class _DepWorker(QThread):
+    """依赖拉取后台线程：keyed GetDetails 分批查必需物品清单。
+    只发网络请求 + 解析成纯数据字典；判定与写库都在主线程回调
+    （repo 不过线程）。停止协议照 _DeepWorker：批边界生效，
+    已查数据一律丢弃。"""
+    batch_done = Signal(int)
+    succeeded = Signal(list)
+    failed = Signal(str)
+    stopped = Signal()
+
+    def __init__(self, mod_ids: list[int], *, key: str,
+                 interval_ms: int, max_retries: int) -> None:
+        super().__init__()
+        self._mod_ids = mod_ids
+        self._key = key
+        self._interval_ms = interval_ms
+        self._max_retries = max_retries
+        self._stop_requested = False
+        self._cancel = threading.Event()
+
+    def stop(self) -> None:
+        self._stop_requested = True
+        self._cancel.set()
+
+    @staticmethod
+    def _to_entry(item) -> dict:
+        """KeyedItem → 纯数据条目（引擎不 import 客户端类型的边界，
+        _item_to_dict 同款）。children 三态原样保留。"""
+        return {"mod_id": item.mod_id, "result": item.result,
+                "title": item.title, "children": item.children}
+
+    def run(self) -> None:
+        client = SteamApiClient(interval_ms=self._interval_ms,
+                                max_retries=self._max_retries,
+                                cancel_event=self._cancel)
+        ids = list(dict.fromkeys(self._mod_ids))
+        done = 0
+        entries: list[dict] = []
+        try:
+            for start in range(0, len(ids), _BATCH):
+                if self._stop_requested:
+                    self.stopped.emit()
+                    return
+                chunk = ids[start:start + _BATCH]
+                items = client.query_details_keyed(chunk, self._key)
+                entries.extend(self._to_entry(i) for i in items)
+                done += len(chunk)
+                self.batch_done.emit(done)
+                if start + _BATCH < len(ids):
+                    time.sleep(self._interval_ms / 1000)
+        except SteamApiCancelled:
+            self.stopped.emit()
+            return
+        except SteamApiError as exc:
+            if "403" in str(exc):
+                self.failed.emit(
+                    "服务器拒绝（403）：key 无效或已被重置——到"
+                    "【Steam API 密钥】页核对或重置后再试")
+            else:
+                self.failed.emit(str(exc))
+            return
+        if self._stop_requested:
+            self.stopped.emit()
+            return
+        self.succeeded.emit(entries)
 
 class _BucketCard(QFrame):
     """一张桶卡片（可折叠）。
@@ -357,6 +424,14 @@ class ExceptionPage(QWidget):
         # "待检测"、桶④联网确认半边不丢（用户 todo：处置一次就被
         # 打回重跑深检，节奏断了）。set_game 换档案时一并清
         self._last_remote: exceptionFlow.RemoteFindings | None = None
+        self._last_health: exceptionFlow.HealthFindings | None = None
+        self._last_deps: exceptionFlow.DepFindings | None = None
+        self._dep_game_id: int | None = None   # 依赖结果归属档案
+        self._dep_worker: _DepWorker | None = None
+        self._dep_baseline: dict[int, list[int]] = {}
+        self._dep_lib_ids: set[int] = set()
+        self._dep_first_fetch = True
+
         self._owner_game: Game | None = None
         self._b4_checked: set[int] = set()   # 桶④勾选（按 mid，跨重建存活）
         self._id_lists: list = []            # 各桶编号列表登记（查找框过滤用）
@@ -402,8 +477,7 @@ class ExceptionPage(QWidget):
             "一键检查当前游戏档案的六类异常，按桶（一类异常一组）给出"
             "修法引导。\n【开始检测】纯离线、毫秒级、只读不动文件；"
             "【联网深度检测】后台重查远端实况（只读不写库），补全"
-            "桶④⑤。写库仅桶④的处置动作（右键软删除 / 关联替换），"
-            "逐条确认后才发生。\n"
+            "桶④⑤。写库有两处：桶④的处置动作（右键软删除 / 关联替换，逐条确认）；【拉取依赖】更新依赖清单表（其余检测仍只读）。\n"
             "「已收录」（已入库还没下载）是正常排队，不算异常、不在"
             "本页——批量下载去【下载命令生成】页。")
 
@@ -442,6 +516,17 @@ class ExceptionPage(QWidget):
         self._deep_stop_btn = QPushButton("停止", btn_row)
         self._deep_stop_btn.setEnabled(False)
         self._deep_stop_btn.clicked.connect(self._stop_deep)
+        self._dep_btn = QPushButton("拉取依赖（联网）", btn_row)
+        self._dep_btn.setToolTip(
+            "带 key 批量拉取全部未删除 mod 的必需物品清单：\n"
+            "缺什么（账本里没有的依赖）、变了什么（与上次拉取的"
+            "差异）一次说清。\n需要先在【Steam API 密钥】页保存 "
+            "key；与深度检测共用联网互斥闸")
+        self._dep_btn.clicked.connect(self._start_dep)
+        self._dep_stop_btn = QPushButton("停止", btn_row)
+        self._dep_stop_btn.setEnabled(False)
+        self._dep_stop_btn.clicked.connect(self._stop_dep)
+
         self._progress = QProgressBar(btn_row)
         self._progress.setVisible(False)
         # 筛选开关：勾上后无异常/待检测的桶整卡隐藏
@@ -453,6 +538,9 @@ class ExceptionPage(QWidget):
         h.addWidget(self._detect_btn)
         h.addWidget(self._deep_btn)
         h.addWidget(self._deep_stop_btn)
+        h.addWidget(self._dep_btn)
+        h.addWidget(self._dep_stop_btn)
+
         h.addWidget(self._only_issue)
         h.addWidget(self._progress, 1)
         root.addWidget(btn_row)
@@ -517,6 +605,21 @@ class ExceptionPage(QWidget):
             "· 桶⑥ 多前端环境冲突——无法自动检测，对照桶⑥卡里的"
             "清单自查。")
         c.add_text(
+            "· 桶A 远端健康（v2.49）——随【联网深度检测】一并判定，"
+            "匿名接口就能查、不需要 API key：标题不符（作者改名/内容"
+            "顶替信号，黄）、标题含弃坑关键词（红）、banned=1（被 "
+            "Steam 封禁，红）。都是提醒不是损坏——动作是打开工坊"
+            "页面看一眼，再决定去留。")
+        c.add_text(
+            "· 桶B 依赖检测（v2.49）——mod 的「必需物品」清单由带 "
+            "key 的官方接口拉取（点【拉取依赖（联网）】，需先在"
+            "【Steam API 密钥】页保存免费 key）：清单里编号不在账本"
+            " = 缺依赖（红，一键复制编号去【网址批量导入】入库）；"
+            "与上次拉取有差 = 依赖变化（黄，作者增删了依赖，以最新"
+            "为准）。依赖数据只在拉取时更新，本页其余检测仍只读。")
+
+
+        c.add_text(
             "两种检测的分工：\n"
             "· 【开始检测】纯离线、毫秒级，只查本地（账本文件与磁盘），"
             "不动任何文件；\n"
@@ -577,6 +680,10 @@ class ExceptionPage(QWidget):
             return
         self._last_local = None
         self._last_remote = None
+        self._last_health = None
+        self._last_deps = None
+        self._dep_game_id = None
+
         self._owner_game = None
 
         self._clear_cards()
@@ -588,11 +695,13 @@ class ExceptionPage(QWidget):
                 "当前游戏：（未选择）—— 请先在左上角添加或选择档案")
             self._detect_btn.setEnabled(False)
             self._deep_btn.setEnabled(False)
+            self._dep_btn.setEnabled(False)
         else:
             self._game_label.setText(
                 f"当前游戏：{game.name}（{game.app_id}）")
             self._detect_btn.setEnabled(True)
             self._deep_btn.setEnabled(True)
+            self._dep_btn.setEnabled(True)
 
     def shutdown(self) -> None:
         """程序退出前的收尾：请求深检线程停止并等 1.5 秒。
@@ -605,6 +714,12 @@ class ExceptionPage(QWidget):
             if not self._deep_worker.wait(1500):
                 netGate.park(self._deep_worker)
                 self._deep_worker = None
+        if self._dep_worker is not None:
+            self._dep_worker.stop()
+            if not self._dep_worker.wait(1500):
+                netGate.park(self._dep_worker)
+            self._dep_worker = None
+
 
     # ---------- 本地快检 ----------
 
@@ -729,21 +844,34 @@ class ExceptionPage(QWidget):
     def _set_deep_running(self, running: bool) -> None:
         self._detect_btn.setEnabled(not running and self._game is not None)
         self._deep_btn.setEnabled(not running and self._game is not None)
+        self._dep_btn.setEnabled(not running and self._game is not None)
+
         self._deep_stop_btn.setEnabled(running)
         self._progress.setVisible(running)
-
     def _on_deep_succeeded(self, entries: list) -> None:
         self._set_deep_running(False)
         if self._last_local is None:
             return  # 理论到不了：深检前必先本地快检；防御一行
         remote = exceptionFlow.classify_entries(entries)
         self._last_remote = remote
-
+        # 桶A（v2.49）：同一批查询顺带做健康判定——标题不符/弃坑/
+        # banned，数据全在匿名接口返回里，不增加任何请求数
+        titles = {m.mod_id: (m.title or "")
+                  for m in self._repo.list_mods(self._last_local.game_id)}
+        health = exceptionFlow.classify_health(entries, titles)
+        self._last_health = health
         self._render(self._last_local, remote=remote)
         self._log.ok(
             f"联网深度检测完成：确认失效 {len(remote.invalid)}，"
             f"查询失败 {len(remote.query_failed)}，"
-            f"疑似合集 {len(remote.suspected_collection)}")
+            f"疑似合集 {len(remote.suspected_collection)}"
+            + (f"，健康异常 {health.total}" if health.total else ""))
+        if health.missing_banned_field:
+            self._log.warn(
+                "当前 Steam 客户端封装未携带 banned 字段：banned 红字"
+                "检测本次不可用（Steam 原始响应里有它）——把 "
+                "core/steamApiClient.py 发给开发者补一行即可")
+
 
     def _on_deep_failed(self, message: str) -> None:
         self._set_deep_running(False)
@@ -773,6 +901,141 @@ class ExceptionPage(QWidget):
         # 联网互斥闸在此归还：finished 无论成功/失败/停止都必发，
         # 释放放这里一次就够，漏不掉
         netGate.release("联网深度检测")
+    # ---------- 依赖拉取（桶B，v2.49）----------
+    def _start_dep(self) -> None:
+        """【拉取依赖（联网）】：keyed 接口批量拉必需物品清单 →
+        引擎判定（缺依赖/依赖变化）→ 依赖边入账。与深检同一批
+        纪律：线程只联网、库读写全在 GUI 线程、netGate 互斥、
+        停止 = 什么都没发生（入账只发生在成功回调里）。"""
+        if self._game is None or self._dep_worker is not None:
+            return
+        game = self._latest_game()
+        if game is None:
+            return
+        key = (self._settings.get("steam_api_key") or "").strip()
+        if not key:
+            QMessageBox.information(
+                self, "拉取依赖",
+                "依赖检测需要 Steam Web API key（免费）：\n到【基础"
+                "功能 → Steam API 密钥】页按四步注册并保存，再回来"
+                "拉取。")
+            return
+        # 与深检同款：先跑本地快检（毫秒级），渲染才有本地半边
+        if self._run_local(game) is None:
+            return
+        mods = self._repo.list_mods(game.app_id)
+        ids = [m.mod_id for m in mods if m.status != "deleted"]
+        if not ids:
+            self._log.warn("当前档案没有可拉取依赖的 mod（已删除的除外）")
+            return
+        # 拉取前基线（GUI 线程读库）：旧边 + 是否首拉 + 账本全集。
+        # 判定用的三样数据在这里取齐，线程回来直接算
+        self._dep_lib_ids = {m.mod_id for m in mods}
+        self._dep_baseline = {m.mod_id: self._repo.list_dependencies(m.mod_id)
+                              for m in mods}
+        self._dep_first_fetch = self._repo.latest_dependency_fetch() is None
+        self._dep_game_id = game.app_id
+        busy = netGate.try_acquire("依赖拉取")
+        if busy is not None:
+            self._summary.setText(
+                f"另有联网任务在进行（{busy}）：等它结束后再拉取。")
+            self._summary.setStyleSheet(f"color: {_C_WARN};")
+            self._log.warn(f"依赖拉取未开始：{busy} 正在使用联网查询")
+            return
+        self._progress.setRange(0, len(ids))
+        self._progress.setValue(0)
+        self._set_dep_running(True)
+        self._dep_worker = _DepWorker(
+            ids, key=key,
+            interval_ms=self._settings.get_int("api_request_interval_ms", 200),
+            max_retries=self._settings.get_int("api_max_retries", 3))
+        self._dep_worker.batch_done.connect(self._progress.setValue)
+        self._dep_worker.succeeded.connect(self._on_dep_succeeded)
+        self._dep_worker.failed.connect(self._on_dep_failed)
+        self._dep_worker.stopped.connect(self._on_dep_stopped)
+        # 线程收尾必须 finished 里先取引用置 None 再 wait()——
+        # 深检踩过的 0xC0000409 闪退坑，同一份纪律
+        self._dep_worker.finished.connect(self._on_dep_finished)
+        self._dep_worker.start()
+        self._log.info(f"依赖拉取开始：{len(ids)} 个 mod（keyed 接口，"
+                       "含必需物品清单）…")
+
+    def _stop_dep(self) -> None:
+        if self._dep_worker is not None:
+            self._dep_worker.stop()
+            self._dep_stop_btn.setEnabled(False)
+            self._summary.setText(
+                "已请求停止依赖拉取：等待与重试已中断，最多再等一次"
+                "在途请求收场——本次结果未使用、依赖表未动。")
+            self._summary.setStyleSheet("color: gray;")
+            self._log.info("已请求停止依赖拉取")
+
+    def _set_dep_running(self, running: bool) -> None:
+        self._detect_btn.setEnabled(not running and self._game is not None)
+        self._deep_btn.setEnabled(not running and self._game is not None)
+        self._dep_btn.setEnabled(not running and self._game is not None)
+        self._dep_stop_btn.setEnabled(running)
+        self._progress.setVisible(running)
+
+    def _on_dep_succeeded(self, entries: list) -> None:
+        self._set_dep_running(False)
+        if self._last_local is None:
+            return
+        # ① 判定（纯函数；此刻库还没动过——基线就是拉取前那份）
+        deps = exceptionFlow.classify_dependencies(
+            entries, self._dep_lib_ids, self._dep_baseline,
+            first_fetch=self._dep_first_fetch)
+        # ② 依赖边入账（本页唯一的检测性写库动作）：children 键缺席
+        #    的条目不写——没拿到的东西绝不冒充"无依赖"。逐条原子
+        #    （不嵌套事务），中途失败下次拉取全量覆盖
+        written = 0
+        for e in entries:
+            if e.get("children") is None:
+                continue
+            try:
+                self._repo.replace_dependencies(e["mod_id"], e["children"])
+                written += 1
+            except ValueError as exc:
+                self._log.error(
+                    f"依赖入账失败（mod {e.get('mod_id')}）：{exc}")
+        self._last_deps = deps
+        self._render(self._last_local, remote=self._last_remote)
+        parts = [f"{written} 个 mod 清单入账"]
+        if deps.missing:
+            n_edges = sum(len(v) for v in deps.missing.values())
+            parts.append(f"缺依赖 {len(deps.missing)} 个 mod"
+                         f"（共 {n_edges} 条）")
+        if deps.changed:
+            parts.append(f"依赖变化 {len(deps.changed)}")
+        if deps.undetermined:
+            parts.append(f"未判定 {len(deps.undetermined)}")
+        self._log.ok("依赖拉取完成：" + "，".join(parts))
+
+    def _on_dep_failed(self, message: str) -> None:
+        self._set_dep_running(False)
+        self._summary.setText(
+            f"依赖拉取失败：{message}\n（依赖表未动，稍后可重试。）")
+        self._summary.setStyleSheet(f"color: {_C_FAIL};")
+        self._log.error(f"依赖拉取失败：{message}")
+
+    def _on_dep_stopped(self) -> None:
+        self._set_dep_running(False)
+        self._summary.setText("已停止依赖拉取，本次结果未使用（依赖表未动）。")
+        self._summary.setStyleSheet("color: gray;")
+        self._log.info("依赖拉取已手动停止")
+
+    def _on_dep_finished(self) -> None:
+        """依赖拉取线程统一收尾（与 _on_deep_finished 同一份纪律）。"""
+        w = self._dep_worker
+        self._dep_worker = None
+        if w is not None:
+            w.wait()
+        netGate.release("依赖拉取")
+
+    def _copy_missing(self, ids: list[int]) -> None:
+        QApplication.clipboard().setText("\n".join(str(i) for i in ids))
+        self._log.ok(f"已复制 {len(ids)} 个缺失依赖编号（去【网址批量"
+                     "导入】粘贴添加）")
 
     def _refresh_after_dispose(self) -> None:
         """桶④处置（软删除/替换）后的复检刷新。
@@ -1173,6 +1436,149 @@ class ExceptionPage(QWidget):
                         f"另有 {len(remote.malformed)} 条响应数据读不动，"
                         "已忽略（极少见，多为接口异常波动）。", _C_WARN)
                 card.set_expanded(True)
+        # ---- 桶A 远端健康（v2.49）：标题不符 / 弃坑 / banned ----
+        # 数据源 = 匿名接口（无需 API key），随深检顺带判定；
+        # health=None = 本次会话还没跑过联网深检
+        health = self._last_health
+        n_health = health.total if health is not None else 0
+        card = self._card(
+            "ba", "桶A 远端健康：标题不符 / 弃坑 / banned",
+            tip="与账本记录对不上的三类远端信号（匿名接口可判，无需 "
+                "API key）：标题不符 = 作者改名或上传内容被顶替的信号"
+                "（黄）；标题含弃坑关键词 = 作者明示不再维护（红）；"
+                "banned=1 = 被 Steam 封禁（红）。都是提醒不是损坏。",
+            attention=bool(health is not None and n_health > 0))
+        if health is None:
+            card.set_status("待联网深度检测", _C_MUTED)
+            card.add_text("本桶随【联网深度检测】一并判定（同一批查询"
+                          "顺带完成，不增加请求数）。")
+            card.set_expanded(False)
+        elif n_health == 0:
+            card.set_status("无异常（远端标题与账本一致，无弃坑/banned "
+                            "信号）", _C_OK)
+            card.set_expanded(False)
+        else:
+            card.set_status(
+                f"标题不符 {len(health.title_mismatch)}"
+                f" · 弃坑 {len(health.abandoned)}"
+                f" · banned {len(health.banned)}", _C_WARN)
+            if health.title_mismatch:
+                card.add_text(
+                    "标题不符（本地标题 → 远端标题）——作者改名或上传"
+                    "内容被顶替的信号：打开工坊页面对照一眼，内容确实"
+                    "换了再决定去留。版本号差异已自动忽略。")
+                self._add_id_list(
+                    card,
+                    [(mid, local_t, f"远端标题：{remote_t}")
+                     for mid, local_t, remote_t in health.title_mismatch],
+                    allow_cmd=False)
+            if health.abandoned:
+                card.add_text("标题含弃坑关键词——作者明示不再维护："
+                              "还能用就继续用，出问题再找替代。")
+                self._add_id_list(
+                    card,
+                    [(mid, self._title_of(mid), "标题含弃坑关键词")
+                     for mid in health.abandoned],
+                    allow_cmd=False)
+            if health.banned:
+                card.add_text("banned=1——被 Steam 封禁的条目：通常"
+                              "不可再下载，处置参考桶④三步。")
+                self._add_id_list(
+                    card,
+                    [(mid, self._title_of(mid), "banned=1")
+                     for mid in health.banned],
+                    allow_cmd=False)
+            if health.missing_banned_field:
+                card.add_text("注：客户端封装未携带 banned 字段，本次 "
+                              "banned 检测不可用（见运行日志）。",
+                              _C_WARN)
+            card.set_expanded(True)
+        # ---- 桶B 依赖检测（v2.49）：缺依赖 / 依赖变化 ----
+        # 数据源 = keyed GetDetails（需要 API key）；deps=None =
+        # 本次会话没拉取过（或结果归属别的档案）
+        deps = (self._last_deps
+                if self._last_deps is not None
+                   and rep.game_id == self._dep_game_id else None)
+        deps_bad = (0 if deps is None else len(deps.missing)
+                                           + len(deps.changed) + len(deps.undetermined))
+        last_fetch = self._repo.latest_dependency_fetch()
+        card = self._card(
+            "bb", "桶B 依赖检测：缺依赖 / 依赖变化",
+            tip="必需物品清单由带 key 的官方接口拉取（【拉取依赖】"
+                "按钮）：清单里编号不在账本 = 缺依赖（红，一键复制"
+                "编号去【网址批量导入】添加）；与上次拉取有差 = 依赖"
+                "变化（黄，作者增删了依赖，以最新为准）。需要 "
+                "Steam API 密钥。",
+            attention=bool(deps is not None and deps_bad > 0))
+        if deps is None:
+            card.set_status(
+                "待拉取" + (f"（上次拉取：{_fmt_ts(last_fetch)}）"
+                            if last_fetch else "（从未拉取）"), _C_MUTED)
+            card.add_text(
+                "点上方【拉取依赖（联网）】：带 key 批量查询全部未"
+                "删除 mod 的必需物品清单，缺什么、变了什么一次说清。"
+                "需要先在【Steam API 密钥】页保存 key。")
+            card.set_expanded(False)
+        elif deps_bad == 0:
+            card.set_status(
+                f"无异常（解析 {deps.fetched} 条：无依赖 "
+                f"{len(deps.childless)} 条，其余依赖全部在账本）", _C_OK)
+            card.set_expanded(False)
+        else:
+            stat = (f"缺依赖 {len(deps.missing)} · "
+                    f"依赖变化 {len(deps.changed)}")
+            if deps.undetermined:
+                stat += f" · 未判定 {len(deps.undetermined)}"
+            card.set_status(stat, _C_WARN)
+            if deps.missing:
+                card.add_text(
+                    "缺依赖（必需物品编号不在账本——下载了也跑不起"
+                    "来）：点按钮复制全部缺失编号，到【网址批量导入】"
+                    "添加后再下载；右键单条可打开工坊页面看是什么。",
+                    _C_FAIL)
+                miss_rows = [
+                    (mid, self._title_of(mid),
+                     f"缺 {len(lack)} 个必需物品：{_ids_text(lack)}")
+                    for mid, lack in sorted(deps.missing.items())]
+                self._add_id_list(card, miss_rows, allow_cmd=False)
+                all_missing = sorted({i for lack in deps.missing.values()
+                                      for i in lack})
+                card.add_button(
+                    f"复制全部缺失编号（{len(all_missing)} 个）…",
+                    "复制到剪贴板（每行一个）：到【网址批量导入】"
+                    "粘贴即可全部入库，之后正常下载",
+                    lambda _=False, ids=all_missing: self._copy_missing(ids))
+            if deps.changed:
+                card.add_text(
+                    "依赖变化（与上次拉取相比，作者增删了必需物品）"
+                    "——清单已按本次为准入账，对照看即可：", _C_WARN)
+                chg_rows = []
+                for mid, old, new in deps.changed:
+                    added = sorted(set(new) - set(old))
+                    removed = sorted(set(old) - set(new))
+                    note = (f"{len(old)} → {len(new)}"
+                            + (f"，新增 {_ids_text(added)}" if added else "")
+                            + (f"，移除 {_ids_text(removed)}" if removed else ""))
+                    chg_rows.append((mid, self._title_of(mid), note))
+                self._add_id_list(card, chg_rows, allow_cmd=False)
+            if deps.undetermined:
+                card.add_text(
+                    f"未判定 {len(deps.undetermined)} 条（响应里没有 "
+                    "children 键，接口行为异常）——这些条目的依赖本次"
+                    "没拿到，也绝不冒充「无依赖」入账。重拉一次；持续"
+                    "出现把日志发给开发者。"
+                    + _ids_text(deps.undetermined), _C_WARN)
+            if deps.skipped:
+                card.add_text(
+                    f"另有 {deps.skipped} 条远端失效/查询失败，无从判"
+                    "依赖（桶④⑤已列）。")
+            card.add_text(
+                "依赖清单以最近一次拉取为准（重拉全量刷新）；上次"
+                "拉取：" + (_fmt_ts(last_fetch) if last_fetch else
+                           "（本次是第一次）")
+                + "。依赖指向的条目虽在账本但已失效/删除的，去桶④"
+                  "处置——本桶不重复报。")
+            card.set_expanded(True)
 
         # ---- 附加发现：非数字内容 ----
         if rep.non_numeric:
@@ -1220,7 +1626,8 @@ class ExceptionPage(QWidget):
         # "部分未能检查"分支、凭空声称有横幅（实测干净库误报）。
         # `not (remote_total or 0)` 把"深检没跑(None)"和"跑了零发现"
         # 一视同仁
-        if local_total == 0 and not flags and not (remote_total or 0):
+        if local_total == 0 and not flags and not (remote_total or 0) \
+                and n_health == 0 and deps_bad == 0:
             tail = "（含联网深度检测）" if remote is not None else ""
             self._summary.setStyleSheet(f"color: {_C_OK};")
             self._summary.setText(f"六桶检查完毕{tail}：未发现异常。")
@@ -1228,7 +1635,8 @@ class ExceptionPage(QWidget):
             self._apply_card_filter()
             return
         # 本身零发现、只有未能检查的旗标：专用的友好汇总
-        if not local_total and not (remote_total or 0) and flags:
+        if not local_total and not (remote_total or 0) and flags \
+                and n_health == 0:
             self._summary.setStyleSheet(f"color: {_C_WARN};")
             self._summary.setText(
                 "可判范围内未发现异常；有未能检查的部分，见上方横幅。")
@@ -1242,9 +1650,13 @@ class ExceptionPage(QWidget):
         if remote_total:
             parts.append(f"联网深检确认 {remote_total} 处"
                          "（失效/查询失败/疑似合集）")
-        if flags:
-            parts.append(f"{len(flags)} 项未能检查（见横幅）")
+        if n_health:
+            parts.append(f"远端健康异常 {n_health} 处（标题不符/弃坑/"
+                         "banned）")
+        if deps_bad:
+            parts.append(f"依赖异常 {deps_bad} 处（缺依赖/依赖变化）")
         self._summary.setStyleSheet(f"color: {_C_WARN};")
+
         self._summary.setText(
             f"「{owner_name}」：" + "；".join(parts)
             + "。各桶卡片内有明细与修法引导，修完复检。")
@@ -1941,9 +2353,15 @@ class ExceptionPage(QWidget):
         self.command_gen_requested.emit(list(ids))
 
 
-def _ids_text(ids: list[int], limit: int = _ID_LIMIT) -> str:
-    """编号清单 → 展示文本：最多列 limit 个，超出折成"…"。"""
-    head = "、".join(str(i) for i in ids[:limit])
-    if len(ids) > limit:
-        head += f" …（共 {len(ids)} 个）"
-    return head
+    def _ids_text(ids: list[int], limit: int = _ID_LIMIT) -> str:
+        """编号清单 → 展示文本：最多列 limit 个，超出折成"…"。"""
+        head = "、".join(str(i) for i in ids[:limit])
+        if len(ids) > limit:
+            head += f" …（共 {len(ids)} 个）"
+        return head
+
+    def _fmt_ts(ts: int | None) -> str:
+        if not ts:
+            return "从未"
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+

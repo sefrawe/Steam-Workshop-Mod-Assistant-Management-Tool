@@ -28,7 +28,7 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from core.models import (
-    Alert, Backup, FailedMod, Game, Mod, OperationLog, Snapshot,
+    Alert, Backup, FailedMod, Game, Mod, OperationLog, Snapshot,PurgedMod,
 )
 
 # list_mods 的排序白名单。为什么存在：ORDER BY 无法用 ? 参数绑定，只能拼进
@@ -319,7 +319,51 @@ class ModRepository(ABC):
         - 本方法绝不碰文件系统——磁盘上的 content 目录、备份文件
           归 flow/GUI 层按用户勾选另行处置（与 delete_game_deep 同一分工）。
         返回随账清除的备份登记份数（供执行报告说数）。
-        mod_id 不存在 → ValueError。"""
+        mod_id 不存在 → ValueError。
+                - v2.49 起清账自动登记「已清账黑名单」（purged_mods 表）：扫描
+          发现该编号被 steamcmd 复活时跳过不入库，除非用户在「已清账」
+          页明确允许录入；
+"""
+
+    # ============ purged_mods 已清账黑名单（v2.49 新增，5） ============
+    @abstractmethod
+    def list_purged(self) -> list[PurgedMod]:
+        """黑名单全量，按清账时间新→旧。「已清账」页的数据源。"""
+
+    @abstractmethod
+    def filter_purged(self, mod_ids: Iterable[int]) -> set[int]:
+        """批量查：传入的编号里哪些在黑名单里。扫描入库前的拦截检查。"""
+
+    @abstractmethod
+    def is_purged(self, mod_id: int) -> bool: ...
+
+    @abstractmethod
+    def remove_purged(self, mod_id: int) -> None:
+        """允许录入：移出黑名单。不在名单 → ValueError。"""
+
+    @abstractmethod
+    def add_purged(self, mod_id: int, game_id: int, *,
+                   title: str | None = None, note: str | None = None) -> None:
+        """手动加入黑名单。重复添加 = 覆盖刷新。"""
+    # ---- mod_dependencies（schema v3，依赖检测桶B）--------------
+    @abstractmethod
+    def replace_dependencies(self, mod_id: int, required_ids: list[int],
+                             fetched_at: int | None = None) -> None:
+        """★复合方法：一个事务内清旧边、写新边——依赖清单以最近
+        一次拉取为准。required_ids 允许空（真无依赖=清空）。mod 不
+        在账本 → ValueError（显式爆炸，绝不给幽灵 mod 记依赖）。"""
+
+    @abstractmethod
+    def list_dependencies(self, mod_id: int) -> list[int]:
+        """它依赖谁（工坊编号升序）。从未拉取 = 空列表。"""
+
+    @abstractmethod
+    def list_dependents(self, mod_id: int) -> list[int]:
+        """谁依赖它（反向查：处置前看谁被连坐）。"""
+
+    @abstractmethod
+    def latest_dependency_fetch(self) -> int | None:
+        """全表最大 fetched_at（"上次拉取"状态行；None=从未拉取）。"""
 
     # ============ mod_snapshots（2） ============
 

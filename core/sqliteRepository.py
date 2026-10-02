@@ -1,39 +1,44 @@
 """ModRepository 契约的 SQLite 实现
 """
+
 """
 三个贯穿全文的实现约定：
+
 1. isolation_level=None（真自动提交）：每条语句立即落盘；需要多语句
    原子性的复合方法用显式 BEGIN/COMMIT（_atomic）。好处：单语句方法
    不用管事务，复合方法管自己的，transaction() 管调用方的，三层互不干扰
+
 2. 边界转换只在读写发生：库里的 0/1 和 JSON 文本，出 repo 之前必须
    变成 bool 和 list/dict；调用方永远见不到存储格式
+
 3. 让错误显式爆炸：UPDATE 影响 0 行 = 目标不存在 = ValueError，
    约束冲突 = sqlite3.IntegrityError，本层绝不静默吞掉
 """
-import re
 
 import json
+import re
 import sqlite3
 import time
-from dataclasses import asdict
-
 from collections.abc import Iterable
 from contextlib import contextmanager
+from dataclasses import asdict
 from pathlib import Path
 
+from core.modRepository import (
+    ALLOWED_ORDERS, BackupOverviewRow, GameDeletionSummary,
+    LEDGER_TABLES, ModRepository,
+)
 from core.models import (
-    Alert, Backup, FailedMod, Game, Mod, OperationLog, Snapshot,
+    Alert, Backup, FailedMod, Game,
+    Mod, OperationLog, Snapshot, PurgedMod,
 )
 
-from core.modRepository import (ALLOWED_ORDERS, BackupOverviewRow,
-                                GameDeletionSummary, LEDGER_TABLES,
-                                ModRepository)
-
-
 _VALID_STATUSES = frozenset({"tracked", "downloaded", "deleted", "failed"})
+
 # 每 mod 保留的快照条数：这里只是默认值，实际值由主窗口从设置读出后
 # 通过构造参数注入（设置页可改，默认 5 条）
 _DEFAULT_SNAPSHOT_KEEP = 5
+
 # 数据库自身备份的滚动保留份数（R16）：backup_to() 每次落盘后清旧，只留最新 N 份。
 # 与 snapshot_keep 同理只是默认值，可由构造参数注入覆盖
 _DEFAULT_DB_BACKUP_KEEP = 3
@@ -52,7 +57,6 @@ def _dumps(obj) -> str:
 
 
 class SQLiteRepository(ModRepository):
-
     # ---------- 基础设施 ----------
 
     def __init__(self, db_path: str | Path, *,
@@ -62,10 +66,10 @@ class SQLiteRepository(ModRepository):
         self._snapshot_keep = max(1, int(snapshot_keep))
         # 数据库备份同理：留 0 份的"滚动备份"等于没备份
         self._db_backup_keep = max(1, int(db_backup_keep))
-
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self._path, isolation_level=None,check_same_thread=False)
+        self._conn = sqlite3.connect(self._path, isolation_level=None,
+                                     check_same_thread=False)
         self._conn.row_factory = sqlite3.Row  # 让查询结果支持按列名取值
         # foreign_keys 是连接级属性，每个连接都必须重新打开
         # （schema 文件里的那条只管建表期）
@@ -73,12 +77,39 @@ class SQLiteRepository(ModRepository):
         # 遇到锁（比如 PyCharm 数据源正开着）先等 5 秒再报错，而不是立刻炸
         self._conn.execute("PRAGMA busy_timeout = 5000")
         self._in_transaction = False
+
         # user_version==0 = 空库 → 执行 schema.sql 建表（脚本自己会把
-        # user_version 置 1）；已建过的库跳过——重复打开同一个库完全幂等
-        if self._conn.execute("PRAGMA user_version").fetchone()[0] == 0:
+        # user_version 置到最新版）；已建过的库跳过——重复打开同一个库完全幂等
+        version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        if version == 0:
             schema = (Path(__file__).parent / "schema.sql").read_text(
                 encoding="utf-8")
             self._conn.executescript(schema)
+        elif version < 3:
+            # ---- 老库迁移（v1/v2 → v3）----
+            if version < 2:
+                # v1 → v2：补建「已清账黑名单」表
+                self._conn.execute("""
+                                   CREATE TABLE IF NOT EXISTS purged_mods (
+                                                                              mod_id INTEGER PRIMARY KEY,
+                                                                              game_id INTEGER NOT NULL,
+                                                                              title TEXT,
+                                                                              purged_at INTEGER NOT NULL DEFAULT (
+                                                                              CAST(strftime('%s','now') AS INTEGER)),
+                                       note TEXT
+                                       )""")
+            # v2 → v3：补建依赖边表（桶B；v1 库走完上一步后同样需要）
+            self._conn.execute("""
+                               CREATE TABLE IF NOT EXISTS mod_dependencies (
+                                                                               mod_id INTEGER NOT NULL,
+                                                                               required_mod_id INTEGER NOT NULL,
+                                                                               fetched_at INTEGER NOT NULL,
+                                                                               PRIMARY KEY (mod_id, required_mod_id)
+                                   )""")
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_dep_req"
+                " ON mod_dependencies(required_mod_id)")
+            self._conn.execute("PRAGMA user_version = 3")
 
     @contextmanager
     def transaction(self):
@@ -120,12 +151,12 @@ class SQLiteRepository(ModRepository):
 
     def _insert(self, table: str, fields: dict) -> int:
         """动态 INSERT，返回 lastrowid。
+
         值为 None 的字段直接不写进列清单——让 schema 的 DEFAULT 生效。
         显式写 NULL 会违反 first_tracked_at 这类 NOT NULL DEFAULT 列的约束"""
         cols = {k: v for k, v in fields.items() if v is not None}
         names = ", ".join(cols)
-        marks = ", ".join("?" * len(cols))
-        # 拼出来的只有问号，无注入风险
+        marks = ", ".join("?" * len(cols))  # 拼出来的只有问号，无注入风险
         cur = self._conn.execute(
             f"INSERT INTO {table} ({names}) VALUES ({marks})",
             list(cols.values()),
@@ -135,6 +166,7 @@ class SQLiteRepository(ModRepository):
     def _dynamic_update(self, table: str, pk_col: str, pk_val,
                         fields: dict) -> int:
         """动态 UPDATE，返回 rowcount（0 = 目标行不存在）。
+
         表名/列名全部来自代码字面量，用户数据只走 ? 参数——无注入"""
         sets = ", ".join(f"{c} = ?" for c in fields)
         cur = self._conn.execute(
@@ -159,11 +191,10 @@ class SQLiteRepository(ModRepository):
 
     @staticmethod
     def _to_storage(table: str, row: dict) -> dict:
-        """自然类型 dict → 存储格式 dict（import_all 专用），与
-        _row 系列互为镜像。带特殊类型的列全项目就两类（JSON 文本、
-        0/1 布尔），显式列出比查表一目了然。表里没有的列名不在
-        这里拦——_insert 拼出的 SQL 会被 SQLite 以 no such column
-        拒绝 → 事务回滚，错误照旧显式爆炸。"""
+        """自然类型 dict → 存储格式 dict（import_all 专用），与 _row 系列互为镜像。
+        带特殊类型的列全项目就两类（JSON 文本、0/1 布尔），显式列出比查表一目了然。
+        表里没有的列名不在这里拦——_insert 拼出的 SQL 会被 SQLite 以
+        no such column 拒绝 → 事务回滚，错误照旧显式爆炸。"""
         data = dict(row)
         if table == "mods":
             if data.get("tags") is not None:
@@ -183,7 +214,6 @@ class SQLiteRepository(ModRepository):
                 data["was_downloaded"] = int(data["was_downloaded"])
         return data
 
-
     # ---------- 行 → dataclass 转换（边界转换集中在这里） ----------
 
     @staticmethod
@@ -191,7 +221,8 @@ class SQLiteRepository(ModRepository):
         return Game(app_id=row["app_id"], name=row["name"],
                     download_dir=row["download_dir"],
                     game_mod_dir=row["game_mod_dir"],
-                    backup_dir=row["backup_dir"], created_at=row["created_at"])
+                    backup_dir=row["backup_dir"],
+                    created_at=row["created_at"])
 
     @staticmethod
     def _mod(row) -> Mod:
@@ -255,8 +286,8 @@ class SQLiteRepository(ModRepository):
         return FailedMod(id=row["id"], mod_id=row["mod_id"],
                          game_id=row["game_id"], reason=row["reason"],
                          last_known_state=(json.loads(row["last_known_state"])
-                                           if row["last_known_state"]
-                                              is not None else None),
+                                           if row["last_known_state"] is not None
+                                           else None),
                          replaced_by=row["replaced_by"],
                          detected_at=row["detected_at"])
 
@@ -323,14 +354,14 @@ class SQLiteRepository(ModRepository):
             (app_id,)).fetchone()[0]
         # 备份登记挂在 mod 名下，要经 mods 才能找到所属档案
         bk = self._conn.execute(
-            """SELECT COUNT(*), COALESCE(SUM(size_bytes), 0)
-               FROM backups WHERE mod_id IN
-                                  (SELECT mod_id FROM mods WHERE game_id = ?)""",
+            """SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM backups
+               WHERE mod_id IN (SELECT mod_id FROM mods WHERE game_id = ?)""",
             (app_id,)).fetchone()
         paths = [r[0] for r in self._conn.execute(
-            """SELECT backup_path FROM backups WHERE mod_id IN
-                                                     (SELECT mod_id FROM mods WHERE game_id = ?)
-               ORDER BY id""", (app_id,))]
+            """SELECT backup_path FROM backups
+               WHERE mod_id IN (SELECT mod_id FROM mods WHERE game_id = ?)
+               ORDER BY id""",
+            (app_id,))]
         return GameDeletionSummary(
             app_id=app_id, mod_total=mod_total, mod_deleted=mod_deleted,
             failed_count=failed, backup_count=bk[0], backup_bytes=bk[1],
@@ -344,38 +375,37 @@ class SQLiteRepository(ModRepository):
             # 子查询形式（IN (SELECT …)）：mod 列表为空也不会出 SQL
             # 语法问题，也不用分片，一条语句数据库自己解决
             self._conn.execute(
-                """DELETE FROM special_mod_alerts WHERE mod_id IN
-                                                        (SELECT mod_id FROM mods WHERE game_id = ?)""",
+                """DELETE FROM special_mod_alerts
+                   WHERE mod_id IN (SELECT mod_id FROM mods WHERE game_id = ?)""",
                 (app_id,))
             self._conn.execute(
-                """DELETE FROM mod_snapshots WHERE mod_id IN
-                                                   (SELECT mod_id FROM mods WHERE game_id = ?)""",
+                """DELETE FROM mod_snapshots
+                   WHERE mod_id IN (SELECT mod_id FROM mods WHERE game_id = ?)""",
                 (app_id,))
             # 备份登记是 mods 的 RESTRICT 外键——必须先删干净，否则
             # 下一步删 mod 会被数据库拦下（这正是闸的工作方式）
             self._conn.execute(
-                """DELETE FROM backups WHERE mod_id IN
-                                             (SELECT mod_id FROM mods WHERE game_id = ?)""",
+                """DELETE FROM backups
+                   WHERE mod_id IN (SELECT mod_id FROM mods WHERE game_id = ?)""",
                 (app_id,))
-            self._conn.execute(
-                "DELETE FROM mods WHERE game_id = ?", (app_id,))
+            self._conn.execute("DELETE FROM mods WHERE game_id = ?", (app_id,))
             # 失效归档随档案删：mod_id 本来就没外键（证据表），归档
             # 不会自己消失，必须显式来删
-            self._conn.execute(
-                "DELETE FROM failed_mods WHERE game_id = ?", (app_id,))
-            self._conn.execute(
-                "DELETE FROM games WHERE app_id = ?", (app_id,))
+            self._conn.execute("DELETE FROM failed_mods WHERE game_id = ?",
+                               (app_id,))
+            self._conn.execute("DELETE FROM games WHERE app_id = ?", (app_id,))
             # operations_log 刻意不删（见契约注释）。其中 backup_id
             # 指向刚才删掉的备份，外键 ON DELETE SET NULL 自动置空
         return summary
 
     def list_backups_overview(self, game_id: int | None = None
                               ) -> list[BackupOverviewRow]:
-        sql = """SELECT b.id AS backup_id, b.mod_id, m.title AS mod_title,
-                        m.status AS mod_status, m.game_id,
-                        g.name AS game_name, b.backup_path, b.size_bytes,
-                        b.version_timeupdated, b.manifest, b.created_at,
-                        b.pinned
+        sql = """SELECT b.id AS backup_id, b.mod_id,
+                        m.title AS mod_title, m.status AS mod_status,
+                        m.game_id, g.name AS game_name,
+                        b.backup_path, b.size_bytes,
+                        b.version_timeupdated, b.manifest,
+                        b.created_at, b.pinned
                  FROM backups b
                           JOIN mods m ON b.mod_id = m.mod_id
                           JOIN games g ON m.game_id = g.app_id"""
@@ -393,7 +423,6 @@ class SQLiteRepository(ModRepository):
             manifest=r["manifest"], created_at=r["created_at"],
             pinned=bool(r["pinned"]),
         ) for r in self._conn.execute(sql, params).fetchall()]
-
 
     # ---------- mods ----------
 
@@ -452,20 +481,19 @@ class SQLiteRepository(ModRepository):
                   limit: int | None = None,
                   title_contains: str | None = None,
                   note_contains: str | None = None,
-                  mod_id: int | None = None,
-                  size_min: int | None = None,
+                  mod_id: int | None = None, size_min: int | None = None,
                   size_max: int | None = None,
                   updated_from: int | None = None,
                   updated_to: int | None = None,
                   tags_all: Iterable[str] | None = None) -> list[Mod]:
         """（T12 扩展）参数语义见契约层 docstring。实现分工：
+
         SQL 能表达的条件全部下推给 SQLite（值只走 ? 参数绑定，无注入）；
         标签是唯一例外——tags 存 JSON 文本，schema.sql 文件头约定 3
         "数据库不做 JSON 结构化查询"，取回后在 Python 里精确比对。"""
         if order_by not in ALLOWED_ORDERS:
             raise ValueError(
                 f"order_by 必须取自 ALLOWED_ORDERS，收到：{order_by!r}")
-
         where = ["game_id = ?"]
         params: list = [game_id]
 
@@ -542,8 +570,8 @@ class SQLiteRepository(ModRepository):
             # _mod() 已把 JSON 文本转回 list——这里只做集合比较，
             # 不碰存储格式（文件头约定 2：边界转换只在读写发生）
             mods = [m for m in mods if m.tags and wanted <= set(m.tags)]
-            if limit is not None:
-                mods = mods[:limit]
+        if limit is not None:
+            mods = mods[:limit]
         return mods
 
     def update_api_metadata(self, mod_id: int, *, title: str | None = None,
@@ -561,9 +589,9 @@ class SQLiteRepository(ModRepository):
                             last_checked_at: int | None = None) -> None:
         raw = {"title": title, "creator": creator, "url": url,
                "time_created": time_created, "time_updated": time_updated,
-               "last_time_updated": last_time_updated,
-               "file_size": file_size, "subscriptions": subscriptions,
-               "favorited": favorited, "views": views,
+               "last_time_updated": last_time_updated, "file_size": file_size,
+               "subscriptions": subscriptions, "favorited": favorited,
+               "views": views,
                "tags": None if tags is None else _dumps(tags),
                "preview_url": preview_url,
                "last_checked_at": last_checked_at}
@@ -641,7 +669,10 @@ class SQLiteRepository(ModRepository):
     def purge_mod(self, mod_id: int, *, purge_backups: bool = False) -> int:
         # 实现口径见契约 docstring。一个事务：要么全清要么原样
         with self._atomic():
-            self._require_mod(mod_id)
+            # 一次查询拿两个用途：存在性检查 + 末态快照（登记黑名单要用）
+            mod = self.get_mod(mod_id)
+            if mod is None:
+                raise ValueError(f"mod {mod_id} 不存在")
             n_backups = self._conn.execute(
                 "SELECT COUNT(*) FROM backups WHERE mod_id = ?",
                 (mod_id,)).fetchone()[0]
@@ -652,45 +683,142 @@ class SQLiteRepository(ModRepository):
                     "彻底清账须先处置备份（在清理页勾选备份选项，"
                     "或到备份总览页逐份处理）")
             if n_backups:
-                self._conn.execute(
-                    "DELETE FROM backups WHERE mod_id = ?", (mod_id,))
+                self._conn.execute("DELETE FROM backups WHERE mod_id = ?",
+                                   (mod_id,))
             # 快照与提醒本有 CASCADE 兜底，仍显式先删——同 delete_game_deep
-            self._conn.execute(
-                "DELETE FROM mod_snapshots WHERE mod_id = ?", (mod_id,))
+            self._conn.execute("DELETE FROM mod_snapshots WHERE mod_id = ?",
+                               (mod_id,))
             self._conn.execute(
                 "DELETE FROM special_mod_alerts WHERE mod_id = ?", (mod_id,))
             self._conn.execute("DELETE FROM mods WHERE mod_id = ?", (mod_id,))
+            # ★ 登记"已清账黑名单"（v2.49）：acf 残条 steamcmd 从不清理，
+            # 下载暂存区也可能留有它的数据——复扫会把编号当"清单外 id"
+            # 补录回来（复活）。登记后扫描入库前先查此表，名单内的编号
+            # 一律拦下，除非用户在「已清账」页允许录入。
+            # 同一编号反复清账 = 覆盖刷新（更新标题快照），永远只有一行。
+            self._conn.execute(
+                """INSERT OR REPLACE INTO purged_mods
+                   (mod_id, game_id, title) VALUES (?, ?, ?)""",
+                (mod_id, mod.game_id, mod.title))
             # failed_mods 证据行刻意不动（无外键证据表）；operations_log 不动
             return n_backups
 
+    # ---------- purged_mods（已清账黑名单，v2.49 新增） ----------
 
-    # ---------- mod_snapshots ----------
+    def list_purged(self) -> list[PurgedMod]:
+        """黑名单全量，按清账时间新→旧。「已清账」页的数据源。"""
+        rows = self._conn.execute(
+            "SELECT * FROM purged_mods ORDER BY purged_at DESC").fetchall()
+        return [PurgedMod(mod_id=r["mod_id"], game_id=r["game_id"],
+                          title=r["title"], note=r["note"],
+                          purged_at=r["purged_at"]) for r in rows]
+
+    def filter_purged(self, mod_ids: Iterable[int]) -> set[int]:
+        """传入一批编号，返回其中在黑名单里的子集。
+
+        扫描入库前的拦截检查专用。与 filter_existing_ids 同款分片写法，
+        编号再多也不会撞 SQL 变量上限。"""
+        ids = sorted(set(mod_ids))
+        found: set[int] = set()
+        for chunk in self._in_chunks(ids):
+            marks = ",".join("?" * len(chunk))
+            rows = self._conn.execute(
+                f"SELECT mod_id FROM purged_mods WHERE mod_id IN ({marks})",
+                chunk).fetchall()
+            found.update(r[0] for r in rows)
+        return found
+
+    def is_purged(self, mod_id: int) -> bool:
+        """单个编号是否在黑名单里。"""
+        return self._conn.execute(
+            "SELECT 1 FROM purged_mods WHERE mod_id = ?",
+            (mod_id,)).fetchone() is not None
+
+    def remove_purged(self, mod_id: int) -> None:
+        """「允许录入」：把一个编号移出黑名单。
+
+        移出后，如果 steamcmd 已把它的文件装配回下载目录，下次扫描会
+        正常入账；如果盘上没有它的文件，照旧不会入账（没文件不算
+        下载成功）。编号不在名单里 → ValueError（让调用方知道白点了）。"""
+        rc = self._conn.execute(
+            "DELETE FROM purged_mods WHERE mod_id = ?", (mod_id,)).rowcount
+        if rc == 0:
+            raise ValueError(f"mod {mod_id} 不在已清账名单中")
+
+    def add_purged(self, mod_id: int, game_id: int, *,
+                   title: str | None = None,
+                   note: str | None = None) -> None:
+        """手动把一个编号拉进黑名单（「已清账」页的入口用）。
+
+        场景：档案被整体删除（删档案不走 purge_mod，不会自动登记）、
+        或想提前防住某个编号。重复添加 = 覆盖刷新。"""
+        self._conn.execute(
+            """INSERT OR REPLACE INTO purged_mods
+               (mod_id, game_id, title, note) VALUES (?, ?, ?, ?)""",
+            (mod_id, game_id, title, note))
 
     def add_snapshot(self, mod_id: int, *, time_updated: int | None = None,
                      manifest: str | None = None,
                      local_timeupdated: int | None = None,
                      snapshot_at: int | None = None) -> None:
+        """★复合方法（契约口径），一个事务内：插入快照 + 滚动淘汰该 mod
+        超过 snapshot_keep 条的更旧快照——业务规则在 repo 层，
+        调用方永远不用关心保留条数。snapshot_at=None 取当前时刻；
+        迁移脚本传原值保留历史。mod_id 不存在 → 外键 IntegrityError
+        （约定 3：显式爆炸，绝不静默）。"""
         with self._atomic():
-            self._require_mod(mod_id)
             self._insert("mod_snapshots", {
                 "mod_id": mod_id,
                 "time_updated": time_updated,
                 "manifest": manifest,
                 "local_timeupdated": local_timeupdated,
-                "snapshot_at": snapshot_at,
+                "snapshot_at": snapshot_at if snapshot_at is not None
+                else _now(),
             })
-            # 滚动删除：只保留 snapshot_at 最新的 N 条
-            # （N 来自构造参数，主窗口从设置注入）
+            # 滚动淘汰：只留最新的 snapshot_keep 条（与 replace_failed_mod
+            # 里快照改挂后的裁剪是同一句 SQL——单一写法不漂移）
             self._conn.execute(
-                """DELETE FROM mod_snapshots
-                   WHERE mod_id = ?
-                     AND id NOT IN (
-                       SELECT id FROM mod_snapshots
-                       WHERE mod_id = ?
-                       ORDER BY snapshot_at DESC, id DESC
-                       LIMIT ?)""",
-                (mod_id, mod_id, self._snapshot_keep),
-            )
+                """DELETE FROM mod_snapshots WHERE mod_id = ? AND id NOT IN (
+                    SELECT id FROM mod_snapshots WHERE mod_id = ?
+                    ORDER BY snapshot_at DESC, id DESC LIMIT ?)""",
+                (mod_id, mod_id, self._snapshot_keep))
+
+    # ---- mod_dependencies（v3，依赖检测）------------------------
+
+    def replace_dependencies(self, mod_id: int, required_ids: list[int],
+                             fetched_at: int | None = None) -> None:
+        """清旧边 + 写新边，一个事务。无外键版本：mods 表键型不做
+        假设，存在性由本方法显式校验。required_ids 去重保序。"""
+        if self.get_mod(mod_id) is None:
+            raise ValueError(f"mod {mod_id} 不在账本中，无法记录依赖")
+        ts = fetched_at if fetched_at is not None else _now()
+        ids = list(dict.fromkeys(int(i) for i in required_ids))
+        with self._atomic():
+            self._conn.execute(
+                "DELETE FROM mod_dependencies WHERE mod_id = ?", (mod_id,))
+            self._conn.executemany(
+                "INSERT INTO mod_dependencies (mod_id, required_mod_id,"
+                " fetched_at) VALUES (?, ?, ?)",
+                [(mod_id, rid, ts) for rid in ids])
+
+    def list_dependencies(self, mod_id: int) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT required_mod_id FROM mod_dependencies"
+            " WHERE mod_id = ? ORDER BY required_mod_id",
+            (mod_id,)).fetchall()
+        return [r[0] for r in rows]
+
+    def list_dependents(self, mod_id: int) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT mod_id FROM mod_dependencies"
+            " WHERE required_mod_id = ? ORDER BY mod_id",
+            (mod_id,)).fetchall()
+        return [r[0] for r in rows]
+
+    def latest_dependency_fetch(self) -> int | None:
+        row = self._conn.execute(
+            "SELECT MAX(fetched_at) FROM mod_dependencies").fetchone()
+        return row[0] if row is not None and row[0] is not None else None
 
     def list_snapshots(self, mod_id: int) -> list[Snapshot]:
         rows = self._conn.execute(
@@ -703,8 +831,7 @@ class SQLiteRepository(ModRepository):
     # ---------- backups ----------
 
     def add_backup(self, mod_id: int, backup_path: str, size_bytes: int,
-                   version_timeupdated: int, *,
-                   manifest: str | None = None,
+                   version_timeupdated: int, *, manifest: str | None = None,
                    note: str | None = None) -> Backup:
         self._require_mod(mod_id)
         bid = self._insert("backups", {
@@ -748,14 +875,13 @@ class SQLiteRepository(ModRepository):
             "DELETE FROM backups WHERE id = ?",
             (backup_id,)).rowcount, f"备份记录 {backup_id} 不存在")
 
-
-
     def sum_backup_bytes(self) -> int:
         return self._conn.execute(
             "SELECT COALESCE(SUM(size_bytes), 0) FROM backups"
         ).fetchone()[0]
 
-    def backup_to(self, dest_dir: str | Path, *, keep: int | None = None) -> Path:
+    def backup_to(self, dest_dir: str | Path, *,
+                  keep: int | None = None) -> Path:
         """把整个数据库在线备份到 dest_dir，返回备份文件路径（R16）。
 
         - 用 SQLite 在线备份 API（conn.backup）复制数据页：无需关库，
@@ -771,6 +897,7 @@ class SQLiteRepository(ModRepository):
 
         事务中调用 → RuntimeError：备份到未提交状态没有意义，
         与 transaction() 不支持嵌套同一哲学——显式爆炸，绝不静默。
+
         本方法是 SQLite 实现的特有能力，刻意不进 ModRepository 契约：
         换别的存储后端就没有"在线备份"这个概念，进契约反而逼所有
         实现假装自己会。
@@ -800,6 +927,7 @@ class SQLiteRepository(ModRepository):
 
     def _prune_db_backups(self, dest: Path, keep: int) -> list[Path]:
         """数据库备份的滚动清理，返回被清掉的文件。
+
         只认本工具的命名模式 <库名>_<8位日期>_<6位时间>[_序号].db；
         时间戳命名的字典序 = 时间序，从最旧删起。"""
         pattern = re.compile(
@@ -811,7 +939,6 @@ class SQLiteRepository(ModRepository):
             victim.unlink()
         return victims
 
-
     # ---------- operations_log ----------
 
     def add_operation(self, command: str, *,
@@ -821,10 +948,10 @@ class SQLiteRepository(ModRepository):
 
     def finish_operation(self, op_id: int, *, error_count: int = 0,
                          result: str | None = None) -> None:
-        self._require(self._dynamic_update("operations_log", "id", op_id,
-                                           {"error_count": error_count,
-                                            "result": result}),
-                      f"操作记录 {op_id} 不存在")
+        self._require(self._dynamic_update(
+            "operations_log", "id", op_id,
+            {"error_count": error_count, "result": result}),
+            f"操作记录 {op_id} 不存在")
 
     def list_operations(self, limit: int = 50) -> list[OperationLog]:
         rows = self._conn.execute(
@@ -842,8 +969,7 @@ class SQLiteRepository(ModRepository):
             state = {"title": mod.title, "url": mod.url,
                      "time_updated": mod.time_updated,
                      "local_timeupdated": mod.local_timeupdated,
-                     "manifest": mod.manifest,
-                     "local_size": mod.local_size,
+                     "manifest": mod.manifest, "local_size": mod.local_size,
                      "note": mod.note, "color_tag": mod.color_tag,
                      "is_special": mod.is_special,
                      "local_path": mod.local_path}
@@ -889,13 +1015,9 @@ class SQLiteRepository(ModRepository):
                 "UPDATE mod_snapshots SET mod_id = ? WHERE mod_id = ?",
                 (new_mod_id, old_mod_id))
             self._conn.execute(
-                """DELETE FROM mod_snapshots
-                   WHERE mod_id = ?
-                     AND id NOT IN (
-                       SELECT id FROM mod_snapshots
-                       WHERE mod_id = ?
-                       ORDER BY snapshot_at DESC, id DESC
-                       LIMIT ?)""",
+                """DELETE FROM mod_snapshots WHERE mod_id = ? AND id NOT IN (
+                    SELECT id FROM mod_snapshots WHERE mod_id = ?
+                    ORDER BY snapshot_at DESC, id DESC LIMIT ?)""",
                 (new_mod_id, new_mod_id, self._snapshot_keep))
             # 3) 归档记录指向新 id——这是"旧 id → 新 id"证据链的最后一环
             self._require(self._conn.execute(
@@ -918,7 +1040,8 @@ class SQLiteRepository(ModRepository):
             "note": note,
         })
         row = self._conn.execute(
-            "SELECT * FROM special_mod_alerts WHERE id = ?", (aid,)).fetchone()
+            "SELECT * FROM special_mod_alerts WHERE id = ?",
+            (aid,)).fetchone()
         return self._alert(row)
 
     def get_last_alert(self, mod_id: int) -> Alert | None:
@@ -931,15 +1054,16 @@ class SQLiteRepository(ModRepository):
     def list_alerts(self, mod_id: int) -> list[Alert]:
         rows = self._conn.execute(
             "SELECT * FROM special_mod_alerts WHERE mod_id = ? "
-            "ORDER BY alert_at DESC, id DESC",
+            "ORDER BY alert_at DESC",
             (mod_id,)).fetchall()
         return [self._alert(r) for r in rows]
 
-
     # ---------- 账本导入导出（T19 dataExporter） ----------
+
     def export_all(self) -> dict:
         """整库倒出：{"user_version": 当前 schema 版本,
-                      "tables": {表名: [行 dict, ...]}}（表序 LEDGER_TABLES）。
+        "tables": {表名: [行 dict, ...]}}（表序 LEDGER_TABLES）。
+
         行 = dataclass 自然类型（复用 _row 系列转换 + asdict）——
         存储格式（0/1、JSON 文本）绝不越过本方法的返回值（文件头
         约定 2）。行内 id 等库生成值原样保留，import_all 灌回时
@@ -959,24 +1083,27 @@ class SQLiteRepository(ModRepository):
             rows = self._conn.execute(f"SELECT * FROM {table}").fetchall()
             tables[table] = [asdict(converters[table](r)) for r in rows]
         return {
-            "user_version":
-                self._conn.execute("PRAGMA user_version").fetchone()[0],
+            "user_version": self._conn.execute(
+                "PRAGMA user_version").fetchone()[0],
             "tables": tables,
         }
 
     def import_all(self, exported: dict) -> None:
         """清库重灌（export_all 的逆操作，完整账本的导入语义）。
 
-        一个事务内：先按外键安全顺序（LEDGER_TABLES 倒序）清空 7 张
-        表，再按正序灌入。守门三道，全部显式爆炸：
+        一个事务内：先按外键安全顺序（LEDGER_TABLES 倒序）清空各表，
+        再按正序灌入。守门三道，全部显式爆炸：
+
         - exported 缺 user_version / tables → ValueError；
         - tables 键 ⊄ LEDGER_TABLES → ValueError；
         - user_version 比本库 PRAGMA user_version 新 → ValueError
           （旧程序读不懂新结构，绝不硬吃——dataExporter 文件头
           第 2 道版本闸的裁决点）。
+
         行只做自然类型 → 存储格式的转换（_to_storage），不做行级
         校验——那是 dataExporter 的职责；数据库约束（CHECK / 外键 /
         NOT NULL）兜底，任何一行不合法 → 整体回滚，绝不留半截账。
+
         自带事务（_atomic）；外层再包 transaction() 也安全（并入）。"""
         user_version = exported.get("user_version")
         tables = exported.get("tables")
