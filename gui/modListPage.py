@@ -332,6 +332,20 @@ class ModListPage(QWidget):
             "已是删除状态的条目自动跳过")
         self._act_softdel.triggered.connect(self._on_softdel_checked)
         self._actions_menu.addAction(self._act_softdel)
+        # 彻底清账选中项（右键单条版的批量形态）：对勾选行整批
+        # 物理删除账本记录。「已下载」条目不收——它的完整出口
+        # （删文件+清账/仅删文件）在「清理与删除」页，那里才有
+        # 文件处置选项；这里只管账本侧的终结。
+        self._act_purge = QAction("彻底清账选中项", self._actions_menu)
+        self._act_purge.setToolTip(
+            "把勾选 mod 的记录从账本里物理删除：记录、版本快照、"
+            "特别关注提醒一并清除，不可恢复。\n"
+            "磁盘上一个文件都不碰；自动登记「已清账」黑名单，"
+            "今后扫描不再录入。\n"
+            "「已下载」状态的条目会被跳过——它们的完整出口在"
+            "「清理与删除」页（那里才有删文件的选项）")
+        self._act_purge.triggered.connect(self._on_purge_checked)
+        self._actions_menu.addAction(self._act_purge)
 
         # —— 批量特别关注（T27）——
         # 设/取消对勾选行整批写；批量入口贴清单（T27a）。菜单项文字带勾选数，
@@ -1002,6 +1016,158 @@ class ModListPage(QWidget):
             f"已软删除 {len(targets)} 个"
             + (f"（跳过已是删除状态 {len(skipped)} 个）" if skipped else ""))
         self._reload()
+    def _on_purge_checked(self) -> None:
+        """【彻底清账选中项】：对勾选的 mod 整批物理删除账本记录。
+        与批量软删除同一纪律：只收当前清单里显示的勾选、一次确认
+        整批执行。与软删除的执行差别要分清：
+        - 软删除可恢复，敢整批包一个事务；本动作不可逆，执行时逐条
+          走 repo.purge_mod 正门（每条自带独立事务），某一条被拒
+          不影响已清的其他条目——物理删除不做"全有全无"。
+        - 「已下载」条目刻意跳过：它的完整出口（删文件+清账/仅删文件）
+          在「清理与删除」页，那里才有文件处置选项。
+        名下有备份登记的条目：默认被引擎拒绝（备份去留必须先有决策），
+        弹窗里勾选「同时删除备份登记」才连带删（磁盘备份文件夹仍保留，
+        与右键单条同一口径）。被拒的逐条跳过、最后日志报数。
+        """
+        if not self._require_game():
+            return
+        ids = self._model.checked_ids_in_rows()
+        if not ids:
+            QMessageBox.information(
+                self, "彻底清账选中项",
+                "先在表格第一列勾选要清账的 mod。")
+            return
+        # 逐个核对状态：只放行「已删除 / 已收录」（与右键单条同一口径）；
+        # 「已下载」跳过并计数；勾选与执行之间刚被清过的（极端竞态）
+        # get_mod 返回 None，自然跳过。
+        targets = []
+        skipped_downloaded = 0
+        for mid in ids:
+            m = self._repo.get_mod(mid)
+            if m is None:
+                continue
+            if m.status == "downloaded":
+                skipped_downloaded += 1
+            else:
+                targets.append(m)
+        if not targets:
+            QMessageBox.information(
+                self, "彻底清账选中项",
+                "勾选的条目没有可清账的（「已下载」状态的完整出口在"
+                "「清理与删除」页）。")
+            return
+        # 确认弹窗：默认按钮 = 取消（默认永远保守）；复选框与右键
+        # 单条同一句文案。
+        box = QMessageBox(self)
+        box.setWindowTitle("彻底清账选中项")
+        box.setIcon(QMessageBox.Icon.Question)
+        text = (
+            f"确定将勾选的 {len(targets)} 个 mod 的记录彻底清除？\n\n"
+            "· 记录、版本快照、特别关注提醒：物理删除，不可恢复；\n"
+            "· 磁盘：一个字节不动——下载内容、备份文件夹全部原样"
+            "（盘上还有内容目录的话，之后会以「孤儿目录」出现在"
+            "【异常处理】页，可再处置）；\n"
+            "· 自动登记「已清账」黑名单：今后扫描不会再把它们录入"
+            "账本（想恢复收录，到「已清账」页允许录入）；\n"
+            "· 失效归档与操作日志保留作历史证据。\n"
+            "· 清账成功后自动从 steamcmd 工坊账本（acf）移除对应条目"
+            "（防复活断根；steamcmd 正在运行时跳过，可稍后到"
+            "「已清账管理」页执行）；\n"
+        )
+        if skipped_downloaded:
+            text += (f"\n\n另有 {skipped_downloaded} 个「已下载」条目"
+                     "已跳过——它们的完整出口（含删文件选项）在"
+                     "「清理与删除」页。")
+        box.setText(text)
+        cb = QCheckBox("同时删除备份登记（磁盘上的备份文件夹仍保留）", box)
+        cb.setToolTip("不勾：名下有备份登记的条目会被跳过（备份去留"
+                      "必须先有决策）；\n勾：连带删除备份登记，"
+                      "磁盘备份文件夹照旧保留")
+        box.setCheckBox(cb)
+        b_no = box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        b_yes = box.addButton("彻底清账",
+                              QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(b_no)
+        box.exec()
+        if box.clickedButton() is not b_yes:
+            self._log.info("已取消批量彻底清账：没有做任何改动")
+            return
+        # 逐条执行（每条独立事务）：被引擎的闸拒绝的跳过并报数，
+        # 不让一条的失败挡住其余条目。
+        done_ids = []
+        blocked = []
+        freed_regs = 0  # 连带删除的备份登记份数（日志用）
+        for m in targets:
+            try:
+                n = self._repo.purge_mod(m.mod_id,
+                                         purge_backups=cb.isChecked())
+                done_ids.append(m.mod_id)
+                freed_regs += n or 0
+            except ValueError:
+                # 引擎的保护性拒绝：名下有备份登记且没勾"同时删除"
+                #（或条目刚被并发改动）——跳过，日志报数
+                blocked.append(m.mod_id)
+        self._log.warn(
+            f"已彻底清账 {len(done_ids)} 个：记录物理删除、"
+            "自动登记黑名单；磁盘文件未动"
+            + (f"，连带删除备份登记 {freed_regs} 份" if freed_regs else "")
+            + (f"；跳过 {len(blocked)} 个（名下有备份登记未一并删除——"
+               "可到「清理与删除」页处置，或右键单条勾选后再来）"
+               if blocked else ""))
+        if skipped_downloaded:
+            self._log.info(
+                f"另有 {skipped_downloaded} 个「已下载」条目未清："
+                "它们的完整出口在「清理与删除」页")
+            self._acf_cleanup_after_purge(done_ids)  # 批量同样断根
+
+        # 详情面板正显示的是被清条目 → 清掉（单条版同款收尾）
+        if self._selected_mod_id in done_ids:
+            self._selected_mod_id = None
+        self._reload()
+    def _acf_cleanup_after_purge(self, mod_ids: list[int]) -> None:
+        """彻底清账成功后，把 steamcmd 工坊账本（acf）里的对应条目
+        一并移除——复活的断根措施（黑名单只拦入账，拦不住 steamcmd
+        反复校验装配已删条目、占着磁盘）。
+
+        安全边界：
+        - steamcmd 在跑 → 跳过（它退出时会把内存里的旧账本整个覆盖
+          写回，现在改等于白改）；提示到【已清账管理】页补执行；
+        - 没配 steamcmd / 该游戏没有 acf（从没下载过）→ 静默/说明跳过；
+        - 移除实现（备份、两区块都删、解析失败不落笔）单源在
+          core/localScanner.remove_items_from_acf。
+        """
+        if not mod_ids:
+            return
+        if steamcmd_running():
+            self._log.warn(
+                "steamcmd 正在运行：本次清账的条目暂未从工坊账本（acf）"
+                "移除——运行中改它会在 steamcmd 退出时被整个覆盖回去；"
+                "稍后到【已清账管理】页勾选对应条目执行"
+                "「从 steamcmd 账本移除」")
+            return
+        root = steamPaths.steamcmd_root(self._settings.get("steamcmd_path"))
+        if root is None:
+            self._log.warn("未设置 steamcmd 程序路径：acf 条目未清理"
+                           "（可稍后到【已清账管理】页执行）")
+            return
+        game = self._game
+        if game is None:
+            return
+        acf = localScanner.locate_acf(root, game.app_id)
+        if acf is None:
+            # 该游戏从没用本机 steamcmd 下载过：无账可清，不算异常
+            return
+        try:
+            removed, _absent = localScanner.remove_items_from_acf(
+                acf, mod_ids)
+        except ValueError as exc:
+            self._log.error(f"从工坊账本（acf）移除条目失败（条目未动）：{exc}")
+            return
+        if removed:
+            self._log.ok(
+                f"已从 steamcmd 工坊账本（acf）移除 {len(removed)} 个条目"
+                "（复活彻底断根；原账本文件已自动备份在同目录）")
+
     def _copy_id(self, mid: int) -> None:
         """右键「复制编号」：剪贴板 + 日志回执（决策 22③ 口径）。"""
         QApplication.clipboard().setText(str(mid))
@@ -1040,8 +1206,13 @@ class ModListPage(QWidget):
             "· 磁盘：一个字节不动——下载内容、备份文件夹全部原样"
             "（盘上还有内容目录的话，之后会以「孤儿目录」出现在"
             "【异常处理】页，可再处置）；\n"
+            "· 清账成功后自动把该条目从 steamcmd 的工坊账本（acf）里"
+            "移除——steamcmd 从此不再校验装配它，复活彻底断根"
+            "（原账本文件自动备份；steamcmd 正在运行时跳过，可稍后到"
+            "【已清账管理】页执行）；\n"
             "· 失效归档与操作日志保留作历史证据（异常处理页状态筛"
             "「已清账」可查）。")
+
         cb = QCheckBox("同时删除备份登记（磁盘上的备份文件夹仍保留）", box)
         cb.setToolTip("不勾：备份登记保留，成为无主登记；\n"
                       "勾：只删登记，磁盘备份文件夹照旧保留")
@@ -1071,6 +1242,8 @@ class ModListPage(QWidget):
             f"mod {m.mod_id} 已彻底清账：记录物理删除"
             + (f"，随账清除备份登记 {n_backups} 份" if n_backups else "")
             + "；磁盘文件未动")
+        self._acf_cleanup_after_purge([m.mod_id])  # 防复活断根（见方法注释）
+
         self._selected_mod_id = None  # 详情面板正显示的就是它，清掉
         self._reload()
 
@@ -1106,6 +1279,7 @@ class ModListPage(QWidget):
         self._act_download.setText(f"下载选中项{label}")
         self._act_backup.setText(f"备份选中项{label}")
         self._act_softdel.setText(f"软删除选中项{label}")
+        self._act_purge.setText(f"彻底清账选中项{label}")
 
         self._act_special_on.setText(f"设为特别关注{label}")
         self._act_special_off.setText(f"取消特别关注{label}")

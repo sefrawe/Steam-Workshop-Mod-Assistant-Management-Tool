@@ -45,8 +45,10 @@ def test_schema_auto_created(tmp_path):
     names = {row[0] for row in con.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"games", "mods", "mod_snapshots", "backups", "operations_log",
-            "failed_mods", "special_mod_alerts"} <= names
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 1
+            "failed_mods", "special_mod_alerts",
+            "purged_mods", "mod_dependencies"} <= names
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
@@ -447,3 +449,39 @@ def test_list_backups_overview(repo):
     # 按档案筛
     assert [r.backup_path for r in repo.list_backups_overview(2)] == [r"D:\bk\201_v1"]
     assert repo.list_backups_overview(999) == []  # 不存在的档案 → 空清单，不报错
+def test_migration_v2_to_v3(tmp_path):
+    """v2 老库打开 → 静默迁 v3：补建 mod_dependencies，purged_mods 不动。"""
+    db = tmp_path / "old.db"
+    con = sqlite3.connect(db)
+    con.executescript("""
+                      CREATE TABLE games (
+                                             app_id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                                             created_at INTEGER NOT NULL DEFAULT (
+                                                 CAST(strftime('%s','now') AS INTEGER)),
+                                             download_dir TEXT NOT NULL, game_mod_dir TEXT, backup_dir TEXT);
+                      CREATE TABLE purged_mods (
+                                                   mod_id INTEGER PRIMARY KEY, game_id INTEGER NOT NULL,
+                                                   title TEXT,
+                                                   purged_at INTEGER NOT NULL DEFAULT (
+                                                       CAST(strftime('%s','now') AS INTEGER)),
+                                                   note TEXT);
+                      PRAGMA user_version = 2;
+                      """)
+    con.commit()
+    con.close()
+
+    r = SQLiteRepository(db)  # 打开即迁移
+    r.close()
+
+    con = sqlite3.connect(db)
+    try:
+        assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+        cols = {row[1] for row in con.execute(
+            "PRAGMA table_info(mod_dependencies)")}
+        assert {"mod_id", "required_mod_id", "fetched_at"} <= cols
+        # 幂等：再开一次不炸不回退
+        r2 = SQLiteRepository(db)
+        r2.close()
+        assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+    finally:
+        con.close()

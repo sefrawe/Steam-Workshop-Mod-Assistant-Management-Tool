@@ -94,6 +94,8 @@ _BUCKET_ITEMS = [
     ("全部行", None),
     ("盘上缺失（已下载）", "missing"),
     ("空目录（疑似中断）", "empty"),
+    ("账新盘旧（疑似）", "stale"),
+
     ("账本外（可收录）", "claim"),
     ("已收录·盘上有内容（可确认）", "confirm"),
     ("软删除/失效·保留文件", "keep"),
@@ -130,6 +132,16 @@ _GUIDE_PARAS = (
     "本页不删任何文件；写库只发生在你主动的动作（收录／手动确认／"
     "修复三选／设置游戏侧目录）与死路径自动重推导。链接巡检只报不修；"
     "修不修、怎么修由你决定。",
+    "「账新盘旧（疑似）」是什么：账本记着某时刻更新过，mod 顶层目录的"
+    "直接子项在那一刻之后却没有增删过。下载超时只写了 steamcmd 的账、"
+    "恢复旧备份后账本没跟上，都长这样。两个诚实边界：① 目录时间只反映"
+    "文件/文件夹的增删，不反映内容改写——只改文件内容的正常更新也会被"
+    "列进来（误报）；② 超时若已经把新文件写进顶层，这里反而看不见"
+    "（漏报）。所以它只是疑似提示不是判定，无论哪种情况，核实与修复"
+    "都用【修复…→校验重下 validate】：按 manifest 逐文件核对，旧了缺了"
+    "都会补齐，不会冤枉好的。",
+
+
 )
 
 # 折叠记忆的三个键（T19⑤）：QSettings 的 session/ 命名空间，值 "1"/"0"
@@ -437,7 +449,12 @@ class VerifyPage(QWidget):
         status_by_id = {m.mod_id: m.status for m in rows}
         self._titles = {m.mod_id: (m.title or "") for m in rows}
         # 第二步：账本 ↔ 磁盘（纯读盘对账，不动文件）
-        result = modVerifier.verify(self._game.download_dir, status_by_id)
+        # 「账新盘旧」疑似检查的原料：本地版本时间（账本 local_timeupdated）
+        local_times = {m.mod_id: m.local_timeupdated for m in rows
+                       if m.local_timeupdated}
+        result = modVerifier.verify(self._game.download_dir, status_by_id,
+                                    local_times=local_times)
+
         if result.dead_root:
             # 短路口径与 core 一致：逐条对账全是误报，不如说清原因
             self._table.setRowCount(0)
@@ -459,7 +476,9 @@ class VerifyPage(QWidget):
             return
         self._fill_table(result)
         self._fill_non_numeric(result)
-        n_bad = len(result.missing) + len(result.empty)
+        n_bad = (len(result.missing) + len(result.empty)
+                 + len(result.stale_top))
+
         self._summary.setStyleSheet(
             "color: #46a758;" if n_bad == 0 else "color: #f76b15;")
         # 摘要口径 v2.41.1 勘误：untracked_content 混着两种人——账上
@@ -473,6 +492,9 @@ class VerifyPage(QWidget):
         parts = [f"账本 ↔ 磁盘：相符 {result.healthy}",
                  f"｜盘上缺失 {len(result.missing)}",
                  f"｜空目录 {len(result.empty)}"]
+        if result.stale_top:
+            parts.append(f"｜账新盘旧疑似 {len(result.stale_top)}")
+
         if n_claim:
             parts.append(f"｜账本外 {n_claim}")
         if n_confirm:
@@ -484,6 +506,7 @@ class VerifyPage(QWidget):
         self._log.ok(
             f"账实核验完成（{self._game.name}）：相符 {result.healthy}，"
             f"缺失 {len(result.missing)}，空目录 {len(result.empty)}，"
+            f"账新盘旧疑似 {len(result.stale_top)}，"
             f"账本外 {n_claim}，已收录待确认 {n_confirm}"
             + (f"，软删/失效保留 {n_keep}" if n_keep else "")
             + f"，非数字 {len(result.non_numeric)}")
@@ -509,6 +532,17 @@ class VerifyPage(QWidget):
                 status="已下载", disk="目录存在但为空",
                 advice="疑似中断残留：双击重下；或点【修复…】；"
                        "也可手动删除空目录"))
+        for mid, lt, dir_ts in result.stale_top:
+            specs.append(dict(
+                mid=mid, kind="stale", checkable=False, status="已下载",
+                disk=(f"账本记 {time.strftime('%Y-%m-%d %H:%M', time.localtime(lt))}，"
+                      f"顶层目录停在 {time.strftime('%Y-%m-%d %H:%M', time.localtime(dir_ts))}"),
+                advice="疑似「账新盘旧」：账本记了新版本，顶层目录在那一刻"
+                       "之后没动过（下载超时只写了 steamcmd 的账 / 恢复旧备份"
+                       "后账本没跟上，都长这样）。用【修复…→校验重下 "
+                       "validate】核实并补齐——它逐文件核对后会把旧或缺的"
+                       "补上；只是疑似提示，先确认再动"))
+
         for mid, st in result.untracked_content:
             if st is None:
                 specs.append(dict(
@@ -580,8 +614,7 @@ class VerifyPage(QWidget):
         mid_item = QTableWidgetItem(str(mid))
         mid_item.setData(Qt.ItemDataRole.UserRole, mid)
         # UserRole+1 = 可双击重下；UserRole+2 = 行类别（筛选/右键用）
-        mid_item.setData(Qt.ItemDataRole.UserRole + 1,
-                         s["kind"] in ("missing", "empty"))
+        mid_item.setData(Qt.ItemDataRole.UserRole + 1, s["kind"] in ("missing", "empty", "stale"))
         mid_item.setData(Qt.ItemDataRole.UserRole + 2, s["kind"])
         self._table.setItem(r, 1, mid_item)
         if s["kind"] == "claim":
@@ -597,7 +630,8 @@ class VerifyPage(QWidget):
         self._table.setItem(r, 3, QTableWidgetItem(s["status"]))
         self._table.setItem(r, 4, QTableWidgetItem(s["disk"]))
         self._table.setItem(r, 5, QTableWidgetItem(s["advice"]))
-        if s["kind"] in ("missing", "empty"):
+        if s["kind"] in ("missing", "empty", "stale"):
+
             btn = QPushButton("修复…", self._table)
             btn.setToolTip(
                 "三种修法任选：重新下载（增量）／校验重下 validate"
@@ -844,7 +878,7 @@ class VerifyPage(QWidget):
             menu.addAction(act_dir)
         act_fix = None
         act_claim = None
-        if kind in ("missing", "empty"):
+        if kind in ("missing", "empty", "stale"):
             act_fix = QAction("修复…", menu)
             act_fix.setToolTip(
                 "重新下载（增量）／校验重下 validate／标记为已移除")
