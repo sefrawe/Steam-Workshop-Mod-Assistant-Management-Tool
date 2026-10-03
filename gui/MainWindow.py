@@ -30,6 +30,8 @@ closeEvent 收尾循环都靠 hasattr 自适应，页面搬迁零接线成本。
 import sys
 import threading
 from pathlib import Path
+from gui.batchDownloadController import BatchDownloadController
+from gui.confirmListDialog import ConfirmListDialog
 
 from gui.welcomePage import PROJECT_URL, WelcomePage
 from PySide6.QtCore import QSettings, Qt, QUrl
@@ -227,6 +229,22 @@ class MainWindow(QMainWindow):
         self._build_docks()
         self._build_menus()
         self._build_status_bar()
+        # 批次控制器（M2 判决闭环轮）：下载批次的大脑。注入控制台
+        # 面板（自取终端与批次卡片）、账本、设置与日志；接线三条
+        # 终端信号 + 一条收尾信号。先于 _on_game_changed 建：那里
+        # 要按档案关闭确认清单
+        self._confirm_dialog: ConfirmListDialog | None = None
+        self._batch_ctrl = BatchDownloadController(
+            self._repo, self._settings, self._log, console=self._console)
+        self._console.terminal.download_batch_requested.connect(
+            self._on_download_batch_requested)
+        self._console.terminal.set_stop_guard(self._batch_ctrl.confirm_stop)
+        self._console.terminal.process_exited.connect(
+            self._batch_ctrl.on_process_exited)
+        self._console.step_list.ids_action.connect(
+            self._batch_ctrl.on_ids_action)
+        self._batch_ctrl.confirmation_ready.connect(
+            self._on_confirmation_ready)
 
         # 构造期 switcher 已发射过信号（当时无人监听），补一次初始化
         self._on_game_changed(self._switcher.current_game())
@@ -309,6 +327,11 @@ class MainWindow(QMainWindow):
         if hasattr(modlib, "advanced_results_requested"):
             modlib.advanced_results_requested.connect(
                 lambda: self._goto_page(constants.PAGE_MOD_LIST))
+        # mod 库页【下载选中项】→ 批次控制器开批（M2 轮接线：信号
+        # 早已留好，落点到位）。备份优先入口（A1 决策）的宿主在
+        # 检测页（M3），此处是普通下载批次
+        if hasattr(modlib, "download_requested"):
+            modlib.download_requested.connect(self._on_download_requested)
 
         # 启动默认落「欢迎」页（setCurrentItem 会触发 currentItemChanged，
         # 与手点同一条路，栈已就位）
@@ -529,6 +552,12 @@ class MainWindow(QMainWindow):
         # （更新确认清单"切档案自动关"随更新检测轮回补）
         self._act_open_download.setEnabled(
             game is not None and bool(game.download_dir))
+        # 收尾确认清单跟着档案走：切档案即关（非模态三件套之二）。
+        # 待确认队列按档案过滤，新档案的清单由下一次批次收尾再弹
+        if self._confirm_dialog is not None:
+            self._confirm_dialog.close()
+            self._confirm_dialog = None
+
 
     def _open_download_dir(self) -> None:
         """文件 → 打开 steamcmd 下载目录：当前档案的工坊内容目录
@@ -561,6 +590,55 @@ class MainWindow(QMainWindow):
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
             QMessageBox.warning(self, "打开软件目录",
                                 f"文件管理器没有响应，请手动打开：\n{path}")
+    def _on_download_requested(self, app_id: int, mod_ids: list) -> None:
+        """mod 库页【下载选中项】的落点：转批次控制器开批。开工检查
+        （批次互斥 / steamcmd 在跑 / 下载目录已设）控制器里都有，
+        被拒只进日志——成功则把控制台切到「下载批次」标签看进度。"""
+        if self._batch_ctrl.start_batch(
+                app_id, mod_ids, backup_first=False, trigger_versions=None):
+            self._console.show_batch_tab()
+
+    def _on_download_batch_requested(self, app_ids: list, mod_ids: list) -> None:
+        """终端转批次裁决（受理回执制）：终端只解析与发请求，
+        受不受理这里说了算，结果经 batch_handoff_receipt 回话——
+        受理才改写输入框，被拒不装作已处理。"""
+        game = self._current_game
+        accepted = False
+        if game is None:
+            self._log.warn("转批次被拒：还没有游戏档案——请先在左上角"
+                           "添加或选择游戏档案")
+        elif app_ids and set(app_ids) != {game.app_id}:
+            shown = "、".join(str(a) for a in app_ids[:5])
+            self._log.warn(f"转批次被拒：命令里的 AppID（{shown}）与当前"
+                           f"档案（{game.app_id}）不一致——请按档案分开"
+                           "粘贴，或先切换到对应档案")
+        elif self._batch_ctrl.is_busy():
+            self._log.warn("转批次被拒：已有批次在跑——等它结束或先停止")
+        else:
+            accepted = self._batch_ctrl.start_batch(
+                game.app_id, mod_ids, backup_first=False,
+                trigger_versions=None)
+            if accepted:
+                self._console.show_batch_tab()   # 受理即切到批次页看进度
+
+            # start_batch False 时原因已进日志；回话按受理失败处理，
+            # 输入框原文保留，用户可修正后重发
+        self._console.terminal.batch_handoff_receipt(accepted)
+
+    def _on_confirmation_ready(self, verdicts: list) -> None:
+        """批次收尾 → 弹确认清单（非模态三件套之一：同刻至多一份，
+        先关旧的再开新的；切档案自动关见 _on_game_changed）。"""
+        if self._confirm_dialog is not None:
+            self._confirm_dialog.close()
+        # 清单归属 = 判决行自带的档案（批次锁定的是开批时的档案）。
+        # 不能取"当前档案"：用户批次中途切了游戏，取当前档案会把
+        # 清单按错档案过滤，弹出来的就是空表
+        game = None
+        if verdicts:
+            game = self._repo.get_game(verdicts[0].game_id)
+        self._confirm_dialog = ConfirmListDialog(
+            self._repo, game, verdicts, self, log=self._log)
+        self._confirm_dialog.show()
 
     def _toggle_side(self, visible: bool) -> None:
         """显示/隐藏左侧导航栏（T19⑭）：整个侧栏（切换下拉 + 导航树）
@@ -573,7 +651,13 @@ class MainWindow(QMainWindow):
         # 它是外部子进程，退出越早越好，所以放在所有页面收尾之前。
         # （批次进行中的退出确认弹窗随批次轮回补：届时经 terminal 的
         # stop_guard 拦一道，再走本收尾）
+        # 批次进行中先确认（M2）：退出 = 中止在途批次
+        if self._batch_ctrl.is_busy() and not self._batch_ctrl.confirm_exit():
+            event.ignore()
+            return
+
         self._console.terminal.shutdown()
+        self._batch_ctrl.shutdown()   # 批查/备份线程等 1.5 秒，等不到 park 保活
 
         # 页面若带后台线程 / 持有需断链的对话框（mod 库页的
         # shutdown 摘高级筛选广播，防退出路上炸已关闭的库），先请停

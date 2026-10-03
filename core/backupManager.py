@@ -236,19 +236,17 @@ class BackupManager:
             raise ValueError(f"游戏档案 {mod.game_id} 不存在（数据不一致）")
 
         # ---- 前提一：本地版本必须已知（backups.version_timeupdated 非空）----
-        # T18（决策 24）：downloaded 却没有本地版本，只可能是手动确认入账
-        # 的 mod——扫描器写入的 downloaded 必带三件套（决策 20/23）。对这类
-        # mod，"去扫描本地"是一条走不通的路：它不在 acf 里，扫一万次也扫
-        # 不到。诚实的报错必须指向可行的那条：重新下载回填版本。
-        # 判定取 Mod.version_unknown 单源（与更新检测分桶、库页显示同尺）。
+        # v2 判决制：version_unknown = confirmed_version IS NULL（单源取
+        # Mod.version_unknown）。版本回填的正路 = 入账中心确认 / 右键
+        # 「设定本地版本…」——旧版"扫描本地"路径已随判决制退役。
         if mod.version_unknown:
             if mod.status == "downloaded":
-                error = ("本地版本未知（可能为手动确认入账）：无法确定备份版本。\n"
-                         "如需备份，请用 steamcmd 重新下载该 mod，"
-                         "并点【扫描本地】回填版本后再试。")
+                error = ("本地版本未知：无法确定备份版本。\n"
+                         "可到 mod 库页右键【设定本地版本…】人工认定版本后"
+                         "再备份；或重新下载该 mod 并在收尾清单里确认入账。")
             else:
-                error = ("本地版本未知（尚未扫描本地或该 mod 未下载）。"
-                         "请先在 mod 库页点【扫描本地】再备份。")
+                error = ("该 mod 不是已下载状态（或版本未知）："
+                         "备份只服务已下载且版本已确认的条目。")
             return BackupReport(ok=False, error=error)
 
         # ---- 前提二：确定备份根目录（档案值优先，缺省推导并回写）----
@@ -301,7 +299,10 @@ class BackupManager:
             warnings.append("该 mod 缺少本地大小记录，跳过空间预检。")
 
         # ---- 复制 ----
-        dst = self._fresh_target(Path(root), mod_id, mod.local_timeupdated)
+        # 版本号进目录名（<modid>_v<版本>_<时间戳>）：v2 取确认版本
+        # （守卫在上面保证了到这里必然非 NULL）
+        dst = self._fresh_target(Path(root), mod_id, mod.confirmed_version)
+
         rc, out = self._run(str(source), str(dst))
         if not is_success_rc(rc):
             # 失败清理半成品（只在刚创建的备份根内动手，走 R4 保险丝）
@@ -320,8 +321,12 @@ class BackupManager:
             mod_id=mod_id,
             backup_path=dst.name,
             size_bytes=_dir_size(dst),
-            version_timeupdated=mod.local_timeupdated,
-            manifest=mod.manifest,
+            # v2 判决制换名：version_timeupdated 列沿用旧名，存确认版本
+            # （守卫已保证非 NULL）。manifest 列保留但 v2 无来源（acf
+            # 退场），登记为 NULL。
+            version_timeupdated=mod.confirmed_version,
+            manifest=None,
+
             note=note,
         )
 

@@ -346,6 +346,19 @@ class ModListPage(QWidget):
             "把勾选 mod 的工坊编号逐行复制进剪贴板（每行一个）——"
             "可直接贴进【网址批量导入】或其他工具")
         self._act_copy_ids.triggered.connect(self._on_copy_ids_checked)
+        # 下载选中项（M2 判决闭环轮回补）：信号 mod 库轮就留好了
+        # （download_requested），落点页如今到位——点击有真实去处，
+        # 假入口的三问过关
+        self._actions_menu.addSeparator()
+        self._act_download = QAction("下载选中项", self._actions_menu)
+        self._act_download.setToolTip(
+            "把勾选的 mod 交给「下载批次」逐条下载（上一条下完再发"
+            "下一条，有进度卡片）。\n批次结束自动弹收尾确认清单，"
+            "核对勾选后【确认入账】，本地版本才落账。\n"
+            "steamcmd 没启动时会提示先到终端页启动")
+        self._act_download.triggered.connect(self._on_download_checked)
+        self._actions_menu.addAction(self._act_download)
+
         self._actions_menu.addAction(self._act_copy_ids)
 
         self._actions_menu.setToolTipsVisible(True)  # QMenu 默认不显示 tooltip
@@ -622,6 +635,7 @@ class ModListPage(QWidget):
         self._act_special_off.setText(f"取消特别关注{label}")
         self._act_open_pages.setText(f"打开工坊页面{label}")
         self._act_copy_ids.setText(f"复制勾选编号{label}")
+        self._act_download.setText(f"下载选中项{label}")
         self._act_batch_color.setText(f"批量颜色标记{label}")
         self._act_batch_note.setText(f"批量编辑备注{label}")
 
@@ -1345,6 +1359,19 @@ class ModListPage(QWidget):
         self._log.ok(f"已复制 {len(ids)} 个编号（每行一个）")
 
     # ---------- 收尾 ----------
+    def _on_download_checked(self) -> None:
+        """【下载选中项】：把勾选编号经 download_requested 交给主窗口
+        → 批次控制器开批。本页不认识控制器（跨页信号单向发出，与
+        command_gen_requested 同风格）；steamcmd 未启动、已有批次
+        在跑等检查控制器里都有，被拒原因进运行日志。"""
+        if not self._require_game():
+            return
+        ids = self._visible_checked_ids()
+        if not ids:
+            QMessageBox.information(
+                self, "下载选中项", "先在表格第一列勾选要下载的 mod。")
+            return
+        self.download_requested.emit(self._game.app_id, ids)
 
     def shutdown(self) -> None:
         """关窗收尾（MainWindow.closeEvent 的页面循环自动发现并调用）：

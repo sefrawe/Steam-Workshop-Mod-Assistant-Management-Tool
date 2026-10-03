@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 # 搬家不改门牌，别的文件一行不用动。
 from gui.logBus import LogBus  # noqa: F401
 from gui.terminalDock import TerminalDock
+from gui.stepCardList import StepCardList
 
 # 运行日志按级别着色（键 = LogBus 四个方法约定的级别名，那头改名
 # 这里要跟；颜色只管界面显示，与日志文件的级别名各管各的）
@@ -96,10 +97,11 @@ class ConsolePanel(QWidget):
         self._terminal = TerminalDock(log_bus, settings, self._tabs)
         self._tabs.addTab(self._terminal, "steamcmd 终端")
 
-        # ---- Tab 3「下载批次」随批次轮搬迁后回补 ----
-        # 届时：import gui.stepCardList 的 StepCardList，在此
-        # addTab(self._step_list, "下载批次")，并恢复 show_batch_tab()
-        # 与 step_list 两个对外成员（开批次时 MainWindow 调用）。
+        # ---- Tab 3：下载批次（批次轮回补，原预留注释照此落地）----
+        # 卡片只画界面：停止/继续/行右键动作以信号发出，实现全在
+        # batchDownloadController（接线在那边做，本文件不认识控制器）
+        self._step_list = StepCardList(self._tabs)
+        self._tabs.addTab(self._step_list, "下载批次")
 
         # 切换标签页时检查要不要摘红点。注意接线顺序：先接 UI 信号、
         # 最后接日志流——保证第一条日志到来时界面已经就绪
@@ -110,6 +112,16 @@ class ConsolePanel(QWidget):
     def terminal(self) -> TerminalDock:
         """终端实例：MainWindow 做关窗收尾、批次编排接线时取用。"""
         return self._terminal
+    @property
+    def step_list(self) -> StepCardList:
+        """批次步骤卡片实例：批次控制器接线、MainWindow 切标签时取用。"""
+        return self._step_list
+
+    def show_batch_tab(self) -> None:
+        """切到「下载批次」标签：开批次时 MainWindow 调用，让用户
+        第一眼看到进度卡片（红点逻辑只服务运行日志页，本页不用）。"""
+        self._tabs.setCurrentWidget(self._step_list)
+
 
     # ---------------- "有新消息时弹出控制台" ----------------
 

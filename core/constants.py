@@ -76,6 +76,7 @@ NET_GATE_DEEP_CHECK = "深度检测"
 NET_GATE_COLLECTION = "展开合集"
 NET_GATE_QUICK_CMD = "快速命令查询"
 NET_GATE_DEPENDENCIES = "依赖拉取"
+NET_GATE_BATCH_QUERY = "下载批次"   # 批次收尾批查（M2 判决闭环轮新增）
 
 # ============================================================
 # 导航页 ID（D31 导航总表 → 代码形态的一半；树结构 _NAV_SCHEMA 留 MainWindow）
