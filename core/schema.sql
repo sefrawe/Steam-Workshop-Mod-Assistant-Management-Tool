@@ -1,203 +1,193 @@
 -- 建表语句
-
 -- ============================================================
--- Steam Workshop Mod Assistant Management Tool
--- core/schema.sql · v1.2 · 8 张表
-
+-- SWMAMT v2 · core/schema.sql · user_version = 1（新世系，不接旧迁移链，D9）
+-- 9 张表：games / mods / mod_snapshots / verdict_log / translations /
+--        backups / operations_log / failed_mods / special_mod_alerts
+--        + purged_mods / mod_dependencies（黑名单与依赖边表，不随 ledger 走）
 --
--- 全局约定：
---   1. 所有时间字段一律存 Unix 时间戳（秒 / INTEGER），与 Steam API
---      和 acf 的原生格式一致；"3 天前"这类可读转换全部交给 GUI 层
---   2. manifest 一律存 TEXT。Steam 的 manifest 是无符号 64 位整数，
---      样本中实测最大 8715384612056780827（≈8.7e18），已逼近 SQLite
---      INTEGER 上限 9.22e18，且永不参与数学运算，TEXT 绝对安全
---   3. JSON 字段（tags / deleted_last_state / last_known_state）存
---      TEXT，由代码 json.dumps/loads，数据库不做结构化查询
---   4. journal_mode=WAL 是持久属性，建库时设置一次即随库文件生效；
---      foreign_keys 是连接级属性，sqliteRepository 每次建连必须重新
---      执行 PRAGMA foreign_keys = ON（本脚本里的只对建表期生效）
+-- 全局约定（沿旧 schema 三条 + 判决制新增）：
+-- 1. 时间一律 Unix 秒 INTEGER，可读转换全交 GUI 层
+-- 2. manifest 一律 TEXT（无符号 64 位逼近 INTEGER 上限，永不参与运算）
+-- 3. JSON 字段存 TEXT，代码层 dumps/loads，数据库不做结构化查询
+-- 4. ★ 判决制（D1/D2）：mods 表不再有 local_timeupdated / manifest——
+--    本地版本基准 = confirmed_version，唯一写入点 = 确认门
+--    （confirm_items / claim_accept，R17）；acf 从判定公式退场
 -- ============================================================
-
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
-PRAGMA user_version = 3; -- schema 版本号，将来表结构变更时 +1，用于迁移判断
-
+PRAGMA user_version = 1;
 
 -- ------------------------------------------------------------
--- games  游戏档案
+-- games 游戏档案（与旧同构，原样迁移 D9）
 -- ------------------------------------------------------------
 CREATE TABLE games (
-                       app_id       INTEGER PRIMARY KEY,              -- Steam AppID（CK3=1158310 / RimWorld=294100）
-                       name         TEXT    NOT NULL,                 -- 游戏名（向导中由 API 自动获取）
-                       download_dir TEXT NOT NULL, -- steamcmd 工坊内容目录（workshop/content/<appid>，junction 实体侧），建档时按 steamcmd 位置自动推导
-                       game_mod_dir TEXT,                             -- 游戏本体 mod 目录（如 CK3 的 Documents 路径），可空
-                       backup_dir   TEXT,                             -- mod 备份根目录；NULL = 代码取默认值
-    --   （下载目录同级 mod_backups/<appid>/，见 T6）
-                       created_at   INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
+                       app_id INTEGER PRIMARY KEY,
+                       name TEXT NOT NULL,
+                       download_dir TEXT NOT NULL,       -- steamcmd content 目录，自动推导不开放手填
+                       game_mod_dir TEXT,
+                       backup_dir TEXT,                  -- NULL = 取默认值
+                       created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
 );
 
 -- ------------------------------------------------------------
--- mods  mod 主表
--- 注意两个故意区分的名字：
---   time_updated      = 远端最新版本（API 字段名，带下划线）
---   local_timeupdated = 本地版本（acf 字段名 timeupdated，无下划线）
---   更新判定：time_updated > local_timeupdated 即需更新
+-- mods mod 主表（D2 判定公式：time_updated > confirmed_version → 需更新，仅 downloaded）
 -- ------------------------------------------------------------
 CREATE TABLE mods (
-                      mod_id             INTEGER PRIMARY KEY,         -- Steam publishedfileid，全工坊唯一
-                      game_id            INTEGER NOT NULL
-                          REFERENCES games(app_id) ON DELETE RESTRICT,
-    -- RESTRICT：档案下还有 mod 时禁止删档案
-                      status             TEXT    NOT NULL DEFAULT 'tracked'
+                      mod_id INTEGER PRIMARY KEY,
+                      game_id INTEGER NOT NULL REFERENCES games(app_id) ON DELETE RESTRICT,
+                      status TEXT NOT NULL DEFAULT 'tracked'
                           CHECK (status IN ('tracked','downloaded','deleted','failed')),
-                      url                TEXT,                        -- 工坊页面；acf 扫描冷启动时可为 NULL，待 API 补
-                      title              TEXT,
-                      creator            TEXT,                        -- 作者 SteamID64 → 可拼 profiles/<id> 链接
-                      time_created       INTEGER,                     -- API time_created
-                      time_updated       INTEGER,                     -- ★远端最新版本
-                      last_time_updated  INTEGER,                     -- 上次快照时的远端值（快照生成 + 特殊提醒去重用）
-
-    -- ↓ 本地版本三件套，全部来自 acf 解析；NULL = 尚未下载（tracked）
-                      local_timeupdated  INTEGER,                     -- ★本地版本（更新判定的本地基准）
-                      manifest           TEXT,                        -- ★内容版本号，TEXT！见文件头约定 2
-                      local_size         INTEGER,                     -- ★本地占用（字节，来自 acf size）
-
-                      file_size          INTEGER,                     -- API file_size（acf 缺失时的兜底显示）
-                      subscriptions      INTEGER,                     -- API 订阅数
-                      favorited          INTEGER,                     -- API 收藏数
-                      views              INTEGER,                     -- API 浏览数
-                      tags               TEXT,                        -- API 标签，JSON 字符串数组
-                      last_checked_at    INTEGER,                     -- 仅用于"多久没检测"展示，不参与判定
-                      preview_url        TEXT,
-                      is_special         INTEGER NOT NULL DEFAULT 0 CHECK (is_special IN (0,1)),
-                      note               TEXT,
-                      color_tag          TEXT,                        -- 颜色标记（标签分类的弱化替代）
-                      local_path         TEXT,                        -- 实际落盘路径缓存（= download_dir/<mod_id>）
-                      deleted_at         INTEGER,                     -- 软删除时间（v1 无物理删除入口）
-                      deleted_last_state TEXT,                        -- 软删除前的末态 JSON
-                      first_tracked_at   INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
+                      url TEXT,                          -- 工坊页面；urlParser 单源可现拼
+                      title TEXT,
+                      creator TEXT,                      -- 作者 SteamID64
+                      time_created INTEGER,
+                      time_updated INTEGER,              -- ★远端观测（检测三路写库）
+                      last_time_updated INTEGER,         -- 上次远端观测（快照分母 + 提醒去重）
+    -- ★ 本地确认基准三件套（R17：只许确认门写）
+                      confirmed_version INTEGER,         -- NULL = 未确认 / 版本未知（备份守卫拒绝）
+                      confirmed_at INTEGER,
+                      confirmed_source TEXT
+                          CHECK (confirmed_source IN ('verified','unverified','inherited_acf','claim','manual')),
+                      local_size INTEGER,                -- 可选，只读盘点回填（D23）；不参与版本判定（R19）
+                      file_size INTEGER,
+                      subscriptions INTEGER,
+                      favorited INTEGER,
+                      views INTEGER,
+                      tags TEXT,                         -- JSON 字符串数组
+                      last_checked_at INTEGER,
+                      preview_url TEXT,
+                      is_special INTEGER NOT NULL DEFAULT 0 CHECK (is_special IN (0,1)),
+                      note TEXT,
+                      color_tag TEXT,
+                      deleted_at INTEGER,
+                      deleted_last_state TEXT,           -- 软删除前末态 JSON
+                      first_tracked_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
 );
-
-CREATE INDEX idx_mods_status      ON mods(status);
-CREATE INDEX idx_mods_game        ON mods(game_id);
-CREATE INDEX idx_mods_special     ON mods(is_special);
+CREATE INDEX idx_mods_status ON mods(status);
+CREATE INDEX idx_mods_game ON mods(game_id);
+CREATE INDEX idx_mods_special ON mods(is_special);
 CREATE INDEX idx_mods_time_update ON mods(time_updated);
 
 -- ------------------------------------------------------------
--- 每个 mod 滚动保留最近 N 条版本快照（N 由 snapshot_keep 配置，默认 5），
--- 删除逻辑在仓库层，本文件不含
+-- mod_snapshots 远端观测史（滚动保留 snapshot_keep 条，修剪在 repo 层）
+-- manifest / local_timeupdated 列随判决制移除——快照只记远端侧
 -- ------------------------------------------------------------
 CREATE TABLE mod_snapshots (
-                               id                INTEGER PRIMARY KEY,
-                               mod_id            INTEGER NOT NULL
-                                   REFERENCES mods(mod_id) ON DELETE CASCADE,
-                               snapshot_at       INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
-                               time_updated      INTEGER,                      -- 快照时刻的远端版本
-                               manifest          TEXT,
-                               local_timeupdated INTEGER                       -- 快照时刻的本地版本
+                               id INTEGER PRIMARY KEY,
+                               mod_id INTEGER NOT NULL REFERENCES mods(mod_id) ON DELETE CASCADE,
+                               snapshot_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
+                               time_updated INTEGER
 );
-
 CREATE INDEX idx_snapshots_mod ON mod_snapshots(mod_id, snapshot_at);
 
 -- ------------------------------------------------------------
--- backups  mod 内容备份登记表
--- 对应磁盘上 <modid>_v<timeupdated>_<时间戳> 目录，一目录一行
+-- verdict_log 判决史 + 确认队列，一张表双角色（§二）：
+--   pending = confirmed_at IS NULL 的 success/claim 行 → 确认队列（重启不丢）
+--   确认 = 填 confirmed_at + 写 mods.confirmed_version（confirm_items 正门）
+--   修剪（D23）：非确认行按 mod 保留最近 verdict_keep 条或 90 天；
+--   确认行随 mod 生命周期保留——它是当前 confirmed_version 的票据
+-- mod_id 刻意无外键：待确认条目可能尚未入账（D39），继承 failed_mods 先例
+-- ------------------------------------------------------------
+CREATE TABLE verdict_log (
+                             id INTEGER PRIMARY KEY,
+                             mod_id INTEGER NOT NULL,
+                             game_id INTEGER NOT NULL,          -- C 级提案①：批次/认领归属档案（冗余存档，无外键）
+                             kind TEXT NOT NULL
+                                 CHECK (kind IN ('success','timeout','fail','claim','manual')),  -- C 级提案②
+                             version_trigger INTEGER,           -- 触发值（D3 两来源）
+                             version_query INTEGER,             -- 收尾批查现场值（D4）
+                             version_written INTEGER,           -- 实际写入 confirmed_version 的值（D4 分支结果）
+                             title TEXT,                        -- D39：落 pending 顺手存，离线可显
+                             file_size INTEGER,                 -- D39：同上；确认未登记 mod 有据可建行
+                             source TEXT,                       -- 写入 mods.confirmed_source 的值
+                             confirmed_at INTEGER,              -- NULL = 待确认
+                             occurred_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
+                             note TEXT
+);
+CREATE INDEX idx_verdict_mod ON verdict_log(mod_id, occurred_at);
+CREATE INDEX idx_verdict_pending ON verdict_log(confirmed_at);
+
+-- ------------------------------------------------------------
+-- translations 简介翻译缓存（D35）：单 mod 单条当前译文，无历史
+-- 翻译时现拉原文 → sha1 对比 source_hash → 相同显示缓存，不同 REPLACE 重译
+-- FK CASCADE：mod 没了缓存没意义（机器生成数据，不随 ledger 走）
+-- ------------------------------------------------------------
+CREATE TABLE translations (
+                              mod_id INTEGER PRIMARY KEY REFERENCES mods(mod_id) ON DELETE CASCADE,
+                              source_hash TEXT NOT NULL,
+                              target_lang TEXT NOT NULL,
+                              engine TEXT,                       -- NULL = 浏览器翻译主路径未落缓存
+                              text_translated TEXT NOT NULL,
+                              translated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
+);
+
+-- ------------------------------------------------------------
+-- backups / operations_log / failed_mods / special_mod_alerts（与旧同构原样迁移）
 -- ------------------------------------------------------------
 CREATE TABLE backups (
-                         id                  INTEGER PRIMARY KEY,
-                         mod_id              INTEGER NOT NULL
-                             REFERENCES mods(mod_id) ON DELETE RESTRICT,
-    -- 备份代表磁盘文件，不随记录级联消失，
-    -- 须先经备份管理页显式处理
-                         backup_path         TEXT    NOT NULL UNIQUE,    -- UNIQUE：防同一目录重复登记
-                         size_bytes          INTEGER NOT NULL,
-                         version_timeupdated INTEGER NOT NULL,           -- 备份时的本地版本
-                         manifest            TEXT,
-                         created_at          INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
-                         pinned              INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0,1)),
-    -- 1 = 豁免自动清理
-                         note                TEXT
+                         id INTEGER PRIMARY KEY,
+                         mod_id INTEGER NOT NULL REFERENCES mods(mod_id) ON DELETE RESTRICT,
+                         backup_path TEXT NOT NULL UNIQUE,
+                         size_bytes INTEGER NOT NULL,
+                         version_timeupdated INTEGER NOT NULL,   -- 取确认值（D14）；NULL 版本由守卫拒绝
+                         manifest TEXT,                          -- 可空，备份时从 acf 盘面回填（D14）
+                         created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
+                         pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0,1)),
+                         note TEXT
 );
-
 CREATE INDEX idx_backups_mod ON backups(mod_id, created_at);
 
--- ------------------------------------------------------------
--- operations_log  命令 / 操作日志
--- ------------------------------------------------------------
 CREATE TABLE operations_log (
-                                id          INTEGER PRIMARY KEY,
-                                command     TEXT    NOT NULL,
+                                id INTEGER PRIMARY KEY,
+                                command TEXT NOT NULL,             -- R2：不存登录命令
                                 executed_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
                                 error_count INTEGER NOT NULL DEFAULT 0,
-                                result      TEXT,                               -- success / error / timeout / ...
-    -- 由 outputAnalyzer 归类填写
-                                backup_id   INTEGER
-                                                    REFERENCES backups(id) ON DELETE SET NULL
-);                                                  -- SET NULL：日志要活得比备份记录久
-
+                                result TEXT,
+                                backup_id INTEGER REFERENCES backups(id) ON DELETE SET NULL
+);
 CREATE INDEX idx_oplog_time ON operations_log(executed_at);
 
--- ------------------------------------------------------------
--- failed_mods  失效归档表
--- mod_id 故意不设外键：这张表的价值是"证据"——即使对应 mods 行
--- 将来被物理清理，归档记录也必须原样保留（旧 id 复活的查询线索）
--- ------------------------------------------------------------
+-- mod_id 无外键：证据独立存活（彻底清账/删档案后仍可查）
 CREATE TABLE failed_mods (
-                             id               INTEGER PRIMARY KEY,
-                             mod_id           INTEGER NOT NULL,              -- 原 id（无外键，理由见上）
-                             game_id          INTEGER NOT NULL
-                                 REFERENCES games(app_id) ON DELETE RESTRICT,
-                             reason           TEXT,                          -- result=9 / 文件夹缺失 / ...
-                             detected_at      INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
-                             last_known_state TEXT,                          -- 归档时的字段快照 JSON
-                             replaced_by      INTEGER
-                                                      REFERENCES mods(mod_id) ON DELETE SET NULL
-);                                                  -- 关联替换后指向新 id；新 id 再被删则置空
-
+                             id INTEGER PRIMARY KEY,
+                             mod_id INTEGER NOT NULL,
+                             game_id INTEGER NOT NULL REFERENCES games(app_id) ON DELETE RESTRICT,
+                             reason TEXT,
+                             detected_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
+                             last_known_state TEXT,             -- 归档时字段快照 JSON（含 confirmed_version）
+                             replaced_by INTEGER REFERENCES mods(mod_id) ON DELETE SET NULL
+);
 CREATE INDEX idx_failed_game ON failed_mods(game_id);
 
--- ------------------------------------------------------------
--- special_mod_alerts  特殊 mod 提醒历史
--- 更新后需人工再处理的 mod（假中文等），每次提醒落一行
--- ------------------------------------------------------------
 CREATE TABLE special_mod_alerts (
-                                    id                  INTEGER PRIMARY KEY,
-                                    mod_id              INTEGER NOT NULL
-                                        REFERENCES mods(mod_id) ON DELETE CASCADE,
-                                    alert_at            INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
-                                    remote_time_updated INTEGER NOT NULL,           -- 触发提醒时的远端版本（同一版本只提醒一次的比对依据）
-                                    diff_seconds        INTEGER,                    -- 与上次更新的间隔
-                                    was_downloaded      INTEGER NOT NULL DEFAULT 0 CHECK (was_downloaded IN (0,1)),
-                                    note                TEXT
+                                    id INTEGER PRIMARY KEY,
+                                    mod_id INTEGER NOT NULL REFERENCES mods(mod_id) ON DELETE CASCADE,
+                                    alert_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
+                                    remote_time_updated INTEGER NOT NULL,
+                                    diff_seconds INTEGER,
+                                    was_downloaded INTEGER NOT NULL DEFAULT 0 CHECK (was_downloaded IN (0,1)),
+                                    note TEXT
 );
-
 CREATE INDEX idx_alerts_mod ON special_mod_alerts(mod_id, alert_at);
+
 -- ------------------------------------------------------------
--- purged_mods 已清账黑名单（v2 新增）
--- 彻底清账（repo.purge_mod）时自动登记一行。作用：扫描本地发现这个
--- 编号"复活"（steamcmd 从 acf 残条/下载暂存把它重新装配回来）时，
--- 拦截自动入库，除非用户在「已清账」页明确允许录入（移出名单）。
--- 刻意不设外键：黑名单表达的是"这个编号永远不要"的用户意志，
--- 档案删除重建之后这份意志依然有效（game_id 只是冗余存档）。
--- 已知边界：本表不在 LEDGER_TABLES 里 → 账本导出不含它、导入不清
--- 它（本地意志，换机暂不随行；跨机需求出现时再随 dataExporter 一起扩）。
+-- purged_mods 黑名单（跨档案存活；拦三处 = 认领/确认门/检测报告，D11）
 -- ------------------------------------------------------------
 CREATE TABLE purged_mods (
-                             mod_id INTEGER PRIMARY KEY,          -- 工坊编号（全工坊唯一，直接做主键）
-                             game_id INTEGER NOT NULL,            -- 清账那一刻所属的档案 AppID（冗余记录）
-                             title TEXT,                          -- 清账时的标题快照（界面显示用）
+                             mod_id INTEGER PRIMARY KEY,
+                             game_id INTEGER NOT NULL,
+                             title TEXT,
                              purged_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
-                             note TEXT                            -- 手动加入时可写一句原因
+                             note TEXT
 );
--- ── v3：mod_dependencies（依赖检测，桶B）──────────────────────
--- 边表：mod_id = 账本条目（mods.mod_id 同源，工坊编号全局唯一）；
--- required_mod_id = 必需物品的工坊编号，刻意不做外键——它多半
--- 不在账本里（在 = 正常，不在 = 桶B 要报的"缺依赖"）。
-CREATE TABLE IF NOT EXISTS mod_dependencies (
-                                                mod_id          INTEGER NOT NULL,
-                                                required_mod_id INTEGER NOT NULL,
-                                                fetched_at      INTEGER NOT NULL,
-                                                PRIMARY KEY (mod_id, required_mod_id)
-);
-CREATE INDEX IF NOT EXISTS idx_dep_req ON mod_dependencies(required_mod_id);
 
+-- ------------------------------------------------------------
+-- mod_dependencies 依赖边表（schema v3 结构原样；required_mod_id 无外键）
+-- ------------------------------------------------------------
+CREATE TABLE mod_dependencies (
+                                  mod_id INTEGER NOT NULL,
+                                  required_mod_id INTEGER NOT NULL,
+                                  fetched_at INTEGER NOT NULL,
+                                  PRIMARY KEY (mod_id, required_mod_id)
+);
+CREATE INDEX idx_dep_req ON mod_dependencies(required_mod_id);

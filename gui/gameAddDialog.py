@@ -1,32 +1,42 @@
 """添加游戏档案对话框
 """
-"""
-一屏完成"输入 AppID → 查重 → 自动查名 → 推导下载目录预览 → 确认创建"，
-替代旧版三连 QInputDialog：少几轮弹窗，且确认前就能看到推导出的目录
-——先看清楚再动手，与账实核验页同一哲学。
-只与 ModRepository / SteamApiClient 接口交互，GUI 层零 SQL（记事本架构约定）。
+r"""gui/gameAddDialog.py —— 一屏完成"输入 AppID → 查重 → 自动查名 →
+推导下载目录预览 → 确认创建"，替代旧版三连弹窗：少几轮打断，且确认
+前就能看到推导出的目录——先看清楚再动手。
 
-绑定说明：全项目 GUI 统一 PySide6（backupPage / backupMoveDialog 同款）。
-一个进程只能加载一种 Qt 绑定，PyQt6 / PySide6 混装会在运行期崩溃——
-本文件因此不留任何 PyQt6 痕迹。
+只与 ModRepository / SteamApiClient 接口交互，GUI 层零 SQL（记事本
+架构约定）。
+
+绑定说明：全项目 GUI 统一 PySide6。一个进程只能加载一种 Qt 绑定，
+PyQt6 / PySide6 混装会在运行期崩溃——本文件因此不留任何 PyQt6 痕迹。
 
 查名跑后台线程（既定规矩：网络操作不许卡界面）；下载目录推导由外部
 注入函数——本文件不 import steamPaths，推导逻辑留在 core，对话框只
-显示结果。落账走契约原文 add_game(app_id, name, download_dir, …)，
-其中 download_dir 必填：由 derive_dir 现场推导；推导不出（steamcmd
-未配置）就存空串——steamcmd 配好后首次扫描会经
-steamPaths.refresh_download_dir 自动回填，建档不被卡住。
+显示结果。落账走契约 add_game(app_id, name, download_dir, …)，其中
+download_dir 必填：由 derive_dir 现场推导；推导不出（steamcmd 未配置）
+就存空串——steamcmd 配好后首次扫描会经 steamPaths.refresh_download_dir
+自动回填，建档不被卡住。
+
+查名结果的三档语义（实测约定，调用方必须区分对待，绝不混同）：
+- name=str：查到了；
+- name=None, err=None：Steam 商店正常回答"没这个名字"——这是查询
+  结果不是错误，让用户手输、不拦建档；
+- err=str：网络层失败（限流重试耗尽等）——要让人看见，绝不冒充
+  "查无此名"。
+
+GameSwitcher 的实际接线（照抄即用）：
+    GameAddDialog(self._repo, self._make_api(),
+                  lambda aid: steamPaths.workshop_content_dir(
+                      self._settings.get("steamcmd_path"), aid),
+                  self)
 """
-
 from collections.abc import Callable
-
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QVBoxLayout,
 )
-
 from core.modRepository import ModRepository
 from core.steamApiClient import SteamApiClient
 
@@ -36,8 +46,8 @@ class _NameQueryThread(QThread):
     结果由 done 信号带走 (name, err)，两者恰好一新一旧（一个为 None）：
     - name=str：查到了
     - name=None, err=None：Steam 没这个 AppID 的名字——正常回答，不是错误
-    - err=str：网络层失败（限流重试耗尽等），要让人看见（拍板 4）
-    """
+    - err=str：网络层失败（限流重试耗尽等），要让人看见
+    线程只联网，不碰数据库、不碰控件（项目红线 R11）。"""
     done = Signal(object, object)
 
     def __init__(self, api: SteamApiClient, app_id: int, parent=None) -> None:
@@ -61,12 +71,8 @@ class GameAddDialog(QDialog):
     - derive_dir：appid → 下载目录字符串；推导不出返回 None（不是异常），
       预览处如实说明、落账存空串
 
-    gameSwitcher 接线示意（替换版会照此接）：
-        GameAddDialog(self._repo, self._api,
-                      lambda aid: steamPaths.workshop_content_dir(
-                          self._settings.get("steamcmd_path"), aid),
-                      self)
-    """
+    created_app_id：落账成功时记录新档案的 AppID，供调用方（切换器）
+    在对话框关闭后选中新档案；用户取消时保持 None。"""
 
     def __init__(self, repo: ModRepository, api: SteamApiClient,
                  derive_dir: Callable[[int], str | None],
@@ -77,7 +83,7 @@ class GameAddDialog(QDialog):
         self._derive_dir = derive_dir
         self._thread: _NameQueryThread | None = None
         self._app_free = False  # 最近一次查重的结论：该 AppID 无档案
-        self.created_app_id: int | None = None  # 落账成功时记录，供调用方选中新档案
+        self.created_app_id: int | None = None  # 落账成功时记录
 
         self.setWindowTitle("添加游戏档案")
         self.setMinimumWidth(560)
@@ -86,8 +92,10 @@ class GameAddDialog(QDialog):
         self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
-        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setText("创建档案")
-        self._buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
+            "创建档案")
+        self._buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(
+            "取消")
         self._buttons.accepted.connect(self._accept_create)
         self._buttons.rejected.connect(self.reject)
         self._ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
@@ -148,10 +156,12 @@ class GameAddDialog(QDialog):
             self._sync_ok()
             return
         # 查重：已有档案就直说，不让用户走完流程才发现撞车
+        # （同步调用：主线程毫秒级单查询，允许——R11 管的是工作线程）
         exists = self._repo.get_game(app_id)
         if exists is not None:
             self._app_free = False
-            self._lbl_hint.setText(f"该 AppID 已有档案：{exists.name}，无需创建")
+            self._lbl_hint.setText(
+                f"该 AppID 已有档案：{exists.name}，无需创建")
             self._edit_name.setEnabled(False)
             self._btn_lookup.setEnabled(False)
             self._sync_ok()
@@ -165,7 +175,7 @@ class GameAddDialog(QDialog):
 
     def _refresh_dir_preview(self, app_id: int) -> None:
         # 推导不出（steamcmd 未配置）≠ 出错：如实说明、不拦建档，
-        # steamcmd 配好后首次扫描会自动回填（steamPaths.refresh_download_dir）
+        # steamcmd 配好后首次扫描会自动回填（refresh_download_dir）
         try:
             path = self._derive_dir(app_id)
         except Exception as exc:
@@ -195,7 +205,6 @@ class GameAddDialog(QDialog):
         self._thread = _NameQueryThread(self._api, int(text), self)
         self._thread.done.connect(self._on_name_done)
         self._thread.finished.connect(self._on_lookup_finished)
-
         self._btn_lookup.setEnabled(False)
         self._btn_lookup.setText("查询中…")
         self._thread.start()
@@ -204,10 +213,12 @@ class GameAddDialog(QDialog):
         self._btn_lookup.setEnabled(True)
         self._btn_lookup.setText("自动查名")
         if err:
-            # 网络失败：如实显示，名字留空让用户手输——不拦建档（拍板 4）
+            # 网络失败：如实显示，名字留空让用户手输——不拦建档
             QMessageBox.warning(self, "查询失败",
                                 f"查名失败（{err}）。\n请手动输入游戏名。")
         elif not name:
+            # Steam 正常回答"没这个名字"：编号可能有误，或商店接口
+            # 偶尔抽风——不是程序错误，让用户手输即可
             QMessageBox.information(
                 self, "查无此游戏",
                 "Steam 没有报出这个名字（编号可能有误；商店接口偶尔也会"
@@ -216,14 +227,15 @@ class GameAddDialog(QDialog):
         else:
             self._edit_name.setText(name)
             self._edit_name.selectAll()  # 全选，方便微调或整体覆盖
-        self._sync_ok()
+            self._sync_ok()
 
     def _on_lookup_finished(self) -> None:
-        """查名线程收尾（backupPage._CallWorker 同款模式）：先摘引用再
-        wait。不用 deleteLater——那会把 C++ 对象先删掉，而 Python 引用
-        还在 self._thread 上，下一次点击 isRunning() 就碰尸（本次实测
-        翻车）。引用置 None 后包装自然回收；C++ 侧有 parent 兜底，
-        对话框关闭时统一清理，无泄漏。"""
+        """查名线程收尾：先摘引用再 wait（顺序不能反——线程对象还被
+        self._thread 拿着时直接 wait 是安全的，但若先 wait 后忘摘引用，
+        下一次点击 isRunning() 会碰已被回收的对象）。不用 deleteLater：
+        那会把 C++ 对象先删掉而 Python 引用还在，下一次访问就碰尸
+        （实测翻车过）。引用置 None 后包装自然回收；C++ 侧有 parent
+        兜底，对话框关闭时统一清理，无泄漏。"""
         w = self._thread
         self._thread = None
         if w is not None:
@@ -234,14 +246,16 @@ class GameAddDialog(QDialog):
     def _accept_create(self) -> None:
         app_id = int(self._edit_appid.text().strip())
         name = self._edit_name.text().strip()
-        # 契约：add_game(app_id, name, download_dir, …) —— download_dir 必填。
-        # 推导不出就存空串：账先立起来，steamcmd 配好后首次扫描自动回填
+        # 契约：add_game(app_id, name, download_dir, …) —— download_dir
+        # 必填。推导不出就存空串：账先立起来，steamcmd 配好后首次扫描
+        # 自动回填
         download_dir = self._derive_dir(app_id) or ""
         try:
             self._repo.add_game(app_id, name, download_dir)
         except Exception as exc:
             # 极小概率的竞态（查重通过后同号被建）或其他账本层拒绝：
-            # 显示原因、对话框不关，用户可改完再试
+            # 显示原因、对话框不关，用户可改完再试——错误显式爆炸，
+            # 只是不炸窗
             QMessageBox.critical(self, "创建失败", str(exc))
             return
         self.created_app_id = app_id
@@ -257,6 +271,7 @@ class GameAddDialog(QDialog):
         self._wait_lookup()
         super().reject()
 
-    def closeEvent(self, event) -> None:  # 点 X 直接关
+    def closeEvent(self, event) -> None:
+        # 点 X 直接关
         self._wait_lookup()
         super().closeEvent(event)

@@ -34,12 +34,13 @@ mod 备份的位置（决策 21⑥）也在本模块推导：
 都要按同一套公式找位置。公式写两遍，早晚改出不一致。
 """
 import os
+import time  # 决策 113：acf 备份文件名时间戳（remove_items_from_acf 自 V1 localScanner 迁入）
+from collections.abc import Iterable  # 决策 113：remove_items_from_acf 的类型标注
 from pathlib import Path
 from typing import NamedTuple
 
 import shutil  # 决策 100：清缓存删目录树用
-
-import vdf  # ValvePython：解析 libraryfolders.vdf（读 acf 的同一份依赖，零新增）
+import vdf     # ValvePython：解析 libraryfolders.vdf 与 acf（读 acf 的同一份依赖，零新增）
 
 def steamcmd_root(steamcmd_path: str | None) -> Path | None:
     """steamcmd.exe 完整路径 → 其所在目录（steamcmd 根）。
@@ -387,3 +388,89 @@ def client_library_roots(*, install_dir: str | None = None) -> list[str]:
             out.append(norm)
     return out
 
+# ---------- acf 条目移除（防复活断根，全项目唯一写 acf 的地方）----------
+#
+# 出身说明（v2 搬迁留痕）：本函数原住 V1 core/localScanner.py（维护手册
+# 决策 113），v2 计划书划归 steamPaths——它本质是"steamcmd 目录树的
+# 文件操作"，与扫描解析无关；V1 扫描管线是旧判决制产物，由确认门
+# 体系替代，不随迁。
+#
+# 历史拍板"工具永远不写 acf"的前提已经改变：实证发现 steamcmd 的
+# 缓存装配机制会把已删除条目重新装配回 content 并写回 acf（毒 mod、
+# 别的前端清单残留都走这条路），黑名单只能拦"入账"，拦不住 steamcmd
+# 反复校验装配、占着磁盘。唯一断根手段 = 把条目从 acf 里删掉，让
+# steamcmd 彻底"忘了"它。
+#
+# 四道安全边界：
+# ① 只删指定条目的登记子块，文件其余内容一字不动；
+# ② 写前自动备份（同目录 .bak_时间戳），改坏可手工还原；
+# ③ 解析失败（文件损坏/不是 VDF）绝不落笔；
+# ④ steamcmd 是否在跑由调用方把关（它退出时会把内存里的旧账本
+#    整个覆盖写回，运行中改等于白改）。
+def remove_items_from_acf(
+        acf_path: str | Path,
+        mod_ids: Iterable[int],
+) -> tuple[list[int], list[int]]:
+    """从工坊账本文件（acf）里移除指定条目的登记。
+
+    两个登记区块都要清：
+    - WorkshopItemsInstalled = 本地安装事实（扫描的唯一读取源）；
+    - WorkshopItemDetails = steamcmd 上次联网的镜像缓存。
+    只删 Installed 的话扫描拦得住入库，但 steamcmd 的"整体校验
+    装配"仍可能从缓存把内容装回 content——两块一起删才算断根。
+
+    返回 (实际移除的编号, acf 里本来就没有的编号)。
+
+    文件级问题（读不了/解析失败/没有 AppWorkshop 根）→ ValueError，
+    文件保持原样；一个条目都没删时不动文件、不产生备份。
+    """
+    p = Path(acf_path)
+    try:
+        # utf-8-sig：顺手吃掉 Windows 文件可能带的 BOM（与旧 scan_acf 同款）
+        text = p.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise ValueError(f"acf 读取失败：{p}（{exc}）") from exc
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"acf 不是 UTF-8 文本：{p}") from exc
+
+    try:
+        data = vdf.loads(text)
+    except Exception as exc:
+        # 解析不了就不写——绝不把可能损坏的文件写回去
+        raise ValueError(f"acf 解析失败（文件损坏或不是 VDF 格式）：{p}") from exc
+
+    if not isinstance(data, dict) or not isinstance(data.get("AppWorkshop"), dict):
+        raise ValueError(f"该文件没有 AppWorkshop 根区块（可能选错了文件）：{p}")
+
+    workshop = data["AppWorkshop"]
+    blocks = (workshop.get("WorkshopItemsInstalled"),
+              workshop.get("WorkshopItemDetails"))
+
+    removed: list[int] = []
+    absent: list[int] = []
+    for mid in mod_ids:
+        key = str(mid)  # acf 的键全是字符串形态的编号
+        hit = False
+        for block in blocks:
+            if isinstance(block, dict) and key in block:
+                del block[key]
+                hit = True
+        (removed if hit else absent).append(mid)
+
+    if not removed:
+        # 没东西可删：不写文件（少一次无谓的改动、不产生多余备份）
+        return removed, absent
+
+    # 备份先行：同目录、原文件名 + .bak_时间戳
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    backup = p.with_name(p.name + f".bak_{stamp}")
+    shutil.copy2(p, backup)
+
+    try:
+        # pretty=True：嵌套块缩进换行，与 steamcmd 原生格式接近，
+        # 人肉打开也好读；utf-8 无 BOM（steamcmd 自己写的 acf 就没 BOM）
+        p.write_text(vdf.dumps(data, pretty=True), encoding="utf-8", newline="\n")
+    except OSError as exc:
+        raise ValueError(f"acf 写回失败（原文件已备份在 {backup}）：{exc}") from exc
+
+    return removed, absent

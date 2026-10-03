@@ -30,7 +30,7 @@ from pathlib import Path
 from PySide6.QtCore import QCoreApplication, QSettings
 
 from core.appPaths import config_dir
-from workflows.uninstallFlow import registry_key_path
+
 
 # 本次进程启动时自动迁移的条数（None = 还没跑过 startup）
 _last_migrated: int | None = None
@@ -99,8 +99,12 @@ def session_file_exists() -> bool:
 def registry_has_keys() -> bool:
     return bool(_native().allKeys())
 
-
 def registry_key_display() -> str:
-    """注册表键的显示路径（卸载页第②卡与复制按钮用）。"""
+    """注册表键的显示路径（卸载页第②卡与复制按钮用）。
+    v2 搬迁注记：workflows/ 尚未搬迁，改函数内延迟导入——本函数的
+    唯一消费方（卸载页）同样未搬迁，启动链路永不触发；卸载轮落地后
+    改回顶部导入或保持现状都正确。"""
+    from workflows.uninstallFlow import registry_key_path
     return registry_key_path(QCoreApplication.organizationName(),
                              QCoreApplication.applicationName())
+
