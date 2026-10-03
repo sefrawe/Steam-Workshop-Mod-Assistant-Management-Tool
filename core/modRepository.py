@@ -219,20 +219,21 @@ class ModRepository(ABC):
         也从带参调用拿）。按 occurred_at 新→旧。"""
 
     @abstractmethod
-    def confirm_items(self, items: list[tuple[int, int | None, str]]) -> int:
+    def confirm_items(self, mod_ids: list[int]) -> int:
         """★确认门唯一写入点（D5 三入口同正门），一个事务，返回确认条数。
-        items = [(mod_id, version, source), ...]；version 必须等于该 mod
-        最新 pending 行的 version_written（D4 预算好的值，GUI 传回背书）。
+        mod_ids = 入账中心勾选的 mod 编号列表——GUI 只做"背书"，version
+        与 source 由实现从该 mod 最新 pending 判决行直取（D4 预算好的值
+        原样落账），GUI 没有第二次填数字的机会，写入值永不高估（R18）
+        由结构保证。version_written=None 的行照确认 = 版本未知态合法写入
+        （守卫照旧拒绝备份）。
         逐条（D39 upsert 语义）：
-        1. mods 无此行 → 从其 pending verdict 行取 game_id 与
-           title/file_size 元数据建行（status=downloaded）；
-           无任何 pending 行 → ValueError（先经 record_verdicts 落判决）
-        2. 有此行 → 照旧；tracked → downloaded 迁移在此发生（D6 唯一入口）
-        3. 写 confirmed_version=version、confirmed_source=source、
-           confirmed_at=now（version=None = 版本未知态合法写入，守卫照旧拒绝备份）
-        4. 该 mod 全部 pending success/claim/manual 行填 confirmed_at
-        幂等：重复确认同一 (mod_id, version) 结果不变（D39 用例）。
-        mod_id 在黑名单 → ValueError（D11：upsert 建行之前拦截）。"""
+        1. 无 pending 行 → ValueError（先经 record_verdicts 落判决）；
+        2. 黑名单 → ValueError（D11：upsert 建行之前拦截）；
+        3. mods 无行 → 取判决行 game_id/title/file_size 建行
+           （status=downloaded）；有行 → tracked→downloaded 迁移在此
+           发生（D6 唯一入口；deleted 拒绝，先恢复）；
+        4. 该 mod 全部 pending success/claim/manual 行填 confirmed_at。
+        幂等：重复确认同一批 → 第二次报错（队列已无其行），账面不变。"""
 
     @abstractmethod
     def claim_accept(self, mod_id: int, version: int | None, *,
@@ -348,3 +349,16 @@ class ModRepository(ABC):
     def export_all(self) -> dict: ...
     @abstractmethod
     def import_all(self, exported: dict) -> None: ...
+    @abstractmethod
+    def set_manual_version(self, mod_id: int, version: int | None, *,
+                           note: str | None = None) -> None:
+        """★手动设定本地版本（mod 库页右键「设定本地版本…」，D5③第三扇门）：
+        用户人工核对后输入版本号——最重的人工背书。落 manual 判决行当场
+        盖戳 + 写确认三件套（R17 唯一写入点之一）；tracked/failed →
+        downloaded；deleted 拒绝（先恢复）。version=None 合法 = 版本未知态。"""
+
+    @abstractmethod
+    def backfill_local_sizes(self, sizes: dict[int, int]) -> int:
+        """盘点回填本地占用（D23 批次收尾只读盘点）：磁盘/acf 盘点得到的
+        各 mod 目录大小批量写入展示列。只动 local_size，绝不碰版本字段
+        （R19）；账上没有的编号直接忽略（回填不建行）。返回实际更新条数。"""

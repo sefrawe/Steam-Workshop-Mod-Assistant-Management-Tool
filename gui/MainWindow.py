@@ -1,0 +1,547 @@
+"""主窗口骨架
+"""
+r"""gui/MainWindow.py —— 左导航（档案切换器 + 导航树）+ 中央页面栈 +
+菜单 + 状态栏 + 全局异常兜底 + 会话记忆。V2 骨架轮交付。
+
+本轮范围（骨架可运行，页面逐轮上）：
+- 导航树按 core/constants 的 29 个 PAGE_* 编号生成——D31/D37 落地：
+  编号住 constants（"改一词全项目跟"），树结构住本文件（计划书原话
+  "树结构 _NAV_SCHEMA 留 MainWindow"）。import 时自检：漏登记、
+  重复登记、不认识的编号一律当场炸，不带病进界面；
+- 29 页全部先挂占位器：每搬迁一轮真页面，在 _build_page 加一个分支
+  原位替换，导航树 / 会话记忆 / 档案广播零改动（本文件当初为
+  "每轮可运行"定的占位器策略）；
+- 档案切换器（已搬迁）真实可用：建档对话框、AppID 查重、自动查名、
+  下载目录推导预览（推导读设置里的 steamcmd 路径——设置页未搬迁、
+  V2 的 config 是全新的，此值暂为空，目录栏显示"暂无法推导"是
+  预期，设置页轮接上即愈）；
+- 菜单本轮只挂"已经能工作"的项，宁缺毋滥、绝不挂空壳：
+  游戏=添加档案；文件=打开两个目录 + 退出；视图=侧栏显隐；
+  帮助=简版关于。账本/分享包导出导入（dataExporter 系）、
+  控制台、高级筛选、档案工具四项，随各自轮次回填；
+- 会话记忆：窗口几何 / 停靠布局 / 侧栏显隐 / 导航组折叠 / 上次档案，
+  与 V1 同一套键口径；详情面板与控制台两键随面板搬迁回补。
+
+跨页信号接线（V1 里几十条 set_game / command_gen_requested /
+一条龙等）：随对应页面搬迁逐条回补，风格照抄 V1——信号 → 主窗口
+转调或直连；本文件已留好结构位（set_game 广播循环、_goto_page、
+进页刷新钩子位）。
+"""
+import sys
+import threading
+from pathlib import Path
+from gui.welcomePage import PROJECT_URL, WelcomePage
+from PySide6.QtCore import QSettings, Qt, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QStackedWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from core import appPaths
+from core import constants
+from core.appSettings import AppSettings
+from core.models import Game
+from core.sqliteRepository import SQLiteRepository
+from gui.gameSwitcher import GameSwitcher
+from gui.logBus import LogBus
+
+DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根单源（源码=项目根\data）
+_NAV_WIDTH = 210
+
+# ============================================================
+# 页面显示名（单源：导航树与占位器共用，改名只动这一处）
+# 带 ※ 的是骨架轮暂定名（该页未搬迁）：以各页搬迁时的自述为准，
+# 改这里即可，树与占位器自动跟。
+# ============================================================
+_PAGE_TITLES: dict[int, str] = {
+    constants.PAGE_WELCOME: "欢迎",
+    constants.PAGE_MOD_LIST: "mod 库",
+    constants.PAGE_ACCOUNT_CENTER: "入账中心",
+    constants.PAGE_UPDATE_CHECK: "更新检测",
+    constants.PAGE_UPDATE_COMPARE: "更新对照",
+    constants.PAGE_ADD_MOD: "加入新 mod",
+    constants.PAGE_DAILY_UPDATE: "日常更新",
+    constants.PAGE_FIRST_USE: "首次使用",
+    constants.PAGE_GAME_EXIT: "游戏退场",
+    constants.PAGE_UNINSTALL: "卸载与清理",
+    constants.PAGE_COMMAND_GEN: "下载命令生成",
+    constants.PAGE_BATCH_OPEN: "批量下载",          # ※
+    constants.PAGE_BACKUP: "备份与恢复",
+    constants.PAGE_BACKUP_OVERVIEW: "备份总览",
+    constants.PAGE_TITLE_CHECK: "标题检测",          # ※
+    constants.PAGE_REMOTE_HEALTH: "远端健康",        # ※
+    constants.PAGE_DEP_CHECK: "依赖检测",            # ※
+    constants.PAGE_EXCEPTION: "异常处理",
+    constants.PAGE_VERIFY: "账实核验",
+    constants.PAGE_JUNCTION_CHECK: "联接检测",       # ※
+    constants.PAGE_CLEANUP: "清理与删除",
+    constants.PAGE_PURGED: "已清账管理",
+    constants.PAGE_IMPORT: "网址批量导入",
+    constants.PAGE_MIGRATION: "换机迁移",
+    constants.PAGE_RESCUE: "恢复旧版本",
+    constants.PAGE_SHARE_LIST: "分享清单",
+    constants.PAGE_STATS: "统计",
+    constants.PAGE_API_KEY: "Steam API 密钥",
+    constants.PAGE_SETTINGS: "设置",
+}
+
+# ============================================================
+# 导航树结构（分组名与成员照 constants 注释里的六大组落码；
+# 组名只在这里出现一次——要改组名也是这一处）
+# ============================================================
+_NAV_SCHEMA: list[tuple[str, int | list[int]]] = [
+    ("欢迎", constants.PAGE_WELCOME),
+    ("主循环", [constants.PAGE_MOD_LIST, constants.PAGE_ACCOUNT_CENTER,
+                constants.PAGE_UPDATE_CHECK, constants.PAGE_UPDATE_COMPARE]),
+    ("功能模块", [constants.PAGE_ADD_MOD, constants.PAGE_DAILY_UPDATE,
+                  constants.PAGE_FIRST_USE, constants.PAGE_GAME_EXIT,
+                  constants.PAGE_UNINSTALL]),
+    ("下载与备份", [constants.PAGE_COMMAND_GEN, constants.PAGE_BATCH_OPEN,
+                    constants.PAGE_BACKUP, constants.PAGE_BACKUP_OVERVIEW]),
+    ("检测与异常", [constants.PAGE_TITLE_CHECK, constants.PAGE_REMOTE_HEALTH,
+                    constants.PAGE_DEP_CHECK, constants.PAGE_EXCEPTION]),
+    ("清理与账务", [constants.PAGE_VERIFY, constants.PAGE_JUNCTION_CHECK,
+                    constants.PAGE_CLEANUP, constants.PAGE_PURGED]),
+    ("档案与工具", [constants.PAGE_IMPORT, constants.PAGE_MIGRATION,
+                    constants.PAGE_RESCUE, constants.PAGE_SHARE_LIST,
+                    constants.PAGE_STATS, constants.PAGE_API_KEY,
+                    constants.PAGE_SETTINGS]),
+]
+
+
+def _check_nav() -> None:
+    """建树前的结构自检（显式爆炸，别让漏登记流到运行期才发现）：
+    ① 树里每个编号都认识（在 _PAGE_TITLES 里）；
+    ② 没有重复登记；
+    ③ constants 的 29 页全部入树、无遗漏。"""
+    seen: list[int] = []
+    for _name, spec in _NAV_SCHEMA:
+        if isinstance(spec, int):
+            seen.append(spec)
+        else:
+            seen.extend(spec)
+    unknown = [i for i in seen if i not in _PAGE_TITLES]
+    if unknown:
+        raise RuntimeError(f"导航树里有不认识的页面编号：{unknown}")
+    dup = sorted({i for i in seen if seen.count(i) > 1})
+    if dup:
+        raise RuntimeError(f"导航树里有重复登记的页面：{dup}")
+    missing = sorted(set(_PAGE_TITLES) - set(seen))
+    if missing:
+        raise RuntimeError(f"constants 里的页面没进导航树：{missing}")
+
+
+_check_nav()
+
+# 面板显隐与几何的会话记忆（QSettings 而非 AppSettings——会话状态
+# ≠用户配置；值一律 "1"/"0" 字符串或 QByteArray）
+_SES_SIDE = "session/side_visible"
+_SES_GEOM = "session/window_geometry"   # 窗口大小与位置
+_SES_STATE = "session/window_state"     # 停靠窗布局（控制台轮起有用）
+_SES_NAV = "session/nav_expanded"       # 导航组折叠（展开的组名逗号串）
+_SES_LAST_GAME = "session/last_game_app_id"  # 上次打开的游戏档案
+# 详情面板 / 控制台两键（detail / console）随对应面板搬迁轮补回
+
+
+class PlaceholderPage(QWidget):
+    """未搬迁页面的占位器：居中两行说明，零交互零依赖。
+    该页搬迁轮在 _build_page 加分支原位替换，本类与导航树都不用动。"""
+
+    def __init__(self, title: str, pid: int,
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.addStretch(1)
+        big = QLabel(f"「{title}」页还没有搬迁", self)
+        big.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        small = QLabel(
+            f"页面编号 {pid}（core/constants PAGE_*）\n"
+            "主窗口骨架轮的占位器——该页搬迁时原位替换，"
+            "导航树与档案广播零改动", self)
+        small.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        small.setWordWrap(True)
+        lay.addWidget(big)
+        lay.addWidget(small)
+        lay.addStretch(2)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Steam创意工坊Mod辅助管理工具")
+        self.resize(1200, 800)
+
+        # 设置必须先建：数据库构造时要从中读"快照保留条数"注入
+        self._settings = AppSettings()
+        # 日志总线先于页面建好，构造页面时注入。控制台面板未搬迁，
+        # 本轮日志只走文件旁路（装了 loguru 时落 data/logs/app_*.log）；
+        # 控制台轮接上面板后照旧注入，这里零改动
+        self._log = LogBus()
+        # 数据库操作全在主线程（毫秒级）；联网/扫描等长操作走各自
+        # 页面的工作线程
+        self._repo = SQLiteRepository(
+            DEFAULT_DB_PATH,
+            snapshot_keep=self._settings.get_int("snapshot_keep", 5))
+        self._current_game: Game | None = None
+
+        self._build_central()
+        self._build_menus()
+        self._build_status_bar()
+
+        # 构造期 switcher 已发射过信号（当时无人监听），补一次初始化
+        self._on_game_changed(self._switcher.current_game())
+
+        self._install_excepthook()
+        self._restore_panels()
+
+    # ---------- UI 构建 ----------
+
+    def _build_central(self) -> None:
+        central = QWidget(self)
+        root = QHBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        side = QWidget(central)
+        side.setFixedWidth(_NAV_WIDTH)
+        self._side = side  # 视图菜单显隐用：局部变量跨方法必须挂 self
+        side_layout = QVBoxLayout(side)
+        side_layout.setContentsMargins(8, 8, 8, 8)
+        side_layout.setSpacing(8)
+
+        # 左上：档案切换器（已搬迁，真实可用）。settings 供建档时
+        # 推导下载目录，log 供建档回执进日志
+        self._switcher = GameSwitcher(self._repo, side,
+                                      settings=self._settings,
+                                      log=self._log)
+        self._switcher.current_game_changed.connect(self._on_game_changed)
+        side_layout.addWidget(self._switcher)
+
+        # 左下：导航树——按 _NAV_SCHEMA 生成，条目挂 constants.PAGE_*
+        self._nav = QTreeWidget(side)
+        self._nav.setHeaderHidden(True)
+        self._nav.setIndentation(14)
+        self._nav_items: dict[int, QTreeWidgetItem] = {}  # 页面编号 → 树条目
+        for name, spec in _NAV_SCHEMA:
+            if isinstance(spec, int):
+                item = QTreeWidgetItem([name])
+                item.setData(0, Qt.ItemDataRole.UserRole, spec)
+                self._nav.addTopLevelItem(item)
+                self._nav_items[spec] = item
+                continue
+            group = QTreeWidgetItem([name])
+            group.setFlags(Qt.ItemFlag.ItemIsEnabled)  # 组节点不可选中，只折叠
+            for pid in spec:
+                child = QTreeWidgetItem([_PAGE_TITLES[pid]])
+                child.setData(0, Qt.ItemDataRole.UserRole, pid)
+                self._nav_items[pid] = child
+                group.addChild(child)
+            group.setExpanded(True)
+            self._nav.addTopLevelItem(group)
+        self._nav.currentItemChanged.connect(self._on_nav_changed)
+        self._nav.itemClicked.connect(self._on_nav_clicked)
+        # 组折叠记忆（T19⑤）：展开收起即落盘；启动恢复在 _restore_panels。
+        # 建树时的 setExpanded(True) 发生在接线之前，不会触发保存——
+        # 无记录时维持"默认全展开"
+        self._nav.itemExpanded.connect(self._save_nav_state)
+        self._nav.itemCollapsed.connect(self._save_nav_state)
+        side_layout.addWidget(self._nav, 1)
+
+        # 中央：页面栈。编号即栈下标（constants 口径：编号 = 落位序），
+        # 按编号顺序装入，程序化跳页直接用编号当下标
+        self._stack = QStackedWidget(central)
+        self._pages: dict[int, QWidget] = {}
+        for pid in sorted(_PAGE_TITLES):
+            page = self._build_page(pid)
+            self._pages[pid] = page
+            self._stack.addWidget(page)
+
+        # 启动默认落「欢迎」页（setCurrentItem 会触发 currentItemChanged，
+        # 与手点同一条路，栈已就位）
+        self._nav.setCurrentItem(self._nav_items[constants.PAGE_WELCOME])
+
+        root.addWidget(side)
+        root.addWidget(self._stack, 1)
+        self.setCentralWidget(central)
+
+    def _build_page(self, pid: int) -> QWidget:
+        """按编号装配一页：已搬迁的真页面 / 未搬迁的占位器。
+        每轮搬迁一个页面 = 文件头 import 区加一行 + 这里加一个分支，
+        导航树、会话记忆、set_game 广播全部按编号工作，零改动。分支写法：
+            if pid == constants.PAGE_WELCOME:
+                return WelcomePage(self._stack)
+        """
+        if pid == constants.PAGE_WELCOME:
+            return WelcomePage(self._stack)
+        return PlaceholderPage(_PAGE_TITLES[pid], pid)
+
+
+    def _build_menus(self) -> None:
+        # —— 文件(&F)：本轮只挂目录两项 + 退出。账本/分享包导出导入
+        # 走 core/dataExporter（尚未搬迁，且 v2 要按判决制适配），
+        # 随其轮次回填 ——
+        m_file = self.menuBar().addMenu("文件(&F)")
+        act_open_dl = QAction("打开 steamcmd 下载目录", self)
+        act_open_dl.setToolTip(
+            "在文件管理器打开当前档案的 mod 下载目录（steamcmd 工坊"
+            "内容目录，里面是按编号命名的 mod 文件夹）。需要先在左上角"
+            "选中游戏档案")
+        act_open_dl.triggered.connect(self._open_download_dir)
+        m_file.addAction(act_open_dl)
+        self._act_open_download = act_open_dl  # 无档案时置灰（_on_game_changed）
+        act_open_root = QAction("打开软件所在目录", self)
+        act_open_root.setToolTip(
+            "在文件管理器打开本软件的文件夹——绿色软件，账本（mods.db）"
+            "等数据都在其中的 data 子目录")
+        act_open_root.triggered.connect(self._open_software_dir)
+        m_file.addAction(act_open_root)
+        m_file.addSeparator()
+        act_quit = QAction("退出", self)
+        act_quit.setShortcut(QKeySequence.StandardKey.Quit)
+        act_quit.triggered.connect(self.close)
+        m_file.addAction(act_quit)
+
+        # —— 游戏(&G)：档案工具四项（编辑/连接/重定位/删除）随四个
+        # 对话框搬迁轮回填（switcher 的 open_* 方法届时一并补）；
+        # 本轮建档入口真实可用 ——
+        m_game = self.menuBar().addMenu("游戏(&G)")
+        act_add_game = QAction("添加游戏档案…", self)
+        act_add_game.setToolTip(
+            "输入 AppID 一屏建档：自动查名、查重、下载目录按 steamcmd "
+            "位置推导并可预览")
+        act_add_game.triggered.connect(self._switcher.add_game_dialog)
+        m_game.addAction(act_add_game)
+
+        # —— 视图(&V)：侧栏显隐。详情面板项随 mod 库页搬迁回填 ——
+        m_view = self.menuBar().addMenu("视图(&V)")
+        self._act_side = QAction("显示 / 隐藏左侧导航栏", self)
+        self._act_side.setCheckable(True)
+        self._act_side.setChecked(True)
+        self._act_side.toggled.connect(self._toggle_side)
+        m_view.addAction(self._act_side)
+
+        # —— 帮助(&H)：简版关于。图标 + 项目主页链接依赖欢迎页的
+        # 常量与 icon 资源，随欢迎页搬迁补回富版 ——
+        m_help = self.menuBar().addMenu("帮助(&H)")
+        act_about = QAction("关于…", self)
+        act_about.setToolTip("查看本工具的版本与简介")
+        act_about.triggered.connect(self._about)
+        m_help.addAction(act_about)
+
+        # QMenu 默认不显示动作悬浮说明（T19⑩ 同款坑），逐菜单打开
+        m_file.setToolTipsVisible(True)
+        m_game.setToolTipsVisible(True)
+        m_help.setToolTipsVisible(True)
+
+    def _about(self) -> None:
+        ver = QApplication.applicationVersion()
+        QMessageBox.about(
+            self, "关于",
+            "<b>Steam 创意工坊 Mod 辅助管理工具</b>"
+            + (f"（版本 {ver}）" if ver else "")
+            + "<br><br>帮助大量使用 mod 的 Steam 玩家，在不打开 Steam 客户端"
+              "的情况下完成工坊 mod 的登记、更新检测、下载与备份恢复。"
+              "绿色软件：账本、设置等全部数据保存在软件自己的文件夹里。"
+            + f"<br><br>项目主页：<a href=\"{PROJECT_URL}\">{PROJECT_URL}</a>"
+              "（点击用浏览器打开）")
+
+    def _build_status_bar(self) -> None:
+        self._status_game = QLabel(self)
+        self._status_db = QLabel(f"数据库：{DEFAULT_DB_PATH}")
+        self.statusBar().addWidget(self._status_game)
+        self.statusBar().addPermanentWidget(self._status_db)
+
+    # ---------- 槽 ----------
+
+    def _on_nav_changed(self, current: QTreeWidgetItem | None, _previous) -> None:
+        if current is None:
+            return
+        pid = current.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(pid, int):
+            self._stack.setCurrentIndex(pid)
+            # 各页"进页刷新"钩子（V1 的 refresh 系列）随页面搬迁逐个回补
+
+    def _on_nav_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
+        if item.childCount():  # 点组名 = 折叠/展开，和点小箭头等效
+            item.setExpanded(not item.isExpanded())
+
+    def _goto_page(self, pid: int) -> None:
+        """程序化跳页 + 导航树高亮同步：setCurrentIndex 不经过点击，
+        树高亮不会自己跟上——跨页跳转一律走这里，别裸调 stack
+        （决策 13 沿用）。"""
+        self._stack.setCurrentIndex(pid)
+        item = self._nav_items.get(pid)
+        if item is not None:
+            self._nav.setCurrentItem(item)
+
+    def _on_game_changed(self, game: Game | None) -> None:
+        self._current_game = game
+        if game is None:
+            self._status_game.setText("当前游戏：（无）—— 请先添加档案")
+        else:
+            self._status_game.setText(
+                f"当前游戏：{game.name}（{game.app_id}）")
+        # set_game 广播循环：占位器没有 set_game，hasattr 自动跳过；
+        # 页面搬迁后自动纳入广播，本循环零改动（V1 同款结构）
+        for page in self._pages.values():
+            if hasattr(page, "set_game"):
+                page.set_game(game)
+        # 无档案时目录入口没有操作对象；添加档案不在其列——空库也能加
+        # （更新确认清单"切档案自动关"随更新检测轮回补）
+        self._act_open_download.setEnabled(
+            game is not None and bool(game.download_dir))
+
+    def _open_download_dir(self) -> None:
+        """文件 → 打开 steamcmd 下载目录：当前档案的工坊内容目录
+        （mod 文件夹 = 下载目录\\编号）。目录还没建时说明而不是静默；
+        无档案时菜单项已置灰，双保险。"""
+        game = self._current_game
+        if game is None or not game.download_dir:
+            return
+        path = Path(game.download_dir)
+        if not path.is_dir():
+            QMessageBox.information(
+                self, "打开下载目录",
+                f"这个目录还不存在（可能还没下载过任何 mod）：\n{path}\n"
+                "steamcmd 首次下载时会自动创建。")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            # openUrl 失败是静默的（v2.18 教训）：手动兜底提示
+            QMessageBox.warning(
+                self, "打开下载目录",
+                f"文件管理器没有响应，请手动打开：\n{path}")
+
+    def _open_software_dir(self) -> None:
+        """文件 → 打开软件所在目录：绿色软件的"家"。路径走
+        appPaths.app_root()（T17 单源：数据、配置、日志全在其下）。"""
+        path = appPaths.app_root()
+        if not path.is_dir():
+            QMessageBox.warning(self, "打开软件目录",
+                                f"目录不存在？请手动检查：\n{path}")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            QMessageBox.warning(self, "打开软件目录",
+                                f"文件管理器没有响应，请手动打开：\n{path}")
+
+    def _toggle_side(self, visible: bool) -> None:
+        """显示/隐藏左侧导航栏（T19⑭）：整个侧栏（切换下拉 + 导航树）
+        一起收起，中央页面拿到全部宽度；回程走本菜单项。"""
+        self._side.setVisible(visible)
+
+    def closeEvent(self, event) -> None:
+        # 页面若带后台线程（更新检测等），先请停再关库——占位器没有
+        # shutdown，hasattr 自动跳过；页面搬迁后自动纳入
+        for page in self._pages.values():
+            shutdown = getattr(page, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
+        # （批次进行中的退出确认 + steamcmd 终端优雅退出，随控制台轮
+        #   在此处回补——那是"退出保住登录缓存"的关键步骤）
+        self._save_panel_state()
+        self._repo.close()
+        super().closeEvent(event)
+
+    # ---------- 面板显隐的会话记忆（T19⑤ 轻量子集） ----------
+
+    def _save_nav_state(self, *_item) -> None:
+        """导航树组折叠落盘（T19⑤）。信号带变化的那一条目，统一吞掉——
+        要记的永远是"全部组的现状"，逐条传参反而不便。"""
+        q = QSettings()
+        expanded = [
+            self._nav.topLevelItem(i).text(0)
+            for i in range(self._nav.topLevelItemCount())
+            if self._nav.topLevelItem(i).childCount() > 0
+            and self._nav.topLevelItem(i).isExpanded()
+        ]
+        q.setValue(_SES_NAV, ",".join(expanded))
+
+    def _restore_nav_state(self) -> None:
+        """启动恢复组折叠。无记录（首次运行）→ 维持建树默认全展开；
+        有记录 → 名单里的展开、其余收起——与关窗那一刻一模一样。"""
+        q = QSettings()
+        raw = q.value(_SES_NAV)
+        if raw is None:
+            return
+        want = {s for s in str(raw).split(",") if s}
+        for i in range(self._nav.topLevelItemCount()):
+            it = self._nav.topLevelItem(i)
+            if it.childCount() > 0:
+                it.setExpanded(it.text(0) in want)
+
+    def _restore_panels(self) -> None:
+        """启动恢复：窗口几何 / 停靠布局 / 侧栏显隐 / 组折叠 / 上次档案。
+        几何先恢复（saveState 含停靠布局，控制台轮起生效），再由显隐键
+        覆盖可见性。全默认 = 全显示。"""
+        q = QSettings()
+        geom = q.value(_SES_GEOM)
+        if geom:
+            self.restoreGeometry(geom)
+        state = q.value(_SES_STATE)
+        if state:
+            self.restoreState(state)
+        self._act_side.setChecked(str(q.value(_SES_SIDE, "1")) != "0")
+        self._restore_nav_state()
+        # 恢复上次打开的档案：构造期已按"下拉第一项"补广播过一次，
+        # 这里若目标档案不同会再广播一次——各页 set_game 是毫秒级
+        # 重载，两次换来"启动即停在上次的档案"，值得。
+        # 找不到（档案被删/账本换过）→ 静默跳过，不额外报错。
+        raw = q.value(_SES_LAST_GAME)
+        try:
+            last_id = (int(raw) if raw is not None and str(raw) != ""
+                       else None)
+        except (TypeError, ValueError):
+            last_id = None  # 脏值当没有：绝不让历史遗留值混进选择
+        if last_id is not None:
+            cur = self._switcher.current_game()
+            if cur is None or cur.app_id != last_id:
+                if self._switcher.set_current_by_app_id(last_id):
+                    g = self._current_game
+                    if g is not None:
+                        self._log.info(f"已恢复上次打开的档案：「{g.name}」")
+
+    def _save_panel_state(self) -> None:
+        """退出前落盘当前显隐（closeEvent 调用；QSettings 析构时也会
+        同步，这里显式写一遍求稳）。"""
+        q = QSettings()
+        q.setValue(_SES_SIDE, "1" if self._act_side.isChecked() else "0")
+        q.setValue(_SES_GEOM, self.saveGeometry())
+        q.setValue(_SES_STATE, self.saveState())
+        # 上次打开的档案：存 app_id 不存名字——档案改名、重名都不会
+        # 错位；空库存空串，恢复侧按"没有"处理
+        game = self._current_game
+        q.setValue(_SES_LAST_GAME, game.app_id if game is not None else "")
+
+    # ---------- 全局异常兜底 ----------
+
+    def _install_excepthook(self) -> None:
+        """让"漏出来的意外错误"被用户看见。错误处理原则：照旧完整
+        暴露、绝不吞——终端 traceback 照印（sys.__excepthook__ 原样
+        转发）；改变的只有"报到地点"：日志同步多一条红字，主线程的
+        意外再弹一个框。后台线程的钩子只发日志、不弹框——工作线程
+        严禁碰控件（R11），而 LogBus 是信号总线，跨线程安全。"""
+        def main_hook(exc_type, exc_value, exc_tb):
+            self._log.error(
+                f"未处理的异常：{exc_type.__name__}: {exc_value}"
+                "（完整 traceback 见终端）")
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            QMessageBox.critical(
+                self, "程序内部错误",
+                "发生了一个程序内部错误，详情已写入日志。\n\n"
+                f"{exc_type.__name__}: {exc_value}")
+        sys.excepthook = main_hook
+
+        def thread_hook(args) -> None:
+            self._log.error(
+                f"后台线程异常：{args.exc_type.__name__}: {args.exc_value}"
+                "（完整 traceback 见终端）")
+            threading.__excepthook__(args)
+        threading.excepthook = thread_hook
