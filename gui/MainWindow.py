@@ -2,8 +2,10 @@
 """
 """
 gui/MainWindow.py —— 左导航（档案切换器 + 导航树）+ 中央页面栈
-+ 底部控制台停靠窗 + 菜单 + 状态栏 + 全局异常兜底 + 会话记忆。
-V2 骨架轮建立，控制台轮补全底部停靠窗。
++ 底部控制台停靠窗 + 菜单（含顶级「高级筛选」动作）+ 状态栏
++ 全局异常兜底 + 会话记忆。
+V2 骨架轮建立；控制台轮补全底部停靠窗；mod 库轮接入工作台第一页
+（列表 / 详情 / 批量操作 / 高级筛选）并接线其跨页入口。
 
 三条结构铁律（动这个文件前先读）：
 1. 页面编号住 core/constants（"改一词全项目跟"），树结构住本文件
@@ -20,8 +22,9 @@ V2 骨架轮建立，控制台轮补全底部停靠窗。
 closeEvent 收尾循环都靠 hasattr 自适应，页面搬迁零接线成本。
 
 实装进度：欢迎页、档案切换器（侧栏）、控制台（底部停靠窗，
-含 steamcmd 终端）；其余页面为占位器（见 _PAGE_TITLES 与
-_build_page 的分支表）。
+含 steamcmd 终端）、mod 库页（工作台第一页）——顶级「高级筛选」
+动作、视图菜单详情面板项、对话框跳页请求均随 mod 库轮接线；
+其余页面为占位器（见 _PAGE_TITLES 与 _build_page 的分支表）。
 """
 
 import sys
@@ -53,6 +56,7 @@ from core.sqliteRepository import SQLiteRepository
 from gui.consolePanel import ConsolePanel
 from gui.gameSwitcher import GameSwitcher
 from gui.logBus import LogBus
+from gui.modListPage import ModListPage
 
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根单源（源码=项目根\data）
 _NAV_WIDTH = 210
@@ -164,13 +168,13 @@ _check_nav()
 
 # 面板显隐与几何的会话记忆（QSettings 而非 AppSettings——会话状态
 # ≠用户配置；值一律 "1"/"0" 字符串或 QByteArray）
-_SES_SIDE = "session/side_visible"       # 左侧导航栏
+_SES_SIDE = "session/side_visible"        # 左侧导航栏
 _SES_CONSOLE = "session/console_visible"  # 底部控制台（控制台轮补回）
-_SES_GEOM = "session/window_geometry"    # 窗口大小与位置
-_SES_STATE = "session/window_state"      # 停靠窗布局（位置/大小/浮动）
-_SES_NAV = "session/nav_expanded"        # 导航组折叠（展开的组名逗号串）
+_SES_DETAIL = "session/modlib_detail_visible"  # mod 库详情面板（mod 库轮补回）
+_SES_GEOM = "session/window_geometry"     # 窗口大小与位置
+_SES_STATE = "session/window_state"       # 停靠窗布局（位置/大小/浮动）
+_SES_NAV = "session/nav_expanded"         # 导航组折叠（展开的组名逗号串）
 _SES_LAST_GAME = "session/last_game_app_id"  # 上次打开的游戏档案
-# 详情面板键（detail）随 mod 库页搬迁轮补回
 
 
 class PlaceholderPage(QWidget):
@@ -294,6 +298,18 @@ class MainWindow(QMainWindow):
             self._pages[pid] = page
             self._stack.addWidget(page)
 
+        # mod 库页跨页接线（mod 库轮）：
+        # ① 高级筛选对话框「到 mod 库查看结果」→ 程序化跳回本页
+        #   （_goto_page 同步树高亮——铁律 3）；
+        # ② 顶级「高级筛选」动作与视图菜单详情面板项的落点也指向本页
+        #   （动作在本方法之后的 _build_menus 里连接，页面彼时已建好）。
+        # hasattr 守卫：分支万一回退成占位器，只降级为无此入口，
+        # 不让整窗起不来（与广播循环同一自适应哲学）
+        modlib = self._pages[constants.PAGE_MOD_LIST]
+        if hasattr(modlib, "advanced_results_requested"):
+            modlib.advanced_results_requested.connect(
+                lambda: self._goto_page(constants.PAGE_MOD_LIST))
+
         # 启动默认落「欢迎」页（setCurrentItem 会触发 currentItemChanged，
         # 与手点同一条路，栈已就位）
         self._nav.setCurrentItem(self._nav_items[constants.PAGE_WELCOME])
@@ -320,12 +336,14 @@ class MainWindow(QMainWindow):
     def _build_page(self, pid: int) -> QWidget:
         """按编号装配一页：已搬迁的真页面 / 未搬迁的占位器。
         每轮搬迁一个页面 = 文件头 import 区加一行 + 这里加一个分支，
-        导航树、会话记忆、set_game 广播全部按编号工作，零改动。分支写法：
+        导航树、会话记忆、set_game 广播全部按编号工作，零改动。
+        mod 库轮接入 ModListPage：repo/settings/log 三件注入，
+        parent 住页面栈。"""
         if pid == constants.PAGE_WELCOME:
             return WelcomePage(self._stack)
-        """
-        if pid == constants.PAGE_WELCOME:
-            return WelcomePage(self._stack)
+        if pid == constants.PAGE_MOD_LIST:
+            return ModListPage(self._repo, self._settings,
+                               parent=self._stack, log=self._log)
         return PlaceholderPage(_PAGE_TITLES[pid], pid)
 
     def _build_menus(self) -> None:
@@ -367,8 +385,20 @@ class MainWindow(QMainWindow):
         act_add_game.triggered.connect(self._switcher.add_game_dialog)
         m_game.addAction(act_add_game)
 
-        # —— 视图(&V)：侧栏 + 控制台两个显隐开关。详情面板项随
-        # mod 库页搬迁回填 ——
+        # —— 顶级动作「高级筛选(&S)」：不挂菜单、点字即开（拍板记录：
+        # 主打随时搜索——人在任何页都能拉开就查）。Alt+S 或
+        # Ctrl+Shift+F 同效；非模态窗口，开着不影响继续操作 ——
+        act_adv = QAction("高级筛选(&S)", self)
+        act_adv.setToolTip(
+            "打开 mod 库高级筛选：标题/备注/编号/作者/大小/更新时间/"
+            "标签多条件叠加，与 mod 库页顶栏筛选叠加生效。\n"
+            "非模态窗口——开着可以边看结果边改；快捷键 Ctrl+Shift+F")
+        act_adv.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        act_adv.triggered.connect(self._open_advanced_search)
+        self.menuBar().addAction(act_adv)
+
+        # —— 视图(&V)：侧栏 / 控制台 / 详情面板三个显隐开关
+        #（末者随 mod 库轮回填）——
         m_view = self.menuBar().addMenu("视图(&V)")
         self._act_side = QAction("显示 / 隐藏左侧导航栏", self)
         self._act_side.setCheckable(True)
@@ -387,12 +417,22 @@ class MainWindow(QMainWindow):
             "显隐开关；隐藏期间有新日志到达时仍会按设置自动弹出")
         m_view.addAction(self._act_console)
 
+        # 详情面板显隐（mod 库轮）：只影响 mod 库页右侧详情——
+        # QSplitter 不给隐藏子件分配空间，表格自动占满整行
+        self._act_detail = QAction("显示 / 隐藏详情面板", self)
+        self._act_detail.setCheckable(True)
+        self._act_detail.setChecked(True)
+        self._act_detail.setToolTip(
+            "mod 库页右侧的详情面板（选中条目的字段、确认来源与最近"
+            "判决）显隐开关")
+        self._act_detail.toggled.connect(self._toggle_detail)
+        m_view.addAction(self._act_detail)
+
         # QMenu 默认不显示动作悬浮说明（T19⑩ 同款坑），逐菜单打开。
         # 现稿 m_view 漏了这行（当时视图只有一项），本轮补上
         m_file.setToolTipsVisible(True)
         m_game.setToolTipsVisible(True)
         m_view.setToolTipsVisible(True)
-
 
         # —— 帮助(&H)：关于。图标 + 项目主页链接依赖欢迎页的
         # 常量与 icon 资源——欢迎页已搬迁，富版已回填 ——
@@ -446,6 +486,23 @@ class MainWindow(QMainWindow):
         if item is not None:
             self._nav.setCurrentItem(item)
 
+    def _open_advanced_search(self) -> None:
+        """顶级「高级筛选」动作落点：对话框实例由 mod 库页持有，
+        这里只转调（谁持有谁打开）。hasattr 守卫同广播循环——页面
+        分支万一回退为占位器，动作静默降级不炸。"""
+        page = self._pages.get(constants.PAGE_MOD_LIST)
+        opener = getattr(page, "open_advanced_search", None)
+        if callable(opener):
+            opener()
+
+    def _toggle_detail(self, visible: bool) -> None:
+        """视图菜单「详情面板」开关落点：面板是 mod 库页 splitter 的
+        子件，显隐归它管，这里转调。"""
+        page = self._pages.get(constants.PAGE_MOD_LIST)
+        setter = getattr(page, "set_detail_visible", None)
+        if callable(setter):
+            setter(visible)
+
     def _show_console(self) -> None:
         """自动弹出（ConsolePanel.show_requested）：控制台整个被关掉
         而新日志到来时，把停靠窗拉回屏幕并置前。是否弹由面板按设置
@@ -462,7 +519,8 @@ class MainWindow(QMainWindow):
                 f"当前游戏：{game.name}（{game.app_id}）")
 
         # set_game 广播循环：占位器没有 set_game，hasattr 自动跳过；
-        # 页面搬迁后自动纳入广播，本循环零改动（V1 同款结构）
+        # 页面搬迁后自动纳入广播，本循环零改动（V1 同款结构）。
+        # mod 库轮起，切档案 = mod 库整表重载 + 详情清空（页面内自理）
         for page in self._pages.values():
             if hasattr(page, "set_game"):
                 page.set_game(game)
@@ -517,8 +575,9 @@ class MainWindow(QMainWindow):
         # stop_guard 拦一道，再走本收尾）
         self._console.terminal.shutdown()
 
-        # 页面若带后台线程（更新检测等），先请停再关库——占位器没有
-        # shutdown，hasattr 自动跳过；页面搬迁后自动纳入
+        # 页面若带后台线程 / 持有需断链的对话框（mod 库页的
+        # shutdown 摘高级筛选广播，防退出路上炸已关闭的库），先请停
+        # 再关库——hasattr 自动发现，页面搬迁零接线
         for page in self._pages.values():
             shutdown = getattr(page, "shutdown", None)
             if callable(shutdown):
@@ -558,9 +617,9 @@ class MainWindow(QMainWindow):
                 it.setExpanded(it.text(0) in want)
 
     def _restore_panels(self) -> None:
-        """启动恢复：窗口几何 / 停靠布局 / 侧栏显隐 / 控制台显隐 /
-        组折叠 / 上次档案。几何先恢复（saveState 含停靠布局），再由
-        显隐键覆盖可见性。全默认 = 全显示。"""
+        """启动恢复：窗口几何 / 停靠布局 / 侧栏 / 控制台 / 详情面板
+        显隐 / 组折叠 / 上次档案。几何先恢复（saveState 含停靠布局），
+        再由显隐键覆盖可见性。全默认 = 全显示。"""
         q = QSettings()
         geom = q.value(_SES_GEOM)
         if geom:
@@ -577,6 +636,9 @@ class MainWindow(QMainWindow):
         vis = q.value(_SES_CONSOLE)
         if vis is not None:
             self._dock_console.setVisible(str(vis) != "0")
+
+        # 详情面板显隐（mod 库轮）：无记录 = 默认显示
+        self._act_detail.setChecked(str(q.value(_SES_DETAIL, "1")) != "0")
 
         self._restore_nav_state()
 
@@ -605,6 +667,8 @@ class MainWindow(QMainWindow):
         q.setValue(_SES_SIDE, "1" if self._act_side.isChecked() else "0")
         q.setValue(_SES_CONSOLE,
                    "1" if self._dock_console.isVisible() else "0")
+        q.setValue(_SES_DETAIL,
+                   "1" if self._act_detail.isChecked() else "0")
         q.setValue(_SES_GEOM, self.saveGeometry())
         q.setValue(_SES_STATE, self.saveState())
         # 上次打开的档案：存 app_id 不存名字——档案改名、重名都不会

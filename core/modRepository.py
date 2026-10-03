@@ -26,6 +26,9 @@ ALLOWED_ORDERS: frozenset[str] = frozenset({
     "time_updated DESC", "time_updated ASC",
     "title ASC", "title DESC",
     "local_size DESC",
+    "local_size DESC",
+    "local_size ASC",
+
     "confirmed_version DESC", "confirmed_version ASC",
     "status ASC", "status DESC",
     "is_special DESC",
