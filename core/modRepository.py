@@ -1,99 +1,66 @@
 """数据访问契约层（接口）
 """
-"""
-core/modRepository.py · 数据访问契约层（接口）
-
-为什么先写接口再写实现：
-上层（workflows / gui）只 import 本文件的类，永远不写 SQL；
-sqliteRepository.py 负责把每个方法翻译成真正的 SQL。
-好处：上层不关心存储细节（将来换存储引擎不动上层）；
-写测试可以塞假实现；本文件本身就是"这个项目有哪些数据能力"的完整清单。
-
-通用约定（调用方必读，共 6 条）：
-1. 时间一律 Unix 时间戳（int，秒），与 Steam API / acf 原生格式一致
-2. get_game / get_mod / get_backup / get_last_alert 查不到时返回 None，
-   不抛异常——"找不到怎么办"由调用方决定
-3. 违反唯一约束 / 外键约束时抛 sqlite3.IntegrityError，本层绝不静默吞掉
-   （让错误显式爆炸，好过数据悄悄错下去）
-4. 单个方法自带事务：成功自动 commit，异常自动回滚，调用方无感；
-   多个方法需要打包成"要么全成要么全败"时，用 with repo.transaction(): 包住
-5. 可选参数中 None = "不修改该字段"；需要"清空"的场景用专门 setter
-   （如 set_color_tag(mod_id, None)）
-6. 本文件不含一行 SQL，也不 import sqlite3——它只是契约
-"""
+"""数据访问契约层（接口） """ """v2 判决制契约。与旧版的三大差异：
+1. 判定公式换 confirmed_version（D2）；acf 三件套退场——update_local_state 删除，
+   R19：任何 acf/mtime 产物禁止进入本契约的版本写入路径
+2. 新增确认门三正门（R17：本地版本唯一写入点）：
+   record_verdicts → pending_confirmations → confirm_items / claim_accept；
+   撤销 = revoke_confirmation（置 NULL，status 不动，D8）
+3. verdict_log（判决史+确认队列）与 translations（翻译缓存）两个新表的读写
+通用约定 6 条沿旧版（Unix 秒 / 查不到返 None / IntegrityError 上抛 /
+单方法自带事务 / None=不修改 / 本文件零 SQL 零 sqlite3）。 """
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 
 from core.models import (
-    Alert, Backup, FailedMod, Game, Mod, OperationLog, Snapshot,PurgedMod,
+    Alert, Backup, FailedMod, Game, Mod, OperationLog,
+    PurgedMod, Snapshot, Translation, Verdict,
 )
 
-# list_mods 的排序白名单。为什么存在：ORDER BY 无法用 ? 参数绑定，只能拼进
-# SQL 字符串，所以用白名单杜绝注入；要新排序就在这里加、实现层同步支持
+# 排序白名单（防注入，沿旧决策 6）。v2 变更：local_timeupdated 两项
+# 换 confirmed_version——库页"本地版本"列新数据源（D21 同尺）。
 ALLOWED_ORDERS: frozenset[str] = frozenset({
-    "time_updated DESC",
-    "time_updated ASC",
-    "title ASC",
-    "title DESC",
+    "time_updated DESC", "time_updated ASC",
+    "title ASC", "title DESC",
     "local_size DESC",
-    "local_timeupdated DESC",   # 本地版本（T19⑰ 扩列）
-    "local_timeupdated ASC",
-    "status ASC",               # 状态：按库内值字母序分组聚拢（T19⑰）
-    "status DESC",
-    "is_special DESC",          # 特别关注：关注的在前（单向，反向无场景）
-    "first_tracked_at DESC",
-    "first_tracked_at ASC",
+    "confirmed_version DESC", "confirmed_version ASC",
+    "status ASC", "status DESC",
+    "is_special DESC",
+    "first_tracked_at DESC", "first_tracked_at ASC",
     "last_checked_at DESC",
-    "mod_id ASC",
-    "mod_id DESC",
+    "mod_id ASC", "mod_id DESC",
 })
 
-
-# 整库导出/导入的表清单与灌库顺序（T19 dataExporter）。顺序 = 外键
-# 依赖序：父表在前（games → mods → 各子表）。灌库按此序、清库按
-# 倒序，RESTRICT 外键两头都不卡；导出的 JSON 各表也按此序，人肉
-# 打开先档案后 mod，可读。
+# ledger 导出表（D14 重定：+verdict_log，8 张；translations 是机器生成
+# 缓存不入账本；purged_mods / mod_dependencies 沿旧口径不随 ledger 走）
 LEDGER_TABLES: tuple[str, ...] = (
-    "games", "mods", "mod_snapshots", "backups",
-    "operations_log", "failed_mods", "special_mod_alerts",
+    "games", "mods", "mod_snapshots", "verdict_log",
+    "backups", "operations_log", "failed_mods", "special_mod_alerts",
 )
-# ---------- 查询结果结构（不是账本行，所以不放 models.py） ----------
-# models.py 存的是"账本里一行"的形状（Game/Mod/Backup…）；下面两个是
-# 查询服务的返回形状（多表聚合 / 联表），只被本契约与其实现使用，
-# 就近定义在契约层（modVerifier 的 VerifyResult 是同样的就近先例）。
+
 
 @dataclass
 class GameDeletionSummary:
-    """删除档案前的盘点结果。三个用途：
-    1. 删除确认弹窗把数字摆给用户看（"将删除 N 条 mod、M 条备份登记…"）
-    2. backup_paths 是登记过的备份目录完整清单——账删掉之后，磁盘上
-       要不要带走这些文件、带走哪些，由 GUI 层按用户勾选另行处理；
-       repo 只管账本，绝不碰文件系统（与 delete_backup_record 同一分工）
-    3. delete_game_deep 的返回值——删完写日志时报告删了什么
-    """
+    """沿旧版原样（删档前盘点）"""
     app_id: int
-    mod_total: int           # 档案下 mod 记录总数（含所有状态）
-    mod_deleted: int         # 其中软删除（status='deleted'）条数
-    failed_count: int        # 失效归档（failed_mods）条数
-    backup_count: int        # 备份登记条数
-    backup_bytes: int        # 登记的备份总字节数
-    backup_paths: list[str]  # 备份目录名清单（R1：账本存相对 backup_dir 的
-    # 目录名；拼回完整路径 + 过保险丝是 GUI 层的事）
+    mod_total: int
+    mod_deleted: int
+    failed_count: int
+    backup_count: int
+    backup_bytes: int
+    backup_paths: list[str]
 
 
 @dataclass
 class BackupOverviewRow:
-    """备份总览页的一行：登记信息 + 归属信息，联表一次取齐。
-    磁盘上文件还在不在，不在本结构里——repo 只管账；GUI 拿到行后
-    逐行 Path.exists() 判定"盘上"状态（与备份页「盘上」列同一分工）。
-    """
+    """沿旧版原样（备份总览联表行）"""
     backup_id: int
     mod_id: int
-    mod_title: str | None    # mod 记录可能没标题（acf 冷启动、API 未补）
-    mod_status: str          # 所属 mod 的账面状态（软删/失效的备份要能看出来）
+    mod_title: str | None
+    mod_status: str
     game_id: int
     game_name: str
     backup_path: str
@@ -108,108 +75,53 @@ class ModRepository(ABC):
     """全部数据能力的契约。唯一实现：sqliteRepository.SQLiteRepository。"""
 
     # ============ 基础设施（3） ============
+    @abstractmethod
+    def __init__(self, db_path: str | Path, *,
+                 snapshot_keep: int = 10, verdict_keep: int = 50) -> None:
+        """snapshot_keep：远端观测史滚动保留条数（D36 默认 10）。
+        verdict_keep：verdict_log 非确认行按 mod 滚动保留条数（D23，默认 50；
+        确认行不受此限——它是 confirmed_version 的票据）。"""
 
     @abstractmethod
-    def __init__(self, db_path: str | Path, *, snapshot_keep: int = 5) -> None:
-        """打开连接、设置 PRAGMA（foreign_keys=ON / WAL / busy_timeout）。
-        snapshot_keep：每个 mod 保留的快照条数，由主窗口从设置注入，
-        测试可以塞小数字快速验证滚动淘汰。
-        若库为空（user_version==0）自动执行 core/schema.sql 建表——幂等，
-        重复调用不报错，所以测试里可以随便 new 临时库。"""
-
+    def transaction(self) -> AbstractContextManager[None]: ...
     @abstractmethod
-    def transaction(self) -> AbstractContextManager[None]:
-        """事务上下文：
-        with repo.transaction():
-            repo.add_mod(a)
-            repo.add_snapshot(a.mod_id, ...)
-        块内任何异常 → 全部回滚；正常退出 → 统一 commit。
-        不要嵌套使用。迁移脚本灌 237 个 mod、导入分享包都靠它保证原子性。"""
+    def close(self) -> None: ...
 
-    @abstractmethod
-    def close(self) -> None:
-        """关闭连接。GUI 关闭事件 / 测试 teardown 时调用。"""
-
-    # ============ games（5） ============
-
+    # ============ games（5）+ 删除与总览（3） ============
+    # 签名与语义与旧契约逐字一致（add_game / get_game / list_games /
+    # update_game / delete_game / game_deletion_summary /
+    # delete_game_deep / list_backups_overview），docstring 见旧版。
+    # v2 差异：delete_game_deep 的清理范围 += verdict_log 与 translations
+    # （C 级提案③：彻底清档 = 账全清，C 级提案③：彻底清档 = 账全清；translations 随 mods CASCADE 自动）。
     @abstractmethod
     def add_game(self, app_id: int, name: str, download_dir: str,
                  game_mod_dir: str | None = None,
-                 backup_dir: str | None = None) -> None:
-        """新增游戏档案（向导步骤 3）。app_id 已存在 → IntegrityError。"""
-
+                 backup_dir: str | None = None) -> None: ...
     @abstractmethod
     def get_game(self, app_id: int) -> Game | None: ...
-
     @abstractmethod
-    def list_games(self) -> list[Game]:
-        """全部档案，按创建时间旧→新。游戏切换器用。"""
-
+    def list_games(self) -> list[Game]: ...
     @abstractmethod
     def update_game(self, app_id: int, *, name: str | None = None,
                     download_dir: str | None = None,
                     game_mod_dir: str | None = None,
-                    backup_dir: str | None = None) -> None:
-        """修改档案字段，None=不修改。app_id 不存在 → ValueError。"""
-
+                    backup_dir: str | None = None) -> None: ...
     @abstractmethod
-    def delete_game(self, app_id: int) -> None:
-        """删除档案。档案下仍有 mod 时被外键 RESTRICT 拦下 → IntegrityError。
-        这是故意的保护：防止误删带 237 个 mod 的档案。"""
-
-    # ============ 档案删除与备份总览（3） ============
-
+    def delete_game(self, app_id: int) -> None: ...
     @abstractmethod
-    def game_deletion_summary(self, app_id: int) -> GameDeletionSummary:
-        """删除前的只读盘点：数一数这个档案名下都有什么。
-        给删除确认弹窗用——先看清楚，再决定删不删（数据先可见再动手）。
-        app_id 不存在 → ValueError（口径同 update_game）。"""
-
+    def game_deletion_summary(self, app_id: int) -> GameDeletionSummary: ...
     @abstractmethod
-    def delete_game_deep(self, app_id: int) -> GameDeletionSummary:
-        """删档案连同名下全部从属记录（一个事务，要么全清要么原样）。
-
-        与 delete_game 的分工：delete_game 是带 RESTRICT 闸的低层原语
-        （名下有 mod 就拒绝，防误删）；本方法是"用户看清楚之后明确
-        要走"的完整通道，按外键依赖从子到父依次清空：
-          特殊提醒 → 快照 → 备份登记 → mod → 失效归档 → 档案
-        （提醒和快照本有 CASCADE 兜底，仍显式先删——读代码的人不用
-        背外键图也知道发生了什么。）
-
-        范围拍板：
-        - 备份登记删账；磁盘文件是否带走由 GUI 层按用户勾选另行处理
-          （repo 绝不碰文件系统）；删账前 GUI 应先做数据库备份兜底
-        - 失效归档随档案删（证据属于游戏，游戏没了证据无从谈起）
-        - 软删除的 mod 一并物理清除（档案没了没有"等恢复"可言）
-        - operations_log 不删：全局历史，设计上活得比备份久；其中
-          backup_id 指向本批备份的外键是 SET NULL，自动置空不悬空
-
-        返回删除前的盘点（= 删掉了什么，供日志报告）。
-        档案不存在 → ValueError（不进事务，动手之前就拦下）。"""
-
+    def delete_game_deep(self, app_id: int) -> GameDeletionSummary: ...
     @abstractmethod
-    def list_backups_overview(self, game_id: int | None = None) -> list[BackupOverviewRow]:
-        """备份总览页的数据源：全部备份登记联表取齐归属信息。
-        game_id=None 返回全部档案的；传则只看该档案。
-        新→旧排序（同一时刻按 id 倒序，顺序稳定）。只读，不碰磁盘。"""
+    def list_backups_overview(self, game_id: int | None = None) -> list[BackupOverviewRow]: ...
 
-
-    # ============ mods（12） ============
-
+    # ============ mods 基础（沿旧口径，判定字段换名） ============
     @abstractmethod
-    def add_mod(self, mod: Mod) -> None:
-        """插入一条 mod。mod_id 重复 → IntegrityError。
-        去重不是本方法的职责：flow 层批量导入前必须先调 filter_existing_ids，
-        这里撞主键就炸——让 bug 显式暴露，好过静默跳过。"""
-
+    def add_mod(self, mod: Mod) -> None: ...
     @abstractmethod
     def get_mod(self, mod_id: int) -> Mod | None: ...
-
     @abstractmethod
-    def filter_existing_ids(self, mod_ids: Iterable[int]) -> set[int]:
-        """传入一批 id，返回其中已存在于 mods 表的子集。
-        批量导入去重用：一条 SQL 代替 N 次 get_mod。"""
-
+    def filter_existing_ids(self, mod_ids: Iterable[int]) -> set[int]: ...
     @abstractmethod
     def list_mods(self, game_id: int, *, status: str | None = None,
                   special_only: bool = False, color_tag: str | None = None,
@@ -219,31 +131,14 @@ class ModRepository(ABC):
                   title_contains: str | None = None,
                   note_contains: str | None = None,
                   mod_id: int | None = None,
-                  size_min: int | None = None,
-                  size_max: int | None = None,
+                  size_min: int | None = None, size_max: int | None = None,
                   updated_from: int | None = None,
                   updated_to: int | None = None,
                   tags_all: Iterable[str] | None = None) -> list[Mod]:
-        """mod 列表页的万能查询（GUI 与导出共用）。
-        status: None=全部 / 'tracked' / 'downloaded' / 'deleted' / 'failed'
-        special_only: True 时只返回 is_special=1
-        color_tag: 精确匹配
-        search: 对 title / note 做 LIKE %xx%（SQLite LIKE 对 ASCII 不分大小写）
-        order_by: 必须取自 ALLOWED_ORDERS，否则 ValueError
-        limit: None=不限制（有标签筛时改为筛完再切，见下）
-        —— 以下为 T12 高级筛选新增，条件之间全部 AND 叠加，
-           None / 空 = 不限；老调用方一个字都不用改 ——
-        title_contains / note_contains: 只对 title / note 各自做 LIKE %xx%。
-          与 search 的分工：search 是两处合查的快筛，这两个分开指定
-        mod_id: 精确编号
-        size_min / size_max: 字节数。口径与列表页"大小"列一致——
-          本地 local_size 优先，acf 缺失退 API file_size；两者都缺的
-          条目不落在任何区间里（大小未知 ≠ 大小为 0）
-        updated_from / updated_to: 远端版本时间范围（epoch 秒，闭区间）；
-          time_updated 为 NULL（从没查过远端）的条目不命中任何范围
-        tags_all: 标签精确匹配、须同时全有。标签存 JSON 文本（schema
-          约定 3：数据库不做 JSON 结构化查询），实现层取回后在 Python
-          里比对——limit 因此在筛完之后生效"""
+        """参数语义沿旧契约（T12 全套保留）。两处口径换新尺：
+        - 大小口径 = COALESCE(NULLIF(local_size,0), file_size) 不变
+          （local_size 现在来自只读盘点回填，D23）
+        - 排序白名单见本文件顶部（confirmed_version 换防 local_timeupdated）"""
 
     @abstractmethod
     def update_api_metadata(self, mod_id: int, *, title: str | None = None,
@@ -258,238 +153,198 @@ class ModRepository(ABC):
                             tags: list[str] | None = None,
                             preview_url: str | None = None,
                             last_checked_at: int | None = None) -> None:
-        """Steam API 查询结果回写。None=不修改该字段。
-        只动远端侧数据（time_updated 在这里更新）；local_* 三件套是 acf 的
-        地盘，本方法绝不触碰——两套事实源互不越界。
-        last_time_updated：检测到远端版本变化时，把"当次的远端值"记下来，
-        作为下一轮检测的比较基准，也是"距上次更新多少天"的计算分母。"""
+        """检测三路写库之一（D2：沿用旧口径，判定字段换 confirmed_version）。
+        只动远端侧；confirmed_* 三件套本方法绝不触碰（R17）。"""
 
     @abstractmethod
-    def touch_checked(self, mod_ids: Iterable[int],
-                      *, checked_at: int | None = None) -> None:
-        """批量刷新 last_checked_at（默认=当前时刻）。
-        API 整体查询失败时也要调用——"检测过"这个事实本身值得记录，
-        否则"多久没检测"的展示会骗人。checked_at 参数供迁移脚本保留原时间。"""
+    def touch_checked(self, mod_ids: Iterable[int], *,
+                      checked_at: int | None = None) -> None: ...
 
-    @abstractmethod
-    def update_local_state(self, mod_id: int, *, local_timeupdated: int,
-                           manifest: str | None = None,
-                           local_size: int | None = None,
-                           status: str | None = None) -> None:
-        """acf 扫描回写本地版本三件套。status 可选随动：
-        扫描发现 acf 里有此 id 时传 'downloaded'（tracked→downloaded 的
-        状态迁移就发生在这一刻）。mod_id 不存在 → ValueError。"""
-
-    @abstractmethod
-    def update_status(self, mod_id: int, status: str) -> None:
-        """通用状态迁移（如 deleted 恢复）。status 值非法 → ValueError。"""
-
-    @abstractmethod
-    def set_note(self, mod_id: int, note: str | None) -> None:
-        """设置/清空备注（右键菜单）。None=清空。"""
-
-    @abstractmethod
-    def set_color_tag(self, mod_id: int, color_tag: str | None) -> None:
-        """设置/清除颜色标记。None=清除。"""
-
-    @abstractmethod
-    def set_special(self, mod_id: int, is_special: bool) -> None:
-        """标记/取消特别关注。"""
-
+    # ============ 状态迁移 ============
     @abstractmethod
     def mark_deleted(self, mod_id: int, last_state: dict) -> None:
-        """软删除三连（一个事务内）：status→'deleted' + deleted_at=now +
-        末态 dict 序列化进 deleted_last_state。last_state 由 flow 层组装
-        （哪些字段值得留末态是业务决定，repo 只管存取）。"""
-    @abstractmethod
-    def purge_mod(self, mod_id: int, *, purge_backups: bool = False) -> int:
-        """物理清除一条 mod 记录（「彻底清账」，决策 69）。
-
-        与 mark_deleted 的分工：软删除是"等恢复"的存放态；本方法是
-        用户看清盘点、明确要走之后的完整出口。规则：
-        - purge_backups=False（默认）且名下还有备份登记 → ValueError：
-          RESTRICT 闸的显式版——备份是用户资产和唯一旧版本来源，
-          必须先经处置决策（清理页的勾选/备份总览页正门）才许过闸；
-        - purge_backups=True：先删该 mod 的备份登记，再删 mod 行
-          （快照与特殊提醒随之消失；显式先删，与 delete_game_deep
-          同款纪律——读代码的人不用背外键图）；
-        - 刻意存活的：failed_mods 证据行（无外键证据表，旧 id 复活的
-          查询线索）与 operations_log（全局历史）；其他归档行的
-          replaced_by 指向本 id 时由外键自动置空；
-        - 本方法绝不碰文件系统——磁盘上的 content 目录、备份文件
-          归 flow/GUI 层按用户勾选另行处置（与 delete_game_deep 同一分工）。
-        返回随账清除的备份登记份数（供执行报告说数）。
-        mod_id 不存在 → ValueError。
-                - v2.49 起清账自动登记「已清账黑名单」（purged_mods 表）：扫描
-          发现该编号被 steamcmd 复活时跳过不入库，除非用户在「已清账」
-          页明确允许录入；
-"""
-
-    # ============ purged_mods 已清账黑名单（v2.49 新增，5） ============
-    @abstractmethod
-    def list_purged(self) -> list[PurgedMod]:
-        """黑名单全量，按清账时间新→旧。「已清账」页的数据源。"""
+        """软删除三连（沿旧版）。last_state 由 flow 层组装。"""
 
     @abstractmethod
-    def filter_purged(self, mod_ids: Iterable[int]) -> set[int]:
-        """批量查：传入的编号里哪些在黑名单里。扫描入库前的拦截检查。"""
-
-    @abstractmethod
-    def is_purged(self, mod_id: int) -> bool: ...
-
-    @abstractmethod
-    def remove_purged(self, mod_id: int) -> None:
-        """允许录入：移出黑名单。不在名单 → ValueError。"""
-
-    @abstractmethod
-    def add_purged(self, mod_id: int, game_id: int, *,
-                   title: str | None = None, note: str | None = None) -> None:
-        """手动加入黑名单。重复添加 = 覆盖刷新。"""
-    # ---- mod_dependencies（schema v3，依赖检测桶B）--------------
-    @abstractmethod
-    def replace_dependencies(self, mod_id: int, required_ids: list[int],
-                             fetched_at: int | None = None) -> None:
-        """★复合方法：一个事务内清旧边、写新边——依赖清单以最近
-        一次拉取为准。required_ids 允许空（真无依赖=清空）。mod 不
-        在账本 → ValueError（显式爆炸，绝不给幽灵 mod 记依赖）。"""
-
-    @abstractmethod
-    def list_dependencies(self, mod_id: int) -> list[int]:
-        """它依赖谁（工坊编号升序）。从未拉取 = 空列表。"""
-
-    @abstractmethod
-    def list_dependents(self, mod_id: int) -> list[int]:
-        """谁依赖它（反向查：处置前看谁被连坐）。"""
-
-    @abstractmethod
-    def latest_dependency_fetch(self) -> int | None:
-        """全表最大 fetched_at（"上次拉取"状态行；None=从未拉取）。"""
-
-    # ============ mod_snapshots（2） ============
-
-    @abstractmethod
-    def add_snapshot(self, mod_id: int, *, time_updated: int | None = None,
-                     manifest: str | None = None,
-                     local_timeupdated: int | None = None,
-                     snapshot_at: int | None = None) -> None:
-        """★复合方法，一个事务内：插入快照 + 滚动删除该 mod 超过保留条数
-        （构造时注入的 snapshot_keep）的更旧快照。业务规则在 repo 层实现，
-        调用方永远不用关心保留条数。
-        snapshot_at=None 表示取当前时刻；迁移脚本传原值保留历史。"""
-
-    @abstractmethod
-    def list_snapshots(self, mod_id: int) -> list[Snapshot]:
-        """某 mod 的快照，新→旧。详情页版本时间线用。"""
-
-    # ============ backups（6） ============
-
-    @abstractmethod
-    def add_backup(self, mod_id: int, backup_path: str, size_bytes: int,
-                   version_timeupdated: int, *, manifest: str | None = None,
-                   note: str | None = None) -> Backup:
-        """备份成功落盘后登记。返回的 Backup 带 id——供 operations_log
-        关联（backup_id）。backup_path 重复 → IntegrityError（UNIQUE 防
-        同一目录登记两次）。"""
-
-    @abstractmethod
-    def get_backup(self, backup_id: int) -> Backup | None: ...
-
-    @abstractmethod
-    def list_backups(self, mod_id: int | None = None, *,
-                     include_pinned: bool = True,
-                     oldest_first: bool = False) -> list[Backup]:
-        """备份列表。mod_id=None 表示全部（管理页）。
-        oldest_first=True 时旧→新——保留策略扫描时从最旧开始清腾。"""
-
-    @abstractmethod
-    def set_pinned(self, backup_id: int, pinned: bool) -> None:
-        """钉住/解钉。钉住的备份豁免自动清理。"""
-
-    @abstractmethod
-    def delete_backup_record(self, backup_id: int) -> None:
-        """只删数据库记录。磁盘目录由 backupManager 负责——两层职责
-        严格分开，本方法绝不碰文件系统。"""
-
-    @abstractmethod
-    def sum_backup_bytes(self) -> int:
-        """全部备份的总字节数。全局总量配额预检（勾选对话框的
-        "预计 X GB / 上限 Y GB"）用，一条聚合 SQL。"""
-
-    # ============ operations_log（3） ============
-
-    @abstractmethod
-    def add_operation(self, command: str, *,
-                      backup_id: int | None = None) -> int:
-        """命令执行前先登记，返回 op_id。执行后必须配对调用 finish_operation。"""
-
-    @abstractmethod
-    def finish_operation(self, op_id: int, *, error_count: int = 0,
-                         result: str | None = None) -> None:
-        """outputAnalyzer 分析完终端输出后回填结果。"""
-
-    @abstractmethod
-    def list_operations(self, limit: int = 50) -> list[OperationLog]:
-        """操作日志，新→旧。"""
-
-    # ============ failed_mods（3） ============
+    def mark_restored(self, mod_id: int) -> None:
+        """软删除恢复（旧决策 69⑦ 延续，判定字段换名）：
+        status 按 confirmed_version 回推——非空 → downloaded、
+        NULL → tracked。仅对 deleted 条目开放，其余状态 → ValueError。
+        只动账面；磁盘处置归清理页（决策 69 分工不变）。"""
 
     @abstractmethod
     def mark_failed(self, mod_id: int, reason: str) -> None:
-        """★复合方法，一个事务内：mods.status→'failed' + 复制当前字段为
-        last_known_state JSON 写入 failed_mods（mod_id 不设外键，归档独立
-        存活）。原 mods 行保留不删。mod_id 不存在 → ValueError。"""
-
-    @abstractmethod
-    def list_failed(self, game_id: int) -> list[FailedMod]:
-        """某游戏的失效归档，按 detected_at 新→旧。
-        "标题相同→建议关联"的比对由 flow 层在 Python 里做（归档量小，
-        不值得上 SQL 查 JSON）。"""
+        """★复合（沿旧版）：mods.status→failed + 末态快照（含
+        confirmed_version）写入 failed_mods。result=9 建档专用。"""
 
     @abstractmethod
     def replace_failed_mod(self, old_mod_id: int, new_mod_id: int) -> None:
-        """★复合方法（result=9 关联替换，一个事务内完成 5 步）：
-        1. 旧 mod 的 note / color_tag / is_special 迁移到新 mod
-           （仅当新 mod 对应字段为空/False 时才覆盖，不抹掉新值）
-        2. mod_snapshots 中旧 id 的快照改挂到新 id
-        3. failed_mods 中 old_mod_id 的 replaced_by = new_mod_id
-        old 或 new 不存在于 mods 表 → ValueError。"""
+        """★复合（沿旧版五步；快照改挂后按 snapshot_keep 重新裁剪）"""
 
-    # ============ special_mod_alerts（3） ============
+    @abstractmethod
+    def purge_mod(self, mod_id: int, *, purge_backups: bool = False) -> int:
+        """彻底清账（沿旧版：RESTRICT 闸显式版 / 自动登记黑名单 /
+        failed_mods 与 operations_log 刻意存活）。
+        v2 差异（C 级提案③）：一并清 verdict_log 该 mod 全部行——
+        判决史属账本，账清史清；历史证据由 failed_mods / purged_mods /
+        operations_log 承载。translations 随 mods 行 CASCADE 自动清。"""
+
+    # ============ 整理 setter（沿旧版：None=清空消歧义，决策 8） ============
+    @abstractmethod
+    def set_note(self, mod_id: int, note: str | None) -> None: ...
+    @abstractmethod
+    def set_color_tag(self, mod_id: int, color_tag: str | None) -> None: ...
+    @abstractmethod
+    def set_special(self, mod_id: int, is_special: bool) -> None: ...
+
+    # ============ ★ 确认门（R17：本地版本唯一写入点，全项目仅此三处） ============
+    @abstractmethod
+    def record_verdicts(self, items: list[dict]) -> None:
+        """批次收尾批量落 verdict_log（pending），一个事务。
+        item 形状（dict，键全可选除 mod_id/kind/game_id）：
+          mod_id, kind, game_id, version_trigger, version_query,
+          version_written, title, file_size, source, note
+        分工铁律：
+        - D4 分支（version_written / source 取值）由 flow 层算好传入，
+          repo 纯存取不推断——总禁令 R18（写入值永不高估）的守卫点在 flow；
+        - 剔黑名单（D11）在 flow 落行之前完成（黑名单三拦之一）；
+        - D39：mod 可能不在 mods 表，本方法不校验 mods 存在性。
+        落行后按 verdict_keep 滚动修剪该 mod 的非确认行（确认行豁免，
+        同 add_snapshot 滚动先例）；90 天线一并执行（D23）。"""
+
+    @abstractmethod
+    def pending_confirmations(self, game_id: int | None = None) -> list[Verdict]:
+        """确认队列：confirmed_at IS NULL 且 kind IN ('success','claim','manual')
+        的行。game_id=None 返回全部（D20 档案隔离的"其他档案 N 条"计数
+        也从带参调用拿）。按 occurred_at 新→旧。"""
+
+    @abstractmethod
+    def confirm_items(self, items: list[tuple[int, int | None, str]]) -> int:
+        """★确认门唯一写入点（D5 三入口同正门），一个事务，返回确认条数。
+        items = [(mod_id, version, source), ...]；version 必须等于该 mod
+        最新 pending 行的 version_written（D4 预算好的值，GUI 传回背书）。
+        逐条（D39 upsert 语义）：
+        1. mods 无此行 → 从其 pending verdict 行取 game_id 与
+           title/file_size 元数据建行（status=downloaded）；
+           无任何 pending 行 → ValueError（先经 record_verdicts 落判决）
+        2. 有此行 → 照旧；tracked → downloaded 迁移在此发生（D6 唯一入口）
+        3. 写 confirmed_version=version、confirmed_source=source、
+           confirmed_at=now（version=None = 版本未知态合法写入，守卫照旧拒绝备份）
+        4. 该 mod 全部 pending success/claim/manual 行填 confirmed_at
+        幂等：重复确认同一 (mod_id, version) 结果不变（D39 用例）。
+        mod_id 在黑名单 → ValueError（D11：upsert 建行之前拦截）。"""
+
+    @abstractmethod
+    def claim_accept(self, mod_id: int, version: int | None, *,
+                     source: str = "claim",
+                     local_size: int | None = None) -> None:
+        """★认领入账（D7），一个事务：
+        1. 落 verdict 行 kind='claim'、version_written=version、
+           confirmed_at=now（认领即背书，不进待确认队列）
+        2. mods upsert（同 confirm_items 语义）：建行（元数据缺 NULL
+           下轮检测补全，旧决策 20 同款）或 tracked→downloaded；
+           已 downloaded 行照录 acf 值（D7 两情形，下轮复检自愈）
+        3. local_size 可选回填（盘点顺手的展示列，R19 禁入判定）
+        黑名单 → ValueError。mtimes 与盘面其余产物禁止出现在参数里（R19）。"""
+
+    @abstractmethod
+    def revoke_confirmation(self, mod_id: int) -> None:
+        """撤销确认 = 唯一回滚（D8）：confirmed_version / confirmed_at /
+        confirmed_source 全部置 NULL，status 不动（两轴正交）。
+        verdict_log 不动（判决有史可查）。下轮检测自然重报。
+        mod 不存在 → ValueError。"""
+
+    @abstractmethod
+    def list_verdicts(self, mod_id: int, limit: int = 10) -> list[Verdict]:
+        """某 mod 最近判决（D22 详情面板"最近判决"小节），新→旧。
+        含 confirmed 与 pending——超时次数多一眼可见。"""
+
+    # ============ mod_snapshots（2，签名瘦身） ============
+    @abstractmethod
+    def add_snapshot(self, mod_id: int, *, time_updated: int | None = None,
+                     snapshot_at: int | None = None) -> None:
+        """★复合（沿旧版滚动淘汰）。v2：manifest/local_timeupdated 参数移除。"""
+    @abstractmethod
+    def list_snapshots(self, mod_id: int) -> list[Snapshot]: ...
+
+    # ============ translations（D35，2） ============
+    @abstractmethod
+    def get_translation(self, mod_id: int, target_lang: str) -> Translation | None:
+        """读缓存。命中与否由调用方对比 source_hash（失配 → 重译 REPLACE）。"""
+    @abstractmethod
+    def save_translation(self, mod_id: int, *, source_hash: str,
+                         target_lang: str, engine: str | None,
+                         text_translated: str) -> None:
+        """INSERT OR REPLACE（mod_id 主键，单条当前译文）。mod 不在账本 →
+        FK IntegrityError 上抛（简介只服务在账 mod）。"""
+
+    # ============ backups（6）/ operations_log（3）/ failed_mods 查询 /
+    #            special_mod_alerts（3）/ purged_mods（5）/ mod_dependencies（4）============
+    # 签名与语义与旧契约逐字一致，docstring 见旧版（本批不重复粘贴）。
+    @abstractmethod
+    def add_backup(self, mod_id: int, backup_path: str, size_bytes: int,
+                   version_timeupdated: int, *, manifest: str | None = None,
+                   note: str | None = None) -> Backup: ...
+    @abstractmethod
+    def get_backup(self, backup_id: int) -> Backup | None: ...
+    @abstractmethod
+    def list_backups(self, mod_id: int | None = None, *,
+                     include_pinned: bool = True,
+                     oldest_first: bool = False) -> list[Backup]: ...
+    @abstractmethod
+    def set_pinned(self, backup_id: int, pinned: bool) -> None: ...
+    @abstractmethod
+    def delete_backup_record(self, backup_id: int) -> None: ...
+    @abstractmethod
+    def sum_backup_bytes(self) -> int: ...
+
+    @abstractmethod
+    def add_operation(self, command: str, *,
+                      backup_id: int | None = None) -> int: ...
+    @abstractmethod
+    def finish_operation(self, op_id: int, *, error_count: int = 0,
+                         result: str | None = None) -> None: ...
+    @abstractmethod
+    def list_operations(self, limit: int = 50) -> list[OperationLog]: ...
+
+    @abstractmethod
+    def list_failed(self, game_id: int) -> list[FailedMod]: ...
 
     @abstractmethod
     def add_alert(self, mod_id: int, remote_time_updated: int, *,
                   diff_seconds: int | None = None,
                   was_downloaded: bool = False,
-                  note: str | None = None) -> Alert:
-        """特殊 mod 提醒落一行（每次提醒一条）。返回的 Alert 带 id。"""
+                  note: str | None = None) -> Alert: ...
+    @abstractmethod
+    def get_last_alert(self, mod_id: int) -> Alert | None: ...
+    @abstractmethod
+    def list_alerts(self, mod_id: int) -> list[Alert]: ...
 
     @abstractmethod
-    def get_last_alert(self, mod_id: int) -> Alert | None:
-        """某 mod 最近一次提醒。"同一远端版本只提醒一次"的比对依据：
-        flow 层拿 remote_time_updated 与这条记录比对。"""
+    def list_purged(self) -> list[PurgedMod]: ...
+    @abstractmethod
+    def filter_purged(self, mod_ids: Iterable[int]) -> set[int]: ...
+    @abstractmethod
+    def is_purged(self, mod_id: int) -> bool: ...
+    @abstractmethod
+    def remove_purged(self, mod_id: int) -> None: ...
+    @abstractmethod
+    def add_purged(self, mod_id: int, game_id: int, *,
+                   title: str | None = None,
+                   note: str | None = None) -> None: ...
 
     @abstractmethod
-    def list_alerts(self, mod_id: int) -> list[Alert]:
-        """提醒历史，新→旧（v1.1 后的提醒历史 UI 用）。"""
-
-    # ============ 账本导入导出（2，T19 dataExporter） ============
+    def replace_dependencies(self, mod_id: int, required_ids: list[int],
+                             fetched_at: int | None = None) -> None: ...
     @abstractmethod
-    def export_all(self) -> dict:
-        """整库倒出（T19 dataExporter 的唯一读取原语）：
-        {"user_version": 导出时的 schema 版本,
-         "tables": {表名: [行 dict, ...]}}，表序见 LEDGER_TABLES。
-        行 = dataclass 自然类型（tags 是 list、is_special 是 bool、
-        JSON 字段是 dict）——存储格式（0/1、JSON 文本）绝不越过本
-        方法（models.py 边界约定）。行内 id 等库生成值原样保留，
-        导入时据此复原跨表引用（operations_log.backup_id 等）。"""
-
+    def list_dependencies(self, mod_id: int) -> list[int]: ...
     @abstractmethod
-    def import_all(self, exported: dict) -> None:
-        """清库重灌（export_all 的逆操作，完整账本的导入语义）。
-        exported 形状同 export_all 返回值。user_version 比本库
-        PRAGMA user_version 新 → ValueError（旧程序读不懂新结构，
-        绝不硬吃）；tables 的键 ⊄ LEDGER_TABLES → ValueError；
-        任何一行不合法 → 整体回滚，绝不留半截账。
-        本方法只做自然类型 → 存储格式的转换，不做行级校验——那是
-        dataExporter 的职责。自带事务（_atomic）；外层再包
-        transaction() 也安全（自动并入）。"""
+    def list_dependents(self, mod_id: int) -> list[int]: ...
+    @abstractmethod
+    def latest_dependency_fetch(self) -> int | None: ...
+
+    # ============ 账本导入导出（沿旧口径，表集换新） ============
+    @abstractmethod
+    def export_all(self) -> dict: ...
+    @abstractmethod
+    def import_all(self, exported: dict) -> None: ...
