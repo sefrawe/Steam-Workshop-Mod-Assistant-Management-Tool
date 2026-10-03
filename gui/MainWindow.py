@@ -1,40 +1,39 @@
-"""主窗口骨架
+"""主窗口
 """
-r"""gui/MainWindow.py —— 左导航（档案切换器 + 导航树）+ 中央页面栈 +
-菜单 + 状态栏 + 全局异常兜底 + 会话记忆。V2 骨架轮交付。
-
-本轮范围（骨架可运行，页面逐轮上）：
-- 导航树按 core/constants 的 29 个 PAGE_* 编号生成——D31/D37 落地：
-  编号住 constants（"改一词全项目跟"），树结构住本文件（计划书原话
-  "树结构 _NAV_SCHEMA 留 MainWindow"）。import 时自检：漏登记、
-  重复登记、不认识的编号一律当场炸，不带病进界面；
-- 29 页全部先挂占位器：每搬迁一轮真页面，在 _build_page 加一个分支
-  原位替换，导航树 / 会话记忆 / 档案广播零改动（本文件当初为
-  "每轮可运行"定的占位器策略）；
-- 档案切换器（已搬迁）真实可用：建档对话框、AppID 查重、自动查名、
-  下载目录推导预览（推导读设置里的 steamcmd 路径——设置页未搬迁、
-  V2 的 config 是全新的，此值暂为空，目录栏显示"暂无法推导"是
-  预期，设置页轮接上即愈）；
-- 菜单本轮只挂"已经能工作"的项，宁缺毋滥、绝不挂空壳：
-  游戏=添加档案；文件=打开两个目录 + 退出；视图=侧栏显隐；
-  帮助=简版关于。账本/分享包导出导入（dataExporter 系）、
-  控制台、高级筛选、档案工具四项，随各自轮次回填；
-- 会话记忆：窗口几何 / 停靠布局 / 侧栏显隐 / 导航组折叠 / 上次档案，
-  与 V1 同一套键口径；详情面板与控制台两键随面板搬迁回补。
-
-跨页信号接线（V1 里几十条 set_game / command_gen_requested /
-一条龙等）：随对应页面搬迁逐条回补，风格照抄 V1——信号 → 主窗口
-转调或直连；本文件已留好结构位（set_game 广播循环、_goto_page、
-进页刷新钩子位）。
 """
+gui/MainWindow.py —— 左导航（档案切换器 + 导航树）+ 中央页面栈
++ 底部控制台停靠窗 + 菜单 + 状态栏 + 全局异常兜底 + 会话记忆。
+V2 骨架轮建立，控制台轮补全底部停靠窗。
+
+三条结构铁律（动这个文件前先读）：
+1. 页面编号住 core/constants（"改一词全项目跟"），树结构住本文件
+   的 _NAV_SCHEMA；import 时 _check_nav 自检——漏登记、重复登记、
+   不认识的编号当场炸，不带病进界面；
+2. 未搬迁页面一律挂 PlaceholderPage 占位：每搬迁一轮真页面，在
+   _build_page 加一个分支原位替换，导航树 / 会话记忆 / 档案广播
+   全部零改动（"每轮可运行"策略）；
+3. 页面编号即页面栈下标：程序化跳页一律走 _goto_page（会同步
+   树高亮），不许裸调 stack——跳了树不跟，用户就迷路了。
+
+跨页信号接线（set_game / 跳页请求 / 一条龙等）随对应页面搬迁逐条
+回补，风格 = 页面发信号 → 主窗口转调或直连；set_game 广播循环与
+closeEvent 收尾循环都靠 hasattr 自适应，页面搬迁零接线成本。
+
+实装进度：欢迎页、档案切换器（侧栏）、控制台（底部停靠窗，
+含 steamcmd 终端）；其余页面为占位器（见 _PAGE_TITLES 与
+_build_page 的分支表）。
+"""
+
 import sys
 import threading
 from pathlib import Path
+
 from gui.welcomePage import PROJECT_URL, WelcomePage
 from PySide6.QtCore import QSettings, Qt, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QDockWidget,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -51,11 +50,13 @@ from core import constants
 from core.appSettings import AppSettings
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
+from gui.consolePanel import ConsolePanel
 from gui.gameSwitcher import GameSwitcher
 from gui.logBus import LogBus
 
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根单源（源码=项目根\data）
 _NAV_WIDTH = 210
+
 
 # ============================================================
 # 页面显示名（单源：导航树与占位器共用，改名只动这一处）
@@ -74,15 +75,15 @@ _PAGE_TITLES: dict[int, str] = {
     constants.PAGE_GAME_EXIT: "游戏退场",
     constants.PAGE_UNINSTALL: "卸载与清理",
     constants.PAGE_COMMAND_GEN: "下载命令生成",
-    constants.PAGE_BATCH_OPEN: "批量下载",          # ※
+    constants.PAGE_BATCH_OPEN: "批量下载",  # ※
     constants.PAGE_BACKUP: "备份与恢复",
     constants.PAGE_BACKUP_OVERVIEW: "备份总览",
-    constants.PAGE_TITLE_CHECK: "标题检测",          # ※
-    constants.PAGE_REMOTE_HEALTH: "远端健康",        # ※
-    constants.PAGE_DEP_CHECK: "依赖检测",            # ※
-    constants.PAGE_EXCEPTION: "异常处理",
+    constants.PAGE_TITLE_CHECK: "标题检测",  # ※
+    constants.PAGE_REMOTE_HEALTH: "远端健康",  # ※
+    constants.PAGE_DEP_CHECK: "依赖检测",  # ※
+    constants.PAGE_EXCEPTION: "异常处理",  # ※
     constants.PAGE_VERIFY: "账实核验",
-    constants.PAGE_JUNCTION_CHECK: "联接检测",       # ※
+    constants.PAGE_JUNCTION_CHECK: "联接检测",  # ※
     constants.PAGE_CLEANUP: "清理与删除",
     constants.PAGE_PURGED: "已清账管理",
     constants.PAGE_IMPORT: "网址批量导入",
@@ -94,28 +95,46 @@ _PAGE_TITLES: dict[int, str] = {
     constants.PAGE_SETTINGS: "设置",
 }
 
+
 # ============================================================
-# 导航树结构（分组名与成员照 constants 注释里的六大组落码；
-# 组名只在这里出现一次——要改组名也是这一处）
+# 导航树结构（组名只在这里出现一次——要改组名也是这一处，
+# 并到 _LEGACY_GROUP_NAMES 登记一行旧名，老用户折叠记忆才不丢）
+#
+# 分组逻辑（控制台轮定稿）：上半棵树按"一页一个功能"分领域，
+# 唯独最底一组"分步向导"按使用方式分——收编规则：操作链长、
+# 步骤有先后、做错有代价、熟手不常用的复杂实操（首次使用开荒、
+# 五步游戏退场、七步换机迁移、恢复旧版本这类），进向导；
+# 一页一工具、随手可用的，留各领域组。原先"功能模块"组排第二位，
+# 与"下载与备份"等平级，读者会误以为"加入新 mod"和"下载命令
+# 生成"是并列的两种入口（其实是引导与单页的关系）；"主循环"
+# 则是开发者视角的词，用户看不懂——两者一并改掉。
 # ============================================================
 _NAV_SCHEMA: list[tuple[str, int | list[int]]] = [
     ("欢迎", constants.PAGE_WELCOME),
-    ("主循环", [constants.PAGE_MOD_LIST, constants.PAGE_ACCOUNT_CENTER,
+    ("工作台", [constants.PAGE_MOD_LIST, constants.PAGE_ACCOUNT_CENTER,
                 constants.PAGE_UPDATE_CHECK, constants.PAGE_UPDATE_COMPARE]),
-    ("功能模块", [constants.PAGE_ADD_MOD, constants.PAGE_DAILY_UPDATE,
-                  constants.PAGE_FIRST_USE, constants.PAGE_GAME_EXIT,
-                  constants.PAGE_UNINSTALL]),
     ("下载与备份", [constants.PAGE_COMMAND_GEN, constants.PAGE_BATCH_OPEN,
                     constants.PAGE_BACKUP, constants.PAGE_BACKUP_OVERVIEW]),
     ("检测与异常", [constants.PAGE_TITLE_CHECK, constants.PAGE_REMOTE_HEALTH,
                     constants.PAGE_DEP_CHECK, constants.PAGE_EXCEPTION]),
     ("清理与账务", [constants.PAGE_VERIFY, constants.PAGE_JUNCTION_CHECK,
                     constants.PAGE_CLEANUP, constants.PAGE_PURGED]),
-    ("档案与工具", [constants.PAGE_IMPORT, constants.PAGE_MIGRATION,
-                    constants.PAGE_RESCUE, constants.PAGE_SHARE_LIST,
+    ("档案与工具", [constants.PAGE_IMPORT, constants.PAGE_SHARE_LIST,
                     constants.PAGE_STATS, constants.PAGE_API_KEY,
                     constants.PAGE_SETTINGS]),
+    ("分步向导", [constants.PAGE_ADD_MOD, constants.PAGE_DAILY_UPDATE,
+                  constants.PAGE_FIRST_USE, constants.PAGE_GAME_EXIT,
+                  constants.PAGE_UNINSTALL, constants.PAGE_MIGRATION,
+                  constants.PAGE_RESCUE]),
 ]
+
+# 导航组改名对照（一次性迁移，只读不写）：折叠记忆按组名存盘，
+# 组改名后旧记录里的旧名靠这张表映射到新名；迁移不回写，记录里
+# 旧名长期存在也无害。今后再改组名，在此追加一行即可。
+_LEGACY_GROUP_NAMES: dict[str, str] = {
+    "主循环": "工作台",
+    "功能模块": "分步向导",
+}
 
 
 def _check_nav() -> None:
@@ -142,14 +161,16 @@ def _check_nav() -> None:
 
 _check_nav()
 
+
 # 面板显隐与几何的会话记忆（QSettings 而非 AppSettings——会话状态
 # ≠用户配置；值一律 "1"/"0" 字符串或 QByteArray）
-_SES_SIDE = "session/side_visible"
-_SES_GEOM = "session/window_geometry"   # 窗口大小与位置
-_SES_STATE = "session/window_state"     # 停靠窗布局（控制台轮起有用）
-_SES_NAV = "session/nav_expanded"       # 导航组折叠（展开的组名逗号串）
+_SES_SIDE = "session/side_visible"       # 左侧导航栏
+_SES_CONSOLE = "session/console_visible"  # 底部控制台（控制台轮补回）
+_SES_GEOM = "session/window_geometry"    # 窗口大小与位置
+_SES_STATE = "session/window_state"      # 停靠窗布局（位置/大小/浮动）
+_SES_NAV = "session/nav_expanded"        # 导航组折叠（展开的组名逗号串）
 _SES_LAST_GAME = "session/last_game_app_id"  # 上次打开的游戏档案
-# 详情面板 / 控制台两键（detail / console）随对应面板搬迁轮补回
+# 详情面板键（detail）随 mod 库页搬迁轮补回
 
 
 class PlaceholderPage(QWidget):
@@ -166,7 +187,8 @@ class PlaceholderPage(QWidget):
         small = QLabel(
             f"页面编号 {pid}（core/constants PAGE_*）\n"
             "主窗口骨架轮的占位器——该页搬迁时原位替换，"
-            "导航树与档案广播零改动", self)
+            "导航树与档案广播零改动",
+            self)
         small.setAlignment(Qt.AlignmentFlag.AlignCenter)
         small.setWordWrap(True)
         lay.addWidget(big)
@@ -175,6 +197,7 @@ class PlaceholderPage(QWidget):
 
 
 class MainWindow(QMainWindow):
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Steam创意工坊Mod辅助管理工具")
@@ -182,18 +205,22 @@ class MainWindow(QMainWindow):
 
         # 设置必须先建：数据库构造时要从中读"快照保留条数"注入
         self._settings = AppSettings()
-        # 日志总线先于页面建好，构造页面时注入。控制台面板未搬迁，
-        # 本轮日志只走文件旁路（装了 loguru 时落 data/logs/app_*.log）；
-        # 控制台轮接上面板后照旧注入，这里零改动
+
+        # 日志总线先于页面建好，构造页面时注入。控制台停靠窗
+        # （_build_docks）接住总线后，日志同时去两处：文件旁路
+        # （装了 loguru 时落 data/logs/app_*.log）+ 控制台"运行日志"页
         self._log = LogBus()
+
         # 数据库操作全在主线程（毫秒级）；联网/扫描等长操作走各自
         # 页面的工作线程
         self._repo = SQLiteRepository(
             DEFAULT_DB_PATH,
             snapshot_keep=self._settings.get_int("snapshot_keep", 5))
+
         self._current_game: Game | None = None
 
         self._build_central()
+        self._build_docks()
         self._build_menus()
         self._build_status_bar()
 
@@ -231,6 +258,7 @@ class MainWindow(QMainWindow):
         self._nav.setHeaderHidden(True)
         self._nav.setIndentation(14)
         self._nav_items: dict[int, QTreeWidgetItem] = {}  # 页面编号 → 树条目
+
         for name, spec in _NAV_SCHEMA:
             if isinstance(spec, int):
                 item = QTreeWidgetItem([name])
@@ -247,6 +275,7 @@ class MainWindow(QMainWindow):
                 group.addChild(child)
             group.setExpanded(True)
             self._nav.addTopLevelItem(group)
+
         self._nav.currentItemChanged.connect(self._on_nav_changed)
         self._nav.itemClicked.connect(self._on_nav_clicked)
         # 组折叠记忆（T19⑤）：展开收起即落盘；启动恢复在 _restore_panels。
@@ -273,23 +302,38 @@ class MainWindow(QMainWindow):
         root.addWidget(self._stack, 1)
         self.setCentralWidget(central)
 
+    def _build_docks(self) -> None:
+        """底部控制台停靠窗（控制台轮）：运行日志 + steamcmd 终端。
+        objectName 必须设——saveState/restoreState 按 objectName
+        记忆停靠布局，缺了它停靠位置/大小/浮动状态都记不住。"""
+        self._dock_console = QDockWidget("控制台", self)
+        self._dock_console.setObjectName("dock_console")
+        self._console = ConsolePanel(self._log, self,
+                                     settings=self._settings)
+        # "有新消息时弹出"的请求由面板发、本窗口执行——停靠窗是
+        # 这里建的，怎么弹归这里管（谁建谁管）
+        self._console.show_requested.connect(self._show_console)
+        self._dock_console.setWidget(self._console)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
+                           self._dock_console)
+
     def _build_page(self, pid: int) -> QWidget:
         """按编号装配一页：已搬迁的真页面 / 未搬迁的占位器。
         每轮搬迁一个页面 = 文件头 import 区加一行 + 这里加一个分支，
         导航树、会话记忆、set_game 广播全部按编号工作，零改动。分支写法：
-            if pid == constants.PAGE_WELCOME:
-                return WelcomePage(self._stack)
+        if pid == constants.PAGE_WELCOME:
+            return WelcomePage(self._stack)
         """
         if pid == constants.PAGE_WELCOME:
             return WelcomePage(self._stack)
         return PlaceholderPage(_PAGE_TITLES[pid], pid)
-
 
     def _build_menus(self) -> None:
         # —— 文件(&F)：本轮只挂目录两项 + 退出。账本/分享包导出导入
         # 走 core/dataExporter（尚未搬迁，且 v2 要按判决制适配），
         # 随其轮次回填 ——
         m_file = self.menuBar().addMenu("文件(&F)")
+
         act_open_dl = QAction("打开 steamcmd 下载目录", self)
         act_open_dl.setToolTip(
             "在文件管理器打开当前档案的 mod 下载目录（steamcmd 工坊"
@@ -298,12 +342,14 @@ class MainWindow(QMainWindow):
         act_open_dl.triggered.connect(self._open_download_dir)
         m_file.addAction(act_open_dl)
         self._act_open_download = act_open_dl  # 无档案时置灰（_on_game_changed）
+
         act_open_root = QAction("打开软件所在目录", self)
         act_open_root.setToolTip(
             "在文件管理器打开本软件的文件夹——绿色软件，账本（mods.db）"
             "等数据都在其中的 data 子目录")
         act_open_root.triggered.connect(self._open_software_dir)
         m_file.addAction(act_open_root)
+
         m_file.addSeparator()
         act_quit = QAction("退出", self)
         act_quit.setShortcut(QKeySequence.StandardKey.Quit)
@@ -321,7 +367,8 @@ class MainWindow(QMainWindow):
         act_add_game.triggered.connect(self._switcher.add_game_dialog)
         m_game.addAction(act_add_game)
 
-        # —— 视图(&V)：侧栏显隐。详情面板项随 mod 库页搬迁回填 ——
+        # —— 视图(&V)：侧栏 + 控制台两个显隐开关。详情面板项随
+        # mod 库页搬迁回填 ——
         m_view = self.menuBar().addMenu("视图(&V)")
         self._act_side = QAction("显示 / 隐藏左侧导航栏", self)
         self._act_side.setCheckable(True)
@@ -329,17 +376,31 @@ class MainWindow(QMainWindow):
         self._act_side.toggled.connect(self._toggle_side)
         m_view.addAction(self._act_side)
 
-        # —— 帮助(&H)：简版关于。图标 + 项目主页链接依赖欢迎页的
-        # 常量与 icon 资源，随欢迎页搬迁补回富版 ——
+        # 控制台显隐：toggleViewAction 是 Qt 为停靠窗准备的标准开关——
+        # 勾选状态与停靠窗显隐双向自动同步（点菜单关窗、手动关窗都会
+        # 反映到勾选上），不用手写槽，也就没有反馈环要防。
+        # 动作文字默认取窗口标题"控制台"，这里换成与侧栏项同款句式
+        self._act_console = self._dock_console.toggleViewAction()
+        self._act_console.setText("显示 / 隐藏控制台")
+        self._act_console.setToolTip(
+            "底部控制台面板（运行日志 + steamcmd 终端两个标签页）的"
+            "显隐开关；隐藏期间有新日志到达时仍会按设置自动弹出")
+        m_view.addAction(self._act_console)
+
+        # QMenu 默认不显示动作悬浮说明（T19⑩ 同款坑），逐菜单打开。
+        # 现稿 m_view 漏了这行（当时视图只有一项），本轮补上
+        m_file.setToolTipsVisible(True)
+        m_game.setToolTipsVisible(True)
+        m_view.setToolTipsVisible(True)
+
+
+        # —— 帮助(&H)：关于。图标 + 项目主页链接依赖欢迎页的
+        # 常量与 icon 资源——欢迎页已搬迁，富版已回填 ——
         m_help = self.menuBar().addMenu("帮助(&H)")
         act_about = QAction("关于…", self)
         act_about.setToolTip("查看本工具的版本与简介")
         act_about.triggered.connect(self._about)
         m_help.addAction(act_about)
-
-        # QMenu 默认不显示动作悬浮说明（T19⑩ 同款坑），逐菜单打开
-        m_file.setToolTipsVisible(True)
-        m_game.setToolTipsVisible(True)
         m_help.setToolTipsVisible(True)
 
     def _about(self) -> None:
@@ -362,7 +423,8 @@ class MainWindow(QMainWindow):
 
     # ---------- 槽 ----------
 
-    def _on_nav_changed(self, current: QTreeWidgetItem | None, _previous) -> None:
+    def _on_nav_changed(self, current: QTreeWidgetItem | None,
+                        _previous) -> None:
         if current is None:
             return
         pid = current.data(0, Qt.ItemDataRole.UserRole)
@@ -371,7 +433,8 @@ class MainWindow(QMainWindow):
             # 各页"进页刷新"钩子（V1 的 refresh 系列）随页面搬迁逐个回补
 
     def _on_nav_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
-        if item.childCount():  # 点组名 = 折叠/展开，和点小箭头等效
+        if item.childCount():
+            # 点组名 = 折叠/展开，和点小箭头等效
             item.setExpanded(not item.isExpanded())
 
     def _goto_page(self, pid: int) -> None:
@@ -383,6 +446,13 @@ class MainWindow(QMainWindow):
         if item is not None:
             self._nav.setCurrentItem(item)
 
+    def _show_console(self) -> None:
+        """自动弹出（ConsolePanel.show_requested）：控制台整个被关掉
+        而新日志到来时，把停靠窗拉回屏幕并置前。是否弹由面板按设置
+        判断，这里只管"怎么弹"。"""
+        self._dock_console.show()
+        self._dock_console.raise_()
+
     def _on_game_changed(self, game: Game | None) -> None:
         self._current_game = game
         if game is None:
@@ -390,11 +460,13 @@ class MainWindow(QMainWindow):
         else:
             self._status_game.setText(
                 f"当前游戏：{game.name}（{game.app_id}）")
+
         # set_game 广播循环：占位器没有 set_game，hasattr 自动跳过；
         # 页面搬迁后自动纳入广播，本循环零改动（V1 同款结构）
         for page in self._pages.values():
             if hasattr(page, "set_game"):
                 page.set_game(game)
+
         # 无档案时目录入口没有操作对象；添加档案不在其列——空库也能加
         # （更新确认清单"切档案自动关"随更新检测轮回补）
         self._act_open_download.setEnabled(
@@ -438,14 +510,20 @@ class MainWindow(QMainWindow):
         self._side.setVisible(visible)
 
     def closeEvent(self, event) -> None:
+        # 控制台的 steamcmd 终端先收：在跑时优雅退出（发 quit 等 3 秒，
+        # 不退才强杀）——保住 steamcmd 的登录缓存，下次启动免重新验证。
+        # 它是外部子进程，退出越早越好，所以放在所有页面收尾之前。
+        # （批次进行中的退出确认弹窗随批次轮回补：届时经 terminal 的
+        # stop_guard 拦一道，再走本收尾）
+        self._console.terminal.shutdown()
+
         # 页面若带后台线程（更新检测等），先请停再关库——占位器没有
         # shutdown，hasattr 自动跳过；页面搬迁后自动纳入
         for page in self._pages.values():
             shutdown = getattr(page, "shutdown", None)
             if callable(shutdown):
                 shutdown()
-        # （批次进行中的退出确认 + steamcmd 终端优雅退出，随控制台轮
-        #   在此处回补——那是"退出保住登录缓存"的关键步骤）
+
         self._save_panel_state()
         self._repo.close()
         super().closeEvent(event)
@@ -460,27 +538,29 @@ class MainWindow(QMainWindow):
             self._nav.topLevelItem(i).text(0)
             for i in range(self._nav.topLevelItemCount())
             if self._nav.topLevelItem(i).childCount() > 0
-            and self._nav.topLevelItem(i).isExpanded()
+               and self._nav.topLevelItem(i).isExpanded()
         ]
         q.setValue(_SES_NAV, ",".join(expanded))
 
     def _restore_nav_state(self) -> None:
         """启动恢复组折叠。无记录（首次运行）→ 维持建树默认全展开；
-        有记录 → 名单里的展开、其余收起——与关窗那一刻一模一样。"""
+        有记录 → 名单里的展开、其余收起——与关窗那一刻一模一样。
+        组改名走 _LEGACY_GROUP_NAMES 一次性映射，老用户折叠状态不丢。"""
         q = QSettings()
         raw = q.value(_SES_NAV)
         if raw is None:
             return
-        want = {s for s in str(raw).split(",") if s}
+        want = {_LEGACY_GROUP_NAMES.get(s, s)
+                for s in str(raw).split(",") if s}
         for i in range(self._nav.topLevelItemCount()):
             it = self._nav.topLevelItem(i)
             if it.childCount() > 0:
                 it.setExpanded(it.text(0) in want)
 
     def _restore_panels(self) -> None:
-        """启动恢复：窗口几何 / 停靠布局 / 侧栏显隐 / 组折叠 / 上次档案。
-        几何先恢复（saveState 含停靠布局，控制台轮起生效），再由显隐键
-        覆盖可见性。全默认 = 全显示。"""
+        """启动恢复：窗口几何 / 停靠布局 / 侧栏显隐 / 控制台显隐 /
+        组折叠 / 上次档案。几何先恢复（saveState 含停靠布局），再由
+        显隐键覆盖可见性。全默认 = 全显示。"""
         q = QSettings()
         geom = q.value(_SES_GEOM)
         if geom:
@@ -489,7 +569,17 @@ class MainWindow(QMainWindow):
         if state:
             self.restoreState(state)
         self._act_side.setChecked(str(q.value(_SES_SIDE, "1")) != "0")
+
+        # 控制台显隐：restoreState 虽也会带显隐，这里仍用独立会话键
+        # 覆盖——与侧栏同款口径（显隐状态不依赖 saveState 的二进制
+        # 内容，软件换版本也能读）；无记录 = 默认显示（停靠窗本来就
+        # 显示着，不动即可）
+        vis = q.value(_SES_CONSOLE)
+        if vis is not None:
+            self._dock_console.setVisible(str(vis) != "0")
+
         self._restore_nav_state()
+
         # 恢复上次打开的档案：构造期已按"下拉第一项"补广播过一次，
         # 这里若目标档案不同会再广播一次——各页 set_game 是毫秒级
         # 重载，两次换来"启动即停在上次的档案"，值得。
@@ -513,6 +603,8 @@ class MainWindow(QMainWindow):
         同步，这里显式写一遍求稳）。"""
         q = QSettings()
         q.setValue(_SES_SIDE, "1" if self._act_side.isChecked() else "0")
+        q.setValue(_SES_CONSOLE,
+                   "1" if self._dock_console.isVisible() else "0")
         q.setValue(_SES_GEOM, self.saveGeometry())
         q.setValue(_SES_STATE, self.saveState())
         # 上次打开的档案：存 app_id 不存名字——档案改名、重名都不会
@@ -528,6 +620,7 @@ class MainWindow(QMainWindow):
         转发）；改变的只有"报到地点"：日志同步多一条红字，主线程的
         意外再弹一个框。后台线程的钩子只发日志、不弹框——工作线程
         严禁碰控件（R11），而 LogBus 是信号总线，跨线程安全。"""
+
         def main_hook(exc_type, exc_value, exc_tb):
             self._log.error(
                 f"未处理的异常：{exc_type.__name__}: {exc_value}"
@@ -537,6 +630,7 @@ class MainWindow(QMainWindow):
                 self, "程序内部错误",
                 "发生了一个程序内部错误，详情已写入日志。\n\n"
                 f"{exc_type.__name__}: {exc_value}")
+
         sys.excepthook = main_hook
 
         def thread_hook(args) -> None:
@@ -544,4 +638,5 @@ class MainWindow(QMainWindow):
                 f"后台线程异常：{args.exc_type.__name__}: {args.exc_value}"
                 "（完整 traceback 见终端）")
             threading.__excepthook__(args)
+
         threading.excepthook = thread_hook

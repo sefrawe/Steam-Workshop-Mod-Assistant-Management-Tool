@@ -6,7 +6,7 @@ venv/
 
 # PyCharm
 .idea/
-
+config/
 # 运行时数据与缓存
 data/mods.db
 data/mods.db-wal
@@ -35,3 +35,4 @@ logs/
 /tools/acf_surgery_experiment.py
 /tools/probe_children.py
 /tools/probe_children_output.json
+
