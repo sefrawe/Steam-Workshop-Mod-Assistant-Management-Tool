@@ -141,3 +141,20 @@ def test_scoped_to_game(tmp_path):
     repo.record_verdicts([{"mod_id": 1, "kind": "claim", "game_id": 200}])
     assert repo.drop_stale_claims(100, [1]) == 0
     assert len(repo.pending_confirmations(200)) == 1
+def test_scan_skips_mods_with_pending_success(tmp_path):
+    """⑮ 配套去重：批次收尾刚落 success 待确认行的编号，扫描不再
+    落第二份 claim 候选（同一编号只允许一份待办）；大小回填照常。"""
+    base = tmp_path / "mods"
+    _make_dir(base, 777)
+    repo = _repo(tmp_path)
+    repo.add_mod(Mod(mod_id=777, game_id=_APP, status="tracked"))
+    repo.record_verdicts([
+        {"mod_id": 777, "kind": "success", "game_id": _APP,
+         "version_trigger": 100, "version_written": 100,
+         "source": "verified"},
+    ])
+    r = scan_game(repo, repo.get_game(_APP))
+    assert r.candidates_new == []
+    assert r.candidates_dup == 1
+    assert {v.kind for v in repo.pending_confirmations(_APP)} == {"success"}
+    assert repo.get_mod(777).local_size == 10   # 大小回填照常干活

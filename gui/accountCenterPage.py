@@ -294,6 +294,14 @@ class AccountCenterPage(QWidget):
             "盘面版本读不出来的认成「版本未知」")
         self._btn_claim.clicked.connect(self._on_claim_checked)
         btns.addWidget(self._btn_claim)
+        self._btn_ignore = QPushButton("忽略选中…", zone)
+        self._btn_ignore.setToolTip(
+            "把勾选候选记入「不收录」名单：今后扫描不再为它们落候选，"
+            "登记与确认/认领也会被拦（与已清账黑名单同一闸）。\n"
+            "反悔：到【已清账管理】页对相应编号【允许录入】")
+        self._btn_ignore.clicked.connect(self._on_ignore_checked)
+        btns.addWidget(self._btn_ignore)
+
         lay.addLayout(btns)
         return zone
 
@@ -648,6 +656,37 @@ class AccountCenterPage(QWidget):
             return
         if self._log is not None:
             self._log.ok(f"已认领入账 {n} 条")
+        self._reload_all()
+    def _on_ignore_checked(self) -> None:
+        """⑭ 忽略候选：记录进「已清账/不收录」侧表（与黑名单同表
+        同权——拦扫描候选、拦登记、拦确认/认领，D11 全套现成闸零
+        新增），同时清掉未确认的 claim 提案（提案随忽略作废）。"""
+        ids = self._checked_claim_ids()
+        if not ids:
+            QMessageBox.information(self, "忽略候选", "先勾选要忽略的候选。")
+            return
+        ret = QMessageBox.question(
+            self, "忽略候选",
+            f"把勾选的 {len(ids)} 个候选记入「不收录」名单？\n\n"
+            "· 今后扫描不再为它们落候选（文件夹还在也不报）；\n"
+            "· 登记与确认/认领也会被拦（与已清账黑名单同一闸）；\n"
+            "· 账本与磁盘都不动——只是不再打扰；\n"
+            "· 反悔：到【已清账管理】页对相应编号【允许录入】。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        gid = self._game.app_id if self._game is not None else None
+        if gid is None:
+            return
+        for mid in ids:  # 逐条独立（repo 单语句方法自带原子性）
+            self._repo.add_purged(mid, gid, note="盘点忽略")
+        self._repo.drop_stale_claims(gid, ids)  # 候选提案随忽略作废
+
+        if self._log is not None:
+            self._log.ok(
+                f"已忽略 {len(ids)} 条候选（今后不再落候选、登记入账"
+                "被拦；到已清账管理页可恢复收录）")
         self._reload_all()
 
     def _on_scan(self) -> None:

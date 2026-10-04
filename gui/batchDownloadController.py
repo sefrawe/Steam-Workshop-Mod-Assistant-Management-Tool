@@ -45,6 +45,7 @@ QThread 里跑；线程只调 BackupManager / SteamApiClient（前者写库沿
 原文核对后为准。
 """
 from types import SimpleNamespace
+from core import inventoryFlow
 
 from PySide6.QtCore import QThread, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
@@ -153,6 +154,24 @@ class _QueryWorker(QThread):
         finally:
             netGate.release(_GATE_OWNER)
         self.done.emit(result, error)
+class _InventoryWorker(QThread):
+    """⑮ 批次收尾自动盘点线程：scan_game 只读盘面 + 落候选提案 +
+    回填大小。放线程防大库目录步行卡住确认弹窗；写库走 repo 事务
+    （要么全成要么回滚），跨线程沿本文件备份线程先例。零控件。"""
+    done = Signal(object, str)   # (ScanReport | None, 错误说明)
+
+    def __init__(self, repo, game, steamcmd_path: str, parent=None) -> None:
+        super().__init__(parent)
+        self._repo, self._game, self._cmd = repo, game, steamcmd_path
+
+    def run(self) -> None:
+        try:
+            report = inventoryFlow.scan_game(
+                self._repo, self._game, steamcmd_path=self._cmd)
+        except (OSError, ValueError) as exc:
+            self.done.emit(None, str(exc))
+            return
+        self.done.emit(report, "")
 
 
 class BatchDownloadController(QWidget):
@@ -181,6 +200,8 @@ class BatchDownloadController(QWidget):
         self._triggers: dict[int, int] = {}   # 本轮触发值表（重试也用它）
         self._backup_worker: _BackupPhaseWorker | None = None
         self._query_worker: _QueryWorker | None = None
+        self._scan_worker: _InventoryWorker | None = None
+
         self._pending_ids: list[int] = []     # 备份阶段后的实际下载清单
         self._dropped_ids: set[int] = set()  # 备份阶段剔除的编号（批内有效）
 
@@ -367,6 +388,7 @@ class BatchDownloadController(QWidget):
 
     # ---------------- 收尾链（D4/D11/D39） ----------------
     def _on_batch_done(self, s: dict) -> None:
+
         self._flow = None
         ok = list(s.get("ok") or [])
         failed = list(s.get("failed") or [])
@@ -455,15 +477,45 @@ class BatchDownloadController(QWidget):
                 "source": source,
             })
         self._repo.record_verdicts(rows)
-
+        # 本批已给出更优判决（success 待确认）：早先扫描留下的同编号
+        # 未确认 claim 提案就此作废（提案跟随更优事实）——只删未确认
+        # claim 行，确认行与其他 kind 不动（repo 契约原样）
+        self._repo.drop_stale_claims(game.app_id,
+                                     [r["mod_id"] for r in rows])
         pending = self._repo.pending_confirmations(game.app_id)
         n_new = len(rows)
         self._log.ok(
             f"{n_new} 条已列入待确认清单（黑名单已剔除）——"
             "请核对后点【确认入账】把版本登记进账本；"
             "也可以先不管，之后在「入账中心」处理")
+        # ⑮ 批次收尾自动盘点（D23/D36，默认开）：落 pending 之后、
+        # 线程跑不等它——确认清单即刻弹，盘点完成进运行日志，候选在
+        # 入账中心②区等（页面进页自动刷新）。刚下载的编号已由上面
+        # 的去重口径跳过，这里捞的是账外内容 + 大小回填 + 失效清理
+        if self._settings.get_int("auto_inventory_after_batch", 1) != 0:
+            if self._scan_worker is not None:
+                self._log.info("上一轮收尾盘点还在跑：本批跳过自动盘点"
+                               "（需要时到入账中心手动扫）")
+            else:
+                cmd = str(self._settings.get("steamcmd_path") or "")
+                self._scan_worker = _InventoryWorker(self._repo, game, cmd)
+                self._scan_worker.done.connect(self._on_auto_inventory_done)
+                self._scan_worker.start()
         if pending:
             self.confirmation_ready.emit(pending)
+    def _on_auto_inventory_done(self, report, error: str) -> None:
+        """⑮ 收尾自动盘点回执：只进运行日志不弹窗——批次主结果
+        （确认清单）已在用户眼前，盘点是顺手的卫生工作。"""
+        self._scan_worker = None
+        if error:
+            self._log.warn(f"收尾自动盘点失败（不影响批次结果）：{error}")
+            return
+        if report is not None:
+            self._log.info(
+                f"收尾自动盘点：盘上 {report.folders_found} 个 mod 文件夹，"
+                f"新候选 {len(report.candidates_new)} 条，"
+                f"清失效 {len(report.stale_removed)} 条，大小回填 "
+                f"{report.sizes_backfilled} 条；{report.acf_note}")
 
     # ---------------- 卡片行右键 / 重试（ids_action 实现） ----------------
     def on_ids_action(self, action: str, mod_ids: list[int]) -> None:
@@ -538,7 +590,9 @@ class BatchDownloadController(QWidget):
         """程序退出收尾：批查线程等 1.5 秒，等不到 park 保活
         （线程只发网络请求不写库，强杀零数据损失——netGate 同款口径）。
         备份线程同口径（robocopy 是独立子进程，进程退场自然带走）。"""
-        for worker in (self._query_worker, self._backup_worker):
+        for worker in (self._query_worker, self._backup_worker,
+                       self._scan_worker):
+
             if worker is not None and worker.isRunning():
                 worker.wait(1500)
                 netGate.park(worker)

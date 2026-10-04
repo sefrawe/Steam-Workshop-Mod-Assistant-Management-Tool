@@ -454,10 +454,13 @@ class ModListPage(QWidget):
             self._detail.show_mod(None)  # 显式清，不押在 Qt 实现细节上
         self._reload()
 
-    def set_detail_visible(self, visible: bool) -> None:
-        """显示/隐藏右侧详情面板（视图菜单）：QSplitter 不给隐藏的
-        子控件分配空间，表格自动占满整行。"""
-        self._detail.setVisible(visible)
+    def showEvent(self, event) -> None:
+        """进页自动刷新（与入账中心同款站规）：检测落库/确认入账/认领
+        之后切回本页即是新数据，不依赖别的页面发通知；「待确认」角标
+        同步保持新鲜。"""
+        super().showEvent(event)
+        if self._game is not None:
+            self._reload()
 
     def open_advanced_search(self) -> None:
         """菜单栏顶级项「高级筛选(&S)」的落点：非模态弹出——show()
@@ -576,7 +579,14 @@ class ModListPage(QWidget):
 
         self._row_mods = rows
         self._model.set_rows(rows)
-        self._count_label.setText(f"共 {len(rows)} 个 mod")
+        # ⑪「账不平」信号：待确认角标随清单刷新（claim 归待认领区，
+        # 不计入）。不确认它一直挂着——这是判决制的记账提醒
+        _pend = [v for v in self._repo.pending_confirmations(
+            self._game.app_id) if v.kind != "claim"]
+        self._count_label.setText(
+            f"共 {len(rows)} 个 mod"
+            + (f" · 待确认 {len(_pend)}" if _pend else ""))
+
         self._apply_col_visibility()
 
         # 恢复选中：右键操作后的 reload 会走到这里，之前选中的还在

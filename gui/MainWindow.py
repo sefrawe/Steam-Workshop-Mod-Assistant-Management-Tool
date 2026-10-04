@@ -33,6 +33,7 @@ from pathlib import Path
 from gui.batchDownloadController import BatchDownloadController
 from gui.confirmListDialog import ConfirmListDialog
 from gui.accountCenterPage import AccountCenterPage
+from gui.updateCheckPage import UpdateCheckPage
 
 from gui.welcomePage import PROJECT_URL, WelcomePage
 from PySide6.QtCore import QSettings, Qt, QUrl
@@ -356,6 +357,43 @@ class MainWindow(QMainWindow):
         self._dock_console.setWidget(self._console)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
                            self._dock_console)
+    def _on_updates_found(self, app_id: int, updated_ids: list[int],
+                          triggers: dict) -> None:
+        """日常更新一条龙（D26 + D3①）：更新检测落库后，把「确有新
+        版本」的编号连同触发值（mod_id → 检测到的远端 time_updated）
+        交到这里——弹窗询问，或按「发现更新后自动开始下载」直接开批。
+        触发值随批携带，批次收尾按 D4 分支写确认基准（R18：绝不写高
+        于触发值的数）。「备份并下载」随备份轮点亮，本轮一律
+        backup_first=False。"""
+        if not updated_ids:
+            return
+        auto = self._settings.get_int("auto_download_after_check", 0) != 0
+        if not auto:
+            ret = QMessageBox.question(
+                self, "发现更新",
+                f"检测到 {len(updated_ids)} 个 mod 有新版本。\n"
+                "现在交给「下载批次」逐条下载吗？\n\n"
+                "（勾选更新检测页的「发现更新后自动开始下载」可跳过本"
+                "询问；暂缓也不丢——编号已在账本，随时可在 mod 库页"
+                "勾选下载）",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if ret != QMessageBox.StandardButton.Yes:
+                self._log.info(
+                    f"已暂缓 {len(updated_ids)} 个更新——可到 mod 库页"
+                    "勾选「下载选中项」随时开始")
+                return
+        if self._batch_ctrl.is_busy():
+            self._log.warn(
+                f"更新下载未开始：已有批次在跑——这 {len(updated_ids)} 个"
+                "编号已在账本，批次结束后到 mod 库页勾选下载即可")
+            return
+        ok = self._batch_ctrl.start_batch(
+            app_id, updated_ids, backup_first=False,
+            trigger_versions=triggers)
+        if ok:
+            self._console.show_batch_tab()   # 受理即切到批次页看进度
+        # start_batch False 时拒绝原因已进运行日志
 
     def _build_page(self, pid: int) -> QWidget:
         """按编号装配一页：已搬迁的真页面 / 未搬迁的占位器。
@@ -371,6 +409,11 @@ class MainWindow(QMainWindow):
         if pid == constants.PAGE_ACCOUNT_CENTER:
             return AccountCenterPage(self._repo, self._settings,
                                      parent=self._stack, log=self._log)
+        if pid == constants.PAGE_UPDATE_CHECK:
+            page = UpdateCheckPage(self._repo, self._settings,
+                                   parent=self._stack, log=self._log)
+            page.updates_found.connect(self._on_updates_found)
+            return page
 
         return PlaceholderPage(_PAGE_TITLES[pid], pid)
 

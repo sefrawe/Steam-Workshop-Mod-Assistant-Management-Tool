@@ -86,8 +86,12 @@ def scan_game(repo, game, *, steamcmd_path: str | None = None) -> ScanReport:
     versions = _read_versions(game.app_id, base, steamcmd_path, report)
 
     # ---- 现状一次拿齐（读侧）----
-    pending_claims = {v.mod_id for v in repo.pending_confirmations(game.app_id)
-                      if v.kind == "claim"}
+    pending_rows = repo.pending_confirmations(game.app_id)
+    pending_claims = {v.mod_id for v in pending_rows if v.kind == "claim"}
+    # 去重口径 = 任何未确认提案（claim 候选 / 批次 success 待确认）：
+    # 同一编号只允许一份待办——成功条目已在确认清单排队，扫描不再
+    # 为它们落第二份 claim 候选（stale 清理仍只认 claim 行）
+    pending_any = {v.mod_id for v in pending_rows}
     purged = repo.filter_purged(folders.keys())
 
     sizes: dict[int, int] = {}
@@ -104,7 +108,7 @@ def scan_game(repo, game, *, steamcmd_path: str | None = None) -> ScanReport:
         if mid in purged:
             report.skipped_other += 1            # 黑名单（D11 同款）
             continue
-        if mid in pending_claims:
+        if mid in pending_any:
             report.candidates_dup += 1           # 幂等：提案已在队列
             continue
         ver = versions.get(mid)
