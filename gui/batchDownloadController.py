@@ -60,9 +60,9 @@ from core.modRepository import ModRepository
 from core.steamApiClient import SteamApiClient, SteamApiError
 from gui.logBus import LogBus
 from gui.modFolderOpener import open_mod_folder
+# 备份引擎的保留策略参数在 _BackupPhaseWorker 构造时从设置页现读：
+# backup_keep_per_mod / backup_total_quota_gb 两键（core/appSettings.DEFAULTS）。
 
-# 备份引擎的保留策略参数：本轮沿引擎默认（每 mod 留 1 份、不限总量）。
-# 设置页键名随备份轮搬迁时回填（不猜键名——v1.3 教训）。
 # 批查互斥占用名：netGate 的 owner 是任意字符串，这里不冒用
 # "更新检测"的名字（占用提示要说实话）。
 _GATE_OWNER = constants.NET_GATE_BATCH_QUERY  # 批查互斥占用名（constants 单源）
@@ -92,12 +92,26 @@ class _BackupPhaseWorker(QThread):
         self._repo = repo
         self._game = game
         self._ids = list(mod_ids)
-        self._steamcmd_path = (str(settings.get("steamcmd_path") or "").strip()
-                               if settings is not None else "")
+        # steamcmd 路径 + 保留策略两键，构造时读一次即可：备份阶段
+        # 生命周期 = 一次批次，中途改设置下一批生效
+        if settings is not None:
+            self._steamcmd_path = str(settings.get("steamcmd_path") or "").strip()
+            # 每个 mod 保留几份（默认 3；兜底至少 1）
+            self._keep = max(1, int(settings.get_int("backup_keep_per_mod", 3)))
+            # 全部备份总量上限（GB → 字节；填 0 = 不限）
+            gb = int(settings.get_int("backup_total_quota_gb", 10))
+            self._quota = gb * 2 ** 30 if gb > 0 else None
+        else:
+            self._steamcmd_path = ""
+            self._keep = 1
+            self._quota = None
 
     def run(self) -> None:
         # 按次构造引擎（同备份页模式：参数每次从设置现读）
-        mgr = BackupManager(self._repo, steamcmd_path=self._steamcmd_path)
+        mgr = BackupManager(self._repo, keep_per_mod=self._keep,
+                            quota_bytes=self._quota,
+                            steamcmd_path=self._steamcmd_path)
+
         from pathlib import Path
         ok_n = 0
         dropped = 0

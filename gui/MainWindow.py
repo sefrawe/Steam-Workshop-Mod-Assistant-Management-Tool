@@ -30,10 +30,14 @@ closeEvent 收尾循环都靠 hasattr 自适应，页面搬迁零接线成本。
 import sys
 import threading
 from pathlib import Path
+from gui.backupOverviewPage import BackupOverviewPage
+from gui.backupPage import BackupPage
+
 from gui.batchDownloadController import BatchDownloadController
 from gui.confirmListDialog import ConfirmListDialog
 from gui.accountCenterPage import AccountCenterPage
 from gui.updateCheckPage import UpdateCheckPage
+from gui.updateSelectDialog import UpdateSelectDialog
 
 from gui.welcomePage import PROJECT_URL, WelcomePage
 from PySide6.QtCore import QSettings, Qt, QUrl
@@ -235,6 +239,11 @@ class MainWindow(QMainWindow):
         # 面板（自取终端与批次卡片）、账本、设置与日志；接线三条
         # 终端信号 + 一条收尾信号。先于 _on_game_changed 建：那里
         # 要按档案关闭确认清单
+        # 更新确认清单（备份轮）：非模态工作台，引用挂住防 GC；
+        # _pending_triggers = 弹清单时的触发值暂存，随执行开批带给
+        # 批次收尾的 D4 分支（清单关闭即清）
+        self._update_dialog: UpdateSelectDialog | None = None
+        self._pending_triggers: dict | None = None
         self._confirm_dialog: ConfirmListDialog | None = None
         self._batch_ctrl = BatchDownloadController(
             self._repo, self._settings, self._log, console=self._console)
@@ -334,6 +343,11 @@ class MainWindow(QMainWindow):
         # 检测页（M3），此处是普通下载批次
         if hasattr(modlib, "download_requested"):
             modlib.download_requested.connect(self._on_download_requested)
+        # mod 库页【备份选中项】（信号已留好；V2 的 mod 库页还没挂
+        # 触发它的菜单项——先接线，落点就绪，谁发谁到）
+        if hasattr(modlib, "backup_requested"):
+            modlib.backup_requested.connect(self._on_backup_requested)
+
 
         # 启动默认落「欢迎」页（setCurrentItem 会触发 currentItemChanged，
         # 与手点同一条路，栈已就位）
@@ -357,43 +371,108 @@ class MainWindow(QMainWindow):
         self._dock_console.setWidget(self._console)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
                            self._dock_console)
+
     def _on_updates_found(self, app_id: int, updated_ids: list[int],
                           triggers: dict) -> None:
         """日常更新一条龙（D26 + D3①）：更新检测落库后，把「确有新
         版本」的编号连同触发值（mod_id → 检测到的远端 time_updated）
-        交到这里——弹窗询问，或按「发现更新后自动开始下载」直接开批。
-        触发值随批携带，批次收尾按 D4 分支写确认基准（R18：绝不写高
-        于触发值的数）。「备份并下载」随备份轮点亮，本轮一律
-        backup_first=False。"""
+        交到这里。两条路：
+
+        - 自动路（检测页勾了「发现更新后自动开始下载」）：不询问
+          直接开批，一律不带备份——无人值守的批次不夹带备份阶段
+          （版本未知条目会被备份守卫剔出批次，违背"自动下载"的
+          直觉）；要备份，关掉自动勾选，走人工路。
+        - 人工路：弹非模态「更新确认清单」——勾选条目、选动作
+          （备份+更新 / 仅更新）、可分批反复执行。触发值随批携带
+          （批次收尾按 D4 分支写确认基准，R18：绝不写高于触发值的数）。
+        """
         if not updated_ids:
             return
         auto = self._settings.get_int("auto_download_after_check", 0) != 0
-        if not auto:
-            ret = QMessageBox.question(
-                self, "发现更新",
-                f"检测到 {len(updated_ids)} 个 mod 有新版本。\n"
-                "现在交给「下载批次」逐条下载吗？\n\n"
-                "（勾选更新检测页的「发现更新后自动开始下载」可跳过本"
-                "询问；暂缓也不丢——编号已在账本，随时可在 mod 库页"
-                "勾选下载）",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No)
-            if ret != QMessageBox.StandardButton.Yes:
-                self._log.info(
-                    f"已暂缓 {len(updated_ids)} 个更新——可到 mod 库页"
-                    "勾选「下载选中项」随时开始")
+        if auto:
+            # ——自动路（D16 语义原样：直接下载）——
+            if self._batch_ctrl.is_busy():
+                self._log.warn(
+                    f"更新下载未开始：已有批次在跑——这 {len(updated_ids)} 个"
+                    "编号已在账本，批次结束后到 mod 库页勾选下载即可")
                 return
+            ok = self._batch_ctrl.start_batch(
+                app_id, updated_ids, backup_first=False,
+                trigger_versions=triggers)
+            if ok:
+                self._console.show_batch_tab()  # 受理即切到批次页看进度
+            # start_batch False 时拒绝原因已进运行日志
+            return
+        # ——人工路：弹更新确认清单（备份轮点亮：⑳「备份并下载」
+        #    由清单里选「备份+更新」动作承担）——
+        # 非模态三件套之一：同刻至多一份，先关旧的再开新的（旧清单
+        # 未执行的勾选随之作废，日志说一声）
+        if self._update_dialog is not None:
+            self._update_dialog.close()  # close 触发 finished → 引用清理
+            self._update_dialog = None
+            self._log.info("上一份更新清单被新结果替换（未执行的勾选已作废）")
+        # 清单要 mod 整行（标题/版本/大小/链接）。逐个现取：检测刚
+        # 写完库，取到的就是最新字段；顺序 = 检测报告顺序 = 库内顺序
+        mods = []
+        for mid in updated_ids:
+            m = self._repo.get_mod(mid)
+            if m is not None:
+                mods.append(m)
+        if not mods:
+            return  # 编号都在而行都不在：账本被动过——不弹空清单
+        # 触发值暂存到清单关闭为止：分批执行时每批都带全量，
+        # 控制器按本批编号取用（多余键无害）
+        self._pending_triggers = dict(triggers)
+        dlg = UpdateSelectDialog(mods, app_id, parent=self)
+        dlg.execute_requested.connect(self._on_update_execute_requested)
+        dlg.finished.connect(self._on_update_dialog_finished)
+        self._update_dialog = dlg
+        dlg.show()
+        self._log.info(
+            f"检测到 {len(mods)} 个 mod 有新版本——更新确认清单已打开"
+            "（勾选条目、选动作、点【执行选中】）")
+
+    def _on_update_execute_requested(self, app_id: int, action: str,
+                                     mod_ids: list[int]) -> None:
+        """清单【执行选中】的落点（受理回执制）：开批成功 →
+        mark_executed（留痕 + 清勾选，清单还开着可继续操作剩下的）；
+        没成功 → notify_not_started（勾选原样保留，修好原因再点）。
+        「备份+更新」= backup_first=True：备份阶段逐条先备份当前
+        版本再下载；本地版本未确认的条目会被备份守卫整条剔出批次
+        （清单行上有预告）——先到 mod 库页右键【设定本地版本…】。"""
+        dlg = self._update_dialog
+        if dlg is None:
+            return  # 理论到不了：信号只会来自存活的清单
+        # 档案一致性保险丝：清单存活期间档案不该被切（切档案即关
+        # 清单），这里再校一道——对不上就拒绝，绝不往错档案开批
+        if self._current_game is None or self._current_game.app_id != app_id:
+            dlg.notify_not_started(
+                "清单归属的档案已不是当前档案——请关掉清单重新检测")
+            return
         if self._batch_ctrl.is_busy():
-            self._log.warn(
-                f"更新下载未开始：已有批次在跑——这 {len(updated_ids)} 个"
-                "编号已在账本，批次结束后到 mod 库页勾选下载即可")
+            dlg.notify_not_started(
+                "已有批次在跑（底部控制台·下载批次）——等它结束再点执行")
             return
         ok = self._batch_ctrl.start_batch(
-            app_id, updated_ids, backup_first=False,
-            trigger_versions=triggers)
+            app_id, mod_ids,
+            backup_first=(action == UpdateSelectDialog.ACT_BACKUP),
+            trigger_versions=self._pending_triggers or {})
         if ok:
-            self._console.show_batch_tab()   # 受理即切到批次页看进度
-        # start_batch False 时拒绝原因已进运行日志
+            dlg.mark_executed(action, mod_ids)
+            # 不强制切页：清单是工作台，可能还要继续勾下一组；进度
+            # 在底部控制台·「下载批次」，想看随时切
+        else:
+            # 拒绝原因控制器已写进运行日志；清单给常见指引即可
+            dlg.notify_not_started(
+                "常见原因 = steamcmd 未启动/未登录、下载目录未设置"
+                "——详见底部控制台·运行日志")
+
+    def _on_update_dialog_finished(self, _result: int) -> None:
+        """清单关闭（点【完成】/点 X/切档案时被关）的统一收尾：清
+        引用与触发值暂存。close() 也走这里（QDialog 关闭即发
+        finished），所以无论哪种关法引用都不会悬着。"""
+        self._update_dialog = None
+        self._pending_triggers = None
 
     def _build_page(self, pid: int) -> QWidget:
         """按编号装配一页：已搬迁的真页面 / 未搬迁的占位器。
@@ -414,6 +493,12 @@ class MainWindow(QMainWindow):
                                    parent=self._stack, log=self._log)
             page.updates_found.connect(self._on_updates_found)
             return page
+        if pid == constants.PAGE_BACKUP:
+            return BackupPage(self._repo, self._settings,
+                              parent=self._stack, log=self._log)
+        if pid == constants.PAGE_BACKUP_OVERVIEW:
+            return BackupOverviewPage(self._repo, self._settings,
+                                      parent=self._stack, log=self._log)
 
         return PlaceholderPage(_PAGE_TITLES[pid], pid)
 
@@ -541,7 +626,13 @@ class MainWindow(QMainWindow):
         pid = current.data(0, Qt.ItemDataRole.UserRole)
         if isinstance(pid, int):
             self._stack.setCurrentIndex(pid)
-            # 各页"进页刷新"钩子（V1 的 refresh 系列）随页面搬迁逐个回补
+            # 进页刷新钩子（备份总览轮起启用）：页面自带 refresh()
+            # 就调——总览页是跨档案大盘，在备份页做过备份/删除再进
+            # 总览，不刷新看到的还是旧账；hasattr 守卫，谁有谁被调
+            page = self._pages.get(pid)
+            refresher = getattr(page, "refresh", None)
+            if callable(refresher):
+                refresher()
 
     def _on_nav_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         if item.childCount():
@@ -605,6 +696,13 @@ class MainWindow(QMainWindow):
         if self._confirm_dialog is not None:
             self._confirm_dialog.close()
             self._confirm_dialog = None
+        # 更新确认清单同款处理（非模态三件套之二）：批次归属 = 清单
+        # 打开那一刻的档案，档案能切但归属不能跟着变——干脆关掉重开
+        if self._update_dialog is not None:
+            self._update_dialog.close()
+            self._update_dialog = None
+        self._pending_triggers = None
+
 
 
     def _open_download_dir(self) -> None:
@@ -645,6 +743,16 @@ class MainWindow(QMainWindow):
         if self._batch_ctrl.start_batch(
                 app_id, mod_ids, backup_first=False, trigger_versions=None):
             self._console.show_batch_tab()
+    def _on_backup_requested(self, app_id: int, mod_ids: list) -> None:
+        """mod 库页【备份选中项】的落点：转备份页执行并跳过去。
+        备份页的 backup_ids_for 会自己切到对应档案、过滤出可备份
+        （已下载）的 mod 再开批次——用户在 A 游戏的库页勾选、备份页
+        正停在 B 游戏也不会备错家。"""
+        page = self._pages.get(constants.PAGE_BACKUP)
+        fn = getattr(page, "backup_ids_for", None)
+        if callable(fn):
+            fn(app_id, mod_ids)
+            self._goto_page(constants.PAGE_BACKUP)
 
     def _on_download_batch_requested(self, app_ids: list, mod_ids: list) -> None:
         """终端转批次裁决（受理回执制）：终端只解析与发请求，
