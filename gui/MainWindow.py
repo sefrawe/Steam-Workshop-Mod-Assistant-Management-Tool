@@ -32,6 +32,7 @@ import threading
 from pathlib import Path
 from gui.batchDownloadController import BatchDownloadController
 from gui.confirmListDialog import ConfirmListDialog
+from gui.accountCenterPage import AccountCenterPage
 
 from gui.welcomePage import PROJECT_URL, WelcomePage
 from PySide6.QtCore import QSettings, Qt, QUrl
@@ -367,6 +368,10 @@ class MainWindow(QMainWindow):
         if pid == constants.PAGE_MOD_LIST:
             return ModListPage(self._repo, self._settings,
                                parent=self._stack, log=self._log)
+        if pid == constants.PAGE_ACCOUNT_CENTER:
+            return AccountCenterPage(self._repo, self._settings,
+                                     parent=self._stack, log=self._log)
+
         return PlaceholderPage(_PAGE_TITLES[pid], pid)
 
     def _build_menus(self) -> None:

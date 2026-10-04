@@ -51,6 +51,8 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from core import constants, netGate
+from core.urlParser import WORKSHOP_URL_TEMPLATE
+
 from core.backupManager import BackupManager, steamcmd_running
 from core.batchDownloadFlow import BatchDownloadFlow, resolve_written
 from core.modRepository import ModRepository
@@ -472,8 +474,9 @@ class BatchDownloadController(QWidget):
             self._log.info(f"已复制 {len(mod_ids)} 个编号到剪贴板")
         elif action == "open_pages":
             for mid in mod_ids:
-                QDesktopServices.openUrl(QUrl(constants.WORKSHOP_URL_TEMPLATE
-                                              .format(mod_id=mid)))
+                QDesktopServices.openUrl(QUrl(WORKSHOP_URL_TEMPLATE
+                                              .format(mid)))
+
         elif action == "open_folders":
             game = self._game or self._current_game_fallback()
             if game is None:
