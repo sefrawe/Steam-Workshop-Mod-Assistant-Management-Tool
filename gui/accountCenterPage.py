@@ -392,6 +392,11 @@ class AccountCenterPage(QWidget):
     def showEvent(self, event) -> None:   # 进页自动刷新（导航钩子零接线）
         super().showEvent(event)
         self._reload_all()
+    def start_inventory_scan(self) -> None:
+        """跨页入口（换机迁移⑦、恢复旧版本③等模块页的「盘点确认」
+        落点）：与页内【扫描游戏目录】完全同一个动作——无档案时
+        _on_scan 自己会弹提示，扫描进行中也有互斥保护，不用另写。"""
+        self._on_scan()
 
     def _reload_all(self) -> None:
         self._reload_pending()
