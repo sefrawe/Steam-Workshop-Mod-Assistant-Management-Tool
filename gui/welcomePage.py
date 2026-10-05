@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import appPaths
+from gui.theme import font_px  # 字号单源（D25）
 
 # ---- 本文件的两个"身份证"常量 ----
 # 项目主页地址唯一定义点：主窗口「关于」对话框 import 这一份用。
@@ -106,7 +107,7 @@ class WelcomePage(QWidget):
         text.setSpacing(2)
 
         title = QLabel("Steam 创意工坊 Mod 辅助管理工具", head)
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(20)}px; font-weight: 600;")
         text.addWidget(title)
 
         # 版本号读全局（main.py setApplicationVersion 设定，当前 2.0.0）。
@@ -114,7 +115,7 @@ class WelcomePage(QWidget):
         ver = QApplication.applicationVersion()
         if ver:
             ver_label = QLabel(f"版本 {ver}", head)
-            ver_label.setStyleSheet("font-size: 12px;")
+            ver_label.setStyleSheet(f"font-size: {font_px(12)}px;")
             text.addWidget(ver_label)
 
         slogan = QLabel(
@@ -386,7 +387,7 @@ class WelcomePage(QWidget):
         靠这里拉开层级）。空字符串行会塌成 0 高，所以空行一律传
         一个空格 " "。"""
         head = QLabel(title, self)
-        head.setStyleSheet("font-size: 15px; font-weight: 600;")
+        head.setStyleSheet(f"font-size: {font_px(15)}px; font-weight: 600;")
         head.setContentsMargins(0, 12, 0, 2)
         self._body.addWidget(head)
         for text in lines:

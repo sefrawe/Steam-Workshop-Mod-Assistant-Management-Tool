@@ -55,6 +55,7 @@ from PySide6.QtWidgets import (
 from core import steamPaths
 from core.models import Game
 from gui.logBus import LogBus
+from gui.theme import font_px  # 字号单源（D25）
 
 # 状态 → (颜色, 结论一句话)。命令显隐与步骤文案在 _refresh 里按状态分派
 _STATE_LOOKS = {
@@ -111,7 +112,7 @@ class JunctionCheckPage(QWidget):
         v.setSpacing(10)
 
         title = QLabel("联接检测", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         v.addWidget(title)
 
         self._game_label = QLabel("", self)

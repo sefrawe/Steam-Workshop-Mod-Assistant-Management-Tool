@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from gui.batchOpenDialog import BatchOpenDialog
 from gui.logBus import LogBus
+from gui.theme import font_px  # 字号单源（D25）
 
 _C_MUTED = "#8a8a8f"
 
@@ -39,7 +40,7 @@ class BatchOpenPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("批量下载", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         note = QFrame(self)
@@ -63,7 +64,7 @@ class BatchOpenPage(QWidget):
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)
-            lbl.setStyleSheet("border:none; color:#8a8a8f; font-size:12px;")
+            lbl.setStyleSheet(f"border:none; color:#8a8a8f; font-size: {font_px(12)}px;")
             nb.addWidget(lbl)
         root.addWidget(note)
 

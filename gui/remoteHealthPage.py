@@ -25,6 +25,7 @@ from core.steamApiClient import SteamApiClient
 from gui.logBus import LogBus
 from gui.remoteQueryWorker import RemoteQueryWorker, workshop_item_to_entry
 from workflows import exceptionFlow
+from gui.theme import font_px  # 字号单源（D25）
 
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
@@ -62,7 +63,7 @@ class RemoteHealthPage(QWidget):
         self.root_layout = root
 
         title = QLabel("远端健康", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         self._game_label = QLabel(self)

@@ -45,7 +45,7 @@ except ImportError:  # pragma: no cover - 环境差异路径
 from PySide6.QtCore import QMargins, Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtGui import QPainter
-from gui.theme import current_mode, system_prefers_dark
+from gui.theme import current_mode, system_prefers_dark, font_px
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
@@ -83,7 +83,7 @@ class StatsPage(QWidget):
         root.setSpacing(8)
         head = QHBoxLayout()
         title = QLabel("统计", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         head.addWidget(title)
         head.addStretch(1)
         btn = QPushButton("刷新", self)
@@ -142,7 +142,7 @@ class StatsPage(QWidget):
 
     def _add_section(self, title: str, lines: list[str]) -> None:
         head = QLabel(title, self)
-        head.setStyleSheet("font-size: 14px; font-weight: 600;")
+        head.setStyleSheet(f"font-size: {font_px(14)}px; font-weight: 600;")
         self._body.addWidget(head)
         body = QLabel("\n".join(lines), self)
         body.setWordWrap(True)

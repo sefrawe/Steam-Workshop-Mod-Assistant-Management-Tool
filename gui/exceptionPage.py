@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QTableWidget, QTableWidgetItem, QToolButton,
     QVBoxLayout, QWidget, QInputDialog,
 )
+from gui.theme import font_px
 
 from core import constants, netGate, steamPaths   # ★ 待核：netGate 若在 gui 包改这行
 from core.models import Game
@@ -56,6 +57,7 @@ from gui.logBus import LogBus
 from gui.modFolderOpener import open_mod_folder
 from gui.remoteQueryWorker import RemoteQueryWorker, workshop_item_to_entry
 from workflows import exceptionFlow
+from gui.theme import font_px  # 字号单源（D25）
 
 # 与批量下载步骤卡片一致的配色，按用途命名
 _C_OK = "#46a758"      # 无异常
@@ -140,7 +142,7 @@ class _BucketCard(QFrame):
     def add_text(self, text: str, color: str = _C_MUTED) -> QLabel:
         lbl = QLabel(text, self)
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(f"border:none; color:{color}; font-size:12px;")
+        lbl.setStyleSheet(f"border:none; color:{color}; font-size:{font_px(12)}px;")
         self._box.addWidget(lbl)
         return lbl
 
@@ -204,7 +206,7 @@ class ExceptionPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("异常处置", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         self._game_label = QLabel(self)

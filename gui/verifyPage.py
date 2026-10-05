@@ -55,6 +55,7 @@ from core.formatters import status_zh          # V2：formatters 住 core
 from gui.logBus import LogBus                  # V2：LogBus 独立成文件
 from gui.modFolderOpener import open_mod_folder
 from gui.collapsibleSection import CollapsibleSection as _Section
+from gui.theme import font_px  # 字号单源（D25）
 
 # 表格 6 列：勾选列（"选"）已随收录/确认退役
 _COLUMNS = ["编号", "标题", "账本状态", "盘上情况", "建议", "操作"]
@@ -134,7 +135,7 @@ class VerifyPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("账实核验", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         self._game_label = QLabel(self)
@@ -264,7 +265,7 @@ class VerifyPage(QWidget):
         for text in _GUIDE_PARAS:
             lbl = QLabel(text, body)
             lbl.setWordWrap(True)
-            lbl.setStyleSheet("color: #8a8a8f; font-size:12px;")
+            lbl.setStyleSheet(f"color: #8a8a8f; font-size: {font_px(12)}px;")
             bv.addWidget(lbl)
         bv.addStretch(1)
         wrap = QScrollArea(self)

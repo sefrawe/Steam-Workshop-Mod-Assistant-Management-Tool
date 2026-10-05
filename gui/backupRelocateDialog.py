@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 from core import backupRelocate, steamPaths
 from core.models import Game
 from gui.logBus import LogBus
+from gui.theme import font_px  # 字号单源（D25）
 
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
@@ -79,7 +80,7 @@ class BackupRelocateDialog(QDialog):
         v = QVBoxLayout(self)
 
         title = QLabel("重定位备份目录", self)
-        title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(16)}px; font-weight: 600;")
         v.addWidget(title)
 
         cur_text = self._current if self._current else "（未设置）"
@@ -115,7 +116,7 @@ class BackupRelocateDialog(QDialog):
             "备份文件夹搬去了别处，就把它现在真正在的路径填进来。",
             self)
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
         v.addWidget(hint)
 
         self._preview = QLabel("", self)

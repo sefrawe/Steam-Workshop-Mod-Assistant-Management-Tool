@@ -48,6 +48,7 @@ from core.models import Game
 from core.steamPaths import client_library_roots, workshop_content_dir
 from gui.consolePanel import LogBus
 from workflows.intakeFlow import ClientIntakePlan, apply_intake, classify_client_items
+from gui.theme import font_px  # 字号单源（D25）
 
 # 与加入新 mod 页、日常更新页一致的配色，按用途命名
 _C_OK = "#46a758"     # 完成 / 就绪
@@ -120,7 +121,7 @@ class FirstUsePage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("首次使用", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         # 说明块（每个功能模块页自带"流程 / 为什么 / 术语与关系"）
@@ -151,7 +152,7 @@ class FirstUsePage(QWidget):
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)  # 可能变长的标签一律开换行
-            lbl.setStyleSheet("border:none; color:#8a8a8f; font-size:12px;")
+            lbl.setStyleSheet(f"border:none; color:#8a8a8f; font-size: {font_px(12)}px;")
             nb.addWidget(lbl)
         root.addWidget(note)
 
@@ -214,7 +215,7 @@ class FirstUsePage(QWidget):
         self._d4, box4 = self._make_card("step4", "④ 纳入客户端已有的 mod")
         self._intake_detail = QLabel("", self)
         self._intake_detail.setWordWrap(True)
-        self._intake_detail.setStyleSheet("border:none; font-size:12px;")
+        self._intake_detail.setStyleSheet(f"border:none; font-size: {font_px(12)}px;")
         box4.addWidget(self._intake_detail)
         row_dir = QHBoxLayout()
         # ④ 目录框 = 可编辑下拉：注册表 + libraryfolders.vdf 探测到的

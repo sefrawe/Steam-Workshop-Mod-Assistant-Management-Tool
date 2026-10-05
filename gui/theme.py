@@ -113,3 +113,44 @@ def system_prefers_dark() -> bool:
             return value == 0
     except Exception:
         return False
+# —— 界面字号缩放（D25）——
+# 两把尺同源：apply_font_scale 管全局字体（没写样式的控件吃它），
+# font_px 管样式表里写死的 px（QSS 优先级高，setFont 拉不动，
+# 必须逐处现算）。值都以启动时读取为准——改设置后重启生效。
+_SCALE_CACHE: float | None = None
+
+
+def _font_scale() -> float:
+    """读「界面字号缩放」百分比 → 倍率。缺键/非法/范围外一律 1.0
+    （范围 0.5~2.0，与设置页建议 80~200 同一口径）。读一次就缓存：
+    全局字体与样式表字号必须同一把尺，中途改文件也不许两套值。"""
+    global _SCALE_CACHE
+    if _SCALE_CACHE is None:
+        from core.appSettings import AppSettings
+        raw = str(AppSettings().get("ui_font_scale") or "").strip()
+        try:
+            v = float(raw) / 100.0
+        except ValueError:
+            v = 1.0
+        _SCALE_CACHE = v if 0.5 <= v <= 2.0 else 1.0
+    return _SCALE_CACHE
+
+
+def apply_font_scale(app) -> None:
+    """全局字号缩放：main.py 在主窗口构造之前调用（布局度量随全局
+    字体走）。只影响没写样式表的控件——菜单/树/表格/按钮/大多数
+    正文；样式表写死 font-size 的标签由 font_px() 接管。"""
+    scale = _font_scale()
+    if scale == 1.0:
+        return
+    f = app.font()
+    f.setPointSizeF(f.pointSizeF() * scale)
+    app.setFont(f)
+
+
+def font_px(base: int) -> int:
+    """样式表字号换算：页面里写死的 font-size 一律用它现算，例：
+    setStyleSheet(f"font-size: {font_px(18)}px; ...")
+    页面构造发生在启动时，值与全局字体同刻同源。"""
+    return max(1, round(base * _font_scale()))
+

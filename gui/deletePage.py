@@ -51,6 +51,7 @@ from core.formatters import fmt_size, status_zh   # V2：formatters 住 core
 from gui.collapsibleSection import CollapsibleSection as _Section
 from gui.logBus import LogBus                     # V2：LogBus 独立成文件
 from workflows import deleteManageFlow as dmf
+from gui.theme import font_px  # 字号单源（D25）
 
 # 状态色（与日常更新页/备份页同一套语义）
 _C_OK = "#46a758"      # 完成 / 一切正常
@@ -185,7 +186,7 @@ class DeletePage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("清理与删除", body)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         # —— 说明块（日常更新页同款三行，决策 34③）——
@@ -215,7 +216,7 @@ class DeletePage(QWidget):
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)  # 可能变长的标签一律开换行
-            lbl.setStyleSheet("border:none; color:#8a8a8f; font-size:12px;")
+            lbl.setStyleSheet(f"border:none; color:#8a8a8f; font-size: {font_px(12)}px;")
             nb.addWidget(lbl)
         root.addWidget(note)
 

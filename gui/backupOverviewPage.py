@@ -43,6 +43,7 @@ from core.models import Game
 from gui.logBus import LogBus
 from core.formatters import abs_time, fmt_size, status_zh
 from core.urlParser import WORKSHOP_URL_TEMPLATE
+from gui.theme import font_px  # 字号单源（D25）
 
 # 与设置页核对过的真键名（与 backupPage 相同三件；改键名两处一起动）
 _KEY_KEEP_PER_MOD = "backup_keep_per_mod"
@@ -164,7 +165,7 @@ class BackupOverviewPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
         title = QLabel("备份总览", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         tip = QLabel(

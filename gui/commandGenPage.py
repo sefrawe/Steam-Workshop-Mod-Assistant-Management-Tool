@@ -70,6 +70,7 @@ from PySide6.QtWidgets import (
 from core.commandBuilder import build_copy_text, group_mods
 from gui.collapsibleSection import CollapsibleSection
 from gui.logBus import LogBus
+from gui.theme import font_px  # 字号单源（D25）
 
 # 组键 not_downloaded 与 core/commandBuilder.group_mods 的返回键一致，别改；
 # 界面标题"已收录"与 mod 库页状态词同源。语义 = 没有确认版本的
@@ -326,7 +327,7 @@ class CommandGenPage(QWidget):
                 content)
 
             tip.setWordWrap(True)  # 踩坑⑨
-            tip.setStyleSheet("color: gray; font-size:12px;")
+            tip.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
             cv.addWidget(tip)
 
         if not rows:

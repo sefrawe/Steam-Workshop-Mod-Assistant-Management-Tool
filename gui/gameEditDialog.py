@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
 from core import steamPaths
 from core.models import Game
 from gui.logBus import LogBus
+from gui.theme import font_px  # 字号单源（D25）
 
 
 # 结论文字的颜色（与重定位对话框同一套配色）
@@ -150,7 +151,7 @@ class GameEditDialog(QDialog):
         bk_desc = QLabel("留空 = 每次按 steamcmd 位置自动推导" + bk_hint,
                          bk_field)
         bk_desc.setWordWrap(True)
-        bk_desc.setStyleSheet("color: gray; font-size: 11px;")
+        bk_desc.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
         bk_field.layout().addWidget(bk_desc)
         form.addRow("备份目录", bk_field)
 
@@ -178,7 +179,7 @@ class GameEditDialog(QDialog):
             "历史错值正是手填造成的。推导不出时保留现值，绝不瞎猜。",
             dd_field)
         dd_desc.setWordWrap(True)
-        dd_desc.setStyleSheet("color: gray; font-size: 11px;")
+        dd_desc.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
         dd_v.addWidget(dd_desc)
         form.addRow("下载目录", dd_field)
 

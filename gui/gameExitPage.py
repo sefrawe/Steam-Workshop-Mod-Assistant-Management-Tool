@@ -27,6 +27,7 @@ from core.formatters import fmt_size
 from core.models import Game
 from gui.consolePanel import LogBus
 from workflows import gameExitFlow
+from gui.theme import font_px  # 字号单源（D25）
 
 # 与批量下载步骤卡片、日常更新模块页一致的配色，按用途命名
 _C_OK = "#46a758"     # 完成 / 无需处理
@@ -100,7 +101,7 @@ class GameExitPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("游戏退场", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         # 说明块（每个功能模块页自带"流程 / 为什么 / 红线"）
@@ -128,7 +129,7 @@ class GameExitPage(QWidget):
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)  # 可能变长的标签一律开换行
-            lbl.setStyleSheet("border:none; color:#8a8a8f; font-size:12px;")
+            lbl.setStyleSheet(f"border:none; color:#8a8a8f; font-size: {font_px(12)}px;")
             nb.addWidget(lbl)
         root.addWidget(note)
 

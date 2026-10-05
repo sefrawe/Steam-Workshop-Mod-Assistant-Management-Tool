@@ -48,6 +48,7 @@ from core.formatters import status_zh
 from core.models import Game
 from gui.consolePanel import LogBus
 from workflows import addModFlow
+from gui.theme import font_px  # 字号单源（D25）
 
 # 与批量下载步骤卡片、日常更新页一致的配色，按用途命名
 _C_OK = "#46a758"     # 完成 / 一致
@@ -98,7 +99,7 @@ class AddModPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("加入新 mod", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         # 说明块（每个功能模块页自带"流程 / 为什么 / 术语与关系"；
@@ -127,7 +128,7 @@ class AddModPage(QWidget):
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)  # 可能变长的标签一律开换行
-            lbl.setStyleSheet("border:none; color:#8a8a8f; font-size:12px;")
+            lbl.setStyleSheet(f"border:none; color:#8a8a8f; font-size: {font_px(12)}px;")
             nb.addWidget(lbl)
         root.addWidget(note)
 
@@ -145,7 +146,7 @@ class AddModPage(QWidget):
         self._d2, box2 = self._make_card("step2", "② 粘贴网址或读入文本")
         self._preview_detail = QLabel("", self)
         self._preview_detail.setWordWrap(True)
-        self._preview_detail.setStyleSheet("border:none; font-size:12px;")
+        self._preview_detail.setStyleSheet(f"border:none; font-size: {font_px(12)}px;")
         box2.addWidget(self._preview_detail)
         self._input = QPlainTextEdit(self)
         self._input.setPlaceholderText(
@@ -224,7 +225,7 @@ class AddModPage(QWidget):
             "点下方按钮，看这批编号在账本里是已下载还是待下载。本步只读"
             "账本，不写任何状态。", self)
         note4.setWordWrap(True)
-        note4.setStyleSheet("border:none; font-size:12px;")
+        note4.setStyleSheet(f"border:none; font-size: {font_px(12)}px;")
         box4.addWidget(note4)
         row4 = QHBoxLayout()
         self._btn_status = QPushButton("盘点本批状态", self)

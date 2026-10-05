@@ -46,6 +46,7 @@ from core.steamApiClient import (
     SteamApiCancelled, SteamApiClient, SteamApiError, WorkshopItem)
 from core.urlParser import WORKSHOP_URL_TEMPLATE
 from gui.consolePanel import LogBus
+from gui.theme import font_px  # 字号单源（D25）
 
 # 「发现更新后自动开始下载」的设置键（D16：唯一保留的就地开关——
 # 界面勾选即时保存，不进设置页）
@@ -189,7 +190,7 @@ class UpdateCheckPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
         title = QLabel("更新检测", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
         self._game_label = QLabel(self)
         root.addWidget(self._game_label)

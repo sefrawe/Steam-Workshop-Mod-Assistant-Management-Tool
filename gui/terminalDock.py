@@ -79,6 +79,7 @@ from core.backupManager import steamcmd_running
 from core.steamPaths import ensure_steamcmd_exe
 from core.urlParser import parse_lines
 from gui.logBus import LogBus
+from gui.theme import font_px  # 字号单源（D25）
 
 try:
     from winpty import PtyProcess
@@ -271,7 +272,7 @@ class TerminalDock(QWidget):
             "后登录的会把先登录的顶下线；也不建议在软件外另开一个 "
             "steamcmd 同时下载——两边会争用同一个下载目录。", self)
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
         root.addWidget(hint)
 
         # 中部：输出区。等宽字体更像终端；上限 5000 行防内存膨胀

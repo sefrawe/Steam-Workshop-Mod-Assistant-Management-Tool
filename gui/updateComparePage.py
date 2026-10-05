@@ -59,6 +59,7 @@ from core.models import Game
 from gui.collapsibleSection import CollapsibleSection
 from gui.logBus import LogBus
 from core.formatters import abs_time, status_zh
+from gui.theme import font_px  # 字号单源（D25）
 
 # 状态色（备份/删除页同源口径）
 _C_OK = "#46a758"
@@ -169,7 +170,7 @@ class UpdateComparePage(QWidget):
 
         head = QHBoxLayout()
         title = QLabel("更新对照", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         head.addWidget(title)
         head.addStretch(1)
         btn = QPushButton("刷新", self)
@@ -298,7 +299,7 @@ class UpdateComparePage(QWidget):
         for text in _GUIDE_PARAS:
             lbl = QLabel(text, body)
             lbl.setWordWrap(True)
-            lbl.setStyleSheet("color: #8a8a8f; font-size:12px;")
+            lbl.setStyleSheet(f"color: #8a8a8f; font-size: {font_px(12)}px;")
             bv.addWidget(lbl)
         bv.addStretch(1)
         wrap = QScrollArea(self)
@@ -506,7 +507,7 @@ class UpdateComparePage(QWidget):
             note_lbl = QLabel(
                 "备注：（无——点【📝 编辑备注】给自己留句话）", content)
         note_lbl.setWordWrap(True)
-        note_lbl.setStyleSheet("color: gray; font-size: 12px;")
+        note_lbl.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
         cv.addWidget(note_lbl)
 
         # ---- 快照小表（两列。"当时的本地版本"由判决史承载，

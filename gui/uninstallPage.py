@@ -42,6 +42,7 @@ from gui.sessionStore import (
     session_file_path,
 )
 from workflows.uninstallFlow import scan_folder
+from gui.theme import font_px  # 字号单源（D25）
 
 # 与其余模块页一致的配色，按用途命名
 _C_OK = "#46a758"     # 一切正常（干净 / 键不存在）
@@ -83,7 +84,7 @@ class UninstallPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
         self._cards_host = root  # 卡片宿主布局（_make_card 往里放）
         title = QLabel("卸载与清理", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         # 说明块（每个功能模块页自带"流程 / 为什么 / 术语与关系"）
@@ -111,7 +112,7 @@ class UninstallPage(QWidget):
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)  # 可能变长的标签一律开换行
-            lbl.setStyleSheet("border:none; color:#8a8a8f; font-size:12px;")
+            lbl.setStyleSheet(f"border:none; color:#8a8a8f; font-size: {font_px(12)}px;")
             nb.addWidget(lbl)
         root.addWidget(note)
 

@@ -41,6 +41,7 @@ from core import constants, steamPaths
 from core.backupManager import steamcmd_running
 from core.formatters import abs_time            # V2：formatters 住 core
 from gui.logBus import LogBus                   # V2：LogBus 独立成文件
+from gui.theme import font_px  # 字号单源（D25）
 
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
@@ -97,7 +98,7 @@ class PurgedPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("已清账管理", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         tip = QLabel(

@@ -56,6 +56,7 @@ from core.models import Game, Mod
 from core.urlParser import parse_lines
 from gui.collapsibleSection import CollapsibleSection
 from gui.logBus import LogBus   # V2：LogBus 独立成文件
+from gui.theme import font_px  # 字号单源（D25）
 
 # "先读我"卡的内容（六段）：与页面提示、文件头分工——提示一行导览，
 # 卡里讲全。文案原则：只说用户看得见的东西，不写内部术语。
@@ -116,7 +117,7 @@ class ImportPage(QWidget):
         root.setSpacing(6)
 
         title = QLabel("网址批量导入", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         self._game_label = QLabel(self)
@@ -189,7 +190,7 @@ class ImportPage(QWidget):
         for text in _GUIDE_PARAS:
             lbl = QLabel(text, body)
             lbl.setWordWrap(True)   # 可能变长的标签开换行
-            lbl.setStyleSheet("color: #8a8a8f; font-size:12px;")
+            lbl.setStyleSheet(f"color: #8a8a8f; font-size: {font_px(12)}px;")
             bv.addWidget(lbl)
         bv.addStretch(1)
         wrap = QScrollArea(self)

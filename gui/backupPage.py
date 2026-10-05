@@ -80,7 +80,7 @@ from core.urlParser import WORKSHOP_URL_TEMPLATE
 from gui.backupMoveDialog import BackupMoveDialog
 from gui.backupRelocateDialog import BackupRelocateDialog
 from gui.logBus import LogBus
-from gui.theme import system_prefers_dark
+from gui.theme import system_prefers_dark, font_px
 from core.formatters import abs_time, fmt_size, status_zh
 
 # ---- 与设置页核对过的真键名（settingsPage.py）。注意配额在设置页
@@ -309,7 +309,7 @@ class BackupPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("备份管理", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         # steamcmd 运行横幅：默认藏起，_reload 时检测后决定显示

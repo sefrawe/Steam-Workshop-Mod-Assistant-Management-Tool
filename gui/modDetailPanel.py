@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from core.constants import CONFIRMED_SOURCE_ZH, VERDICT_KIND_ZH
 from core.formatters import abs_time, fmt_size, relative_time, status_zh
+from gui.theme import font_px  # 字号单源（D25）
 
 # 未验证/旧账两档来源的灰色说明（一次性文案，留本模块——D37 准入）
 _SOURCE_NOTES = {
@@ -82,7 +83,7 @@ class ModDetailPanel(QWidget):
 
         self._title = QLabel(body)
         self._title.setWordWrap(True)
-        self._title.setStyleSheet("font-size: 15px; font-weight: 600;")
+        self._title.setStyleSheet(f"font-size: {font_px(15)}px; font-weight: 600;")
         bl.addWidget(self._title)
 
         # 字段区：表单两列（字段名 | 值）。值标签一律可选中复制——
@@ -94,7 +95,7 @@ class ModDetailPanel(QWidget):
         # 来源灰色说明行：只在未验证/旧账时出现
         self._src_note = QLabel(body)
         self._src_note.setWordWrap(True)
-        self._src_note.setStyleSheet(f"color: {_DIM}; font-size: 11px;")
+        self._src_note.setStyleSheet(f"color: {_DIM}; font-size: {font_px(11)}px;")
         self._src_note.hide()
         bl.addWidget(self._src_note)
 

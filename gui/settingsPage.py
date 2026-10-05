@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QWidget, QComboBox,
 )
 
-from gui.theme import reapply_theme
+from gui.theme import reapply_theme, font_px
 from core.appSettings import DEFAULTS, AppSettings
 from core.steamPaths import ensure_steamcmd_exe
 
@@ -213,7 +213,7 @@ class SettingsPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("全局设置")
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         # T19⑧：字段区装进滚动区——保存按钮、保存结果、页脚说明留在
@@ -281,7 +281,7 @@ class SettingsPage(QWidget):
 
             desc = QLabel(hint)
             desc.setWordWrap(True)   # 必须换行，否则整句长度变成窗口最小宽度
-            desc.setStyleSheet("color: gray; font-size: 11px;")
+            desc.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
             v.addWidget(desc)
 
             status = QLabel("")

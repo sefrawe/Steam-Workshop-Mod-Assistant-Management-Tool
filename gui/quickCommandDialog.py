@@ -51,6 +51,7 @@ from core.commandBuilder import build_plain_commands
 from core.steamApiClient import SteamApiCancelled, SteamApiClient, SteamApiError
 from core import netGate
 from gui.logBus import LogBus
+from gui.theme import font_px  # 字号单源（D25）
 
 
 
@@ -122,7 +123,7 @@ class QuickCommandDialog(QDialog):
             "复制后粘到 控制台 → steamcmd 终端 回车执行：批次按命令自带的 AppID 归属；批次收尾自动盘点，盘上内容进该档案的待认领区，到【入账中心】勾选确认，命令已按游戏分组，"
             "一个批次只服务一个游戏——逐游戏复制粘贴最稳。", self)
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray; font-size:12px;")
+        hint.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
         v.addWidget(hint)
 
         self._input = QPlainTextEdit(self)
