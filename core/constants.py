@@ -72,6 +72,8 @@ WORKSHOP_URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id=
 # netGate 五入口（D37 实例：入口名收编，各页 acquire 只引常量不手写）
 # ============================================================
 NET_GATE_UPDATE_CHECK = "更新检测"
+NET_GATE_QUICK_QUERY = "下载命令快速查询"
+
 NET_GATE_DEEP_CHECK = "深度检测"
 NET_GATE_COLLECTION = "展开合集"
 NET_GATE_QUICK_CMD = "快速命令查询"

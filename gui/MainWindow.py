@@ -65,6 +65,10 @@ from gui.consolePanel import ConsolePanel
 from gui.gameSwitcher import GameSwitcher
 from gui.logBus import LogBus
 from gui.modListPage import ModListPage
+from gui.updateComparePage import UpdateComparePage
+from gui.commandGenPage import CommandGenPage
+from gui.statsPage import StatsPage
+from gui.settingsPage import SettingsPage
 
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根单源（源码=项目根\data）
 _NAV_WIDTH = 210
@@ -499,6 +503,16 @@ class MainWindow(QMainWindow):
         if pid == constants.PAGE_BACKUP_OVERVIEW:
             return BackupOverviewPage(self._repo, self._settings,
                                       parent=self._stack, log=self._log)
+        if pid == constants.PAGE_UPDATE_COMPARE:
+            return UpdateComparePage(self._repo, parent=self._stack,
+                                     log=self._log)
+        if pid == constants.PAGE_COMMAND_GEN:
+            return CommandGenPage(self._repo, self._settings,
+                                  parent=self._stack, log=self._log)
+        if pid == constants.PAGE_STATS:
+            return StatsPage(self._repo, parent=self._stack)
+        if pid == constants.PAGE_SETTINGS:
+            return SettingsPage(self._settings, parent=self._stack)
 
         return PlaceholderPage(_PAGE_TITLES[pid], pid)
 
@@ -552,6 +566,7 @@ class MainWindow(QMainWindow):
         act_adv.setShortcut(QKeySequence("Ctrl+Shift+F"))
         act_adv.triggered.connect(self._open_advanced_search)
         self.menuBar().addAction(act_adv)
+
 
         # —— 视图(&V)：侧栏 / 控制台 / 详情面板三个显隐开关
         #（末者随 mod 库轮回填）——
@@ -647,6 +662,7 @@ class MainWindow(QMainWindow):
         item = self._nav_items.get(pid)
         if item is not None:
             self._nav.setCurrentItem(item)
+
 
     def _open_advanced_search(self) -> None:
         """顶级「高级筛选」动作落点：对话框实例由 mod 库页持有，

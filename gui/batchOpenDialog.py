@@ -7,9 +7,8 @@ r"""gui/batchOpenDialog.py · 贴一份清单，把工坊页面逐个在默认�
 
 三条纪律（与批量特别关注对话框同源的设计）：
 1. 纯读操作：解析、对表、【打开】全程不写账本——订阅发生在 Steam
-   客户端，本工具零干预；订阅完想收进账本，走「首次使用 → ④ 纳入
-   已有 mod」（预览里会指这条路，闭环在欢迎页和向导里都讲过）。
-2. 解析走 core.urlParser 单源（决策 34d）：工坊网址 / 纯数字 /
+   客户端，本工具零干预；订阅完想收进账本，走【入账中心】粘贴登记（盘上已下载的用【扫描游戏目录】认领）
+2. 解析走 core.urlParser 单源：工坊网址 / 纯数字 /
    steamcmd 命令行都认，认不出的行原样列出——不猜、不纠正、不静默丢弃。
 3. 网址由模板生成（WORKSHOP_URL_TEMPLATE，单源），不发明第五份模板串。
 
@@ -34,7 +33,7 @@ from PySide6.QtWidgets import (
 
 from core.modRepository import ModRepository
 from core.urlParser import parse_lines
-from gui.consolePanel import LogBus
+from gui.logBus import LogBus
 
 from core.urlParser import WORKSHOP_URL_TEMPLATE
 
@@ -93,7 +92,7 @@ class BatchOpenDialog(QDialog):
             "先【解析预览】核对，再【打开】——每个编号一个浏览器标签页，"
             "便于逐页去点订阅。\n"
             "本对话框是纯读操作：不写账本。订阅完成后想收进本工具管理，"
-            "走「分布向导 → 首次使用 → ④ 纳入已有 mod」。", self)
+            "走【入账中心】粘贴登记（盘上已下载的用【扫描游戏目录】认领）。", self)
         head.setWordWrap(True)  # 可能变长的标签一律开换行
         root.addWidget(head)
         self._edit = QPlainTextEdit(self)
