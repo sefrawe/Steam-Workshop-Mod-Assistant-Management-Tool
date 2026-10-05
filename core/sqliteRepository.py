@@ -897,6 +897,37 @@ class SQLiteRepository(ModRepository):
         return [self._verdict(r)
                 for r in self._conn.execute(sql, params).fetchall()]
 
+    def list_game_verdicts(self, game_id: int, limit: int = 200) -> list:
+        """按档案查最近判决史（跨 mod，含已确认行）——
+        pending_confirmations 的全量版：同列清单、同行转换；差异三处：
+        WHERE 只按 game_id（去掉队列的 kind/confirmed_at 过滤，史要
+        全量）、occurred_at 倒序、LIMIT 可调。"""
+
+        rows = self._conn.execute(
+            "SELECT * FROM verdict_log WHERE game_id = ? "
+            "ORDER BY occurred_at DESC, id DESC LIMIT ?",
+            (int(game_id), int(limit)),
+        ).fetchall()
+        return [self._verdict(r) for r in rows]
+    def drop_stale_claims(self, game_id: int, mod_ids: Iterable[int]) -> int:
+        """盘点失效候选清理：只删未确认的 claim 行（提案）；确认行与
+        其他 kind 绝不动。game_id 限定档案——同编号在别的档案的提案
+        不受连坐。分片防变量上限（filter_purged 同款）。"""
+        ids = sorted(set(int(i) for i in mod_ids))
+        if not ids:
+            return 0
+        removed = 0
+        with self._atomic():
+            for chunk in self._in_chunks(ids):
+                marks = ",".join("?" * len(chunk))
+                cur = self._conn.execute(
+                    f"DELETE FROM verdict_log WHERE kind = 'claim' "
+                    f"AND confirmed_at IS NULL AND game_id = ? "
+                    f"AND mod_id IN ({marks})",
+                    [game_id, *chunk])
+                removed += cur.rowcount
+        return removed
+
     def confirm_items(self, mod_ids: list[int]) -> int:
         """★确认门主入口：把入账中心勾选的条目批量确认，返回确认条数。
         一个事务，逐条做四件事：

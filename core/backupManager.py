@@ -28,16 +28,23 @@ core/backupManager.py · 把 mod 的下载内容复制到备份区，可恢复�
       （记事本定性为"建议等待"）；弹窗询问用户是 GUI 的事
 - R8  恢复备份前强制先备份当前版本；当前没有本地内容则跳过并警告
 - R9  备份前磁盘空间预检：目标盘剩余 < 预计大小 → 拒绝；
-      余量偏紧 → 警告。预计大小用 acf 测得的 local_size，
+        余量偏紧 → 警告。预计大小用盘点回填的 local_size（展示列），
+
       没有则跳过预检并警告
 - R6  超长路径预检：源/目标路径超过 240 字符只警告不拦截
       （robocopy 本身能处理长路径，这正是选它不用 shutil 的原因）
-- R1  backups.backup_path 存相对该游戏 backup_dir 的路径（只有目录名）。
+- R1 backups.backup_path 存相对该游戏 backup_dir 的路径。v2 备份轮起
+  为两段式 "<mod编号>/<目录名>"（每个 mod 一个文件夹，里面装不同
+  时间的备份）；此前登记的旧记录是单段纯目录名——路径拼接对两种
+  段数天然兼容，新旧混存、无需迁移。
+
       已知限制：用户日后改 backup_dir，旧记录会按新位置解析而失联
       （表里没存旧根，schema 不动）；备份管理页将来提供重定位
 
 恢复流程（记事本备份子系统 v1 原案，全程可退）：
-  ① 强制备份当前版本（R8；无本地内容则跳过）
+  ① 强制备份当前版本（R8；无本地内容则跳过；版本未知走不入账的
+   保命副本，见 _pre_backup_unversioned）
+
   ② 当前文件夹改名挪走（同盘改名 = 原子操作，瞬间完成）
   ③ robocopy 把备份复制回原位
   ④ 成功 → 删掉挪走的旧目录；失败 → 删掉拷了一半的新目录、
@@ -184,11 +191,15 @@ class BackupReport:
 
 @dataclass
 class RestoreReport:
-    """一次恢复的结果。pre_backup 是 R8 强制备份的记录（跳过时为 None）。"""
+    """一次恢复的结果。pre_backup 是 R8 强制备份的记录（跳过时为 None）。
+    pre_copy_dir 是版本未知时"不入账保命副本"的位置——它和 pre_backup
+    互斥：副本不进账本，所以走副本这条路时 pre_backup 必为 None。"""
     ok: bool
     pre_backup: Backup | None = None
+    pre_copy_dir: Path | None = None
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
+
 
 
 # ============ 引擎本体 ============
@@ -236,19 +247,17 @@ class BackupManager:
             raise ValueError(f"游戏档案 {mod.game_id} 不存在（数据不一致）")
 
         # ---- 前提一：本地版本必须已知（backups.version_timeupdated 非空）----
-        # T18（决策 24）：downloaded 却没有本地版本，只可能是手动确认入账
-        # 的 mod——扫描器写入的 downloaded 必带三件套（决策 20/23）。对这类
-        # mod，"去扫描本地"是一条走不通的路：它不在 acf 里，扫一万次也扫
-        # 不到。诚实的报错必须指向可行的那条：重新下载回填版本。
-        # 判定取 Mod.version_unknown 单源（与更新检测分桶、库页显示同尺）。
+        # v2 判决制：version_unknown = confirmed_version IS NULL（单源取
+        # Mod.version_unknown）。版本回填的正路 = 入账中心确认 / 右键
+        # 「设定本地版本…」——旧版"扫描本地"路径已随判决制退役。
         if mod.version_unknown:
             if mod.status == "downloaded":
-                error = ("本地版本未知（可能为手动确认入账）：无法确定备份版本。\n"
-                         "如需备份，请用 steamcmd 重新下载该 mod，"
-                         "并点【扫描本地】回填版本后再试。")
+                error = ("本地版本未知：无法确定备份版本。\n"
+                         "可到 mod 库页右键【设定本地版本…】人工认定版本后"
+                         "再备份；或重新下载该 mod 并在收尾清单里确认入账。")
             else:
-                error = ("本地版本未知（尚未扫描本地或该 mod 未下载）。"
-                         "请先在 mod 库页点【扫描本地】再备份。")
+                error = ("该 mod 不是已下载状态（或版本未知）："
+                         "备份只服务已下载且版本已确认的条目。")
             return BackupReport(ok=False, error=error)
 
         # ---- 前提二：确定备份根目录（档案值优先，缺省推导并回写）----
@@ -301,7 +310,10 @@ class BackupManager:
             warnings.append("该 mod 缺少本地大小记录，跳过空间预检。")
 
         # ---- 复制 ----
-        dst = self._fresh_target(Path(root), mod_id, mod.local_timeupdated)
+        # 版本号进目录名（<modid>_v<版本>_<时间戳>）：v2 取确认版本
+        # （守卫在上面保证了到这里必然非 NULL）
+        dst = self._fresh_target(Path(root), mod_id, mod.confirmed_version)
+
         rc, out = self._run(str(source), str(dst))
         if not is_success_rc(rc):
             # 失败清理半成品（只在刚创建的备份根内动手，走 R4 保险丝）
@@ -318,10 +330,17 @@ class BackupManager:
         # ---- 登记（存相对路径，R1）----
         record = self._repo.add_backup(
             mod_id=mod_id,
-            backup_path=dst.name,
+            # R1：登记两段式相对路径 "<mod编号>/<目录名>"。
+            # as_posix() 统一用正斜杠存，显示与拼接都稳定
+            backup_path=dst.relative_to(Path(root)).as_posix(),
+
             size_bytes=_dir_size(dst),
-            version_timeupdated=mod.local_timeupdated,
-            manifest=mod.manifest,
+            # v2 判决制换名：version_timeupdated 列沿用旧名，存确认版本
+            # （守卫已保证非 NULL）。manifest 列保留但 v2 无来源（acf
+            # 退场），登记为 NULL。
+            version_timeupdated=mod.confirmed_version,
+            manifest=None,
+
             note=note,
         )
 
@@ -389,15 +408,33 @@ class BackupManager:
                 error=f"下载目录中的 mod 位置是链接/junction，拒绝恢复：{dest}")
 
         # ---- ① R8：先强制备份当前版本（没有现状则跳过）----
+        # 两分（备份轮拍板）：当前版本已知 → 走正经备份、入账；
+        # 版本未知 → _pre_backup_unversioned 保命副本，只落盘不入账
+        # （backups 表的版本列只存确认值，硬记一个假版本等于把
+        # "不知道"写成"知道"）。两条路的备份失败都中止恢复——
+        # 此阶段发生在任何破坏性动作之前，打住时盘面分毫未动。
         pre: Backup | None = None
+        pre_copy: Path | None = None
         if dest.is_dir():
-            pre_report = self.backup_mod(mod.mod_id, note="恢复前自动备份")
-            if not pre_report.ok:
-                return RestoreReport(
-                    ok=False, warnings=warnings,
-                    error=f"恢复前备份失败（要求先备份当前版本，已中止恢复）：\n"
-                          f"{pre_report.error}")
-            pre = pre_report.backup
+            if mod.version_unknown:
+                pre_copy, pre_err = self._pre_backup_unversioned(mod, game)
+                if pre_err is not None:
+                    return RestoreReport(
+                        ok=False, warnings=warnings,
+                        error="恢复前保命备份失败（要求先备份当前版本，"
+                              "已中止恢复）：\n" + pre_err)
+                warnings.append(
+                    "当前版本未知：恢复前的保命副本已存到下面位置"
+                    "（不入备份账，恢复确认无误后可手动删除）：\n"
+                    + str(pre_copy))
+            else:
+                pre_report = self.backup_mod(mod.mod_id, note="恢复前自动备份")
+                if not pre_report.ok:
+                    return RestoreReport(
+                        ok=False, warnings=warnings,
+                        error=f"恢复前备份失败（要求先备份当前版本，已中止恢复）：\n"
+                              f"{pre_report.error}")
+                pre = pre_report.backup
         else:
             warnings.append("当前没有本地内容，跳过恢复前备份。")
 
@@ -444,7 +481,58 @@ class BackupManager:
             except (RuntimeError, OSError) as exc:
                 warnings.append(
                     f"旧版本目录删除失败（恢复本身已成功）：{aside}\n{exc}")
-        return RestoreReport(ok=True, pre_backup=pre, warnings=warnings)
+        return RestoreReport(ok=True, pre_backup=pre, pre_copy_dir=pre_copy,warnings=warnings)
+    def _pre_backup_unversioned(self, mod, game) -> tuple[Path | None, str | None]:
+        """版本未知时的恢复前保命副本（两分的"未知"侧）。
+
+        为什么不直接调 backup_mod：backups 表的版本列只存确认值，
+        版本未知的东西在账上没有立足之地。本方法只把当前内容原样
+        复制到备份区，不写任何数据库记录：
+
+        - 恢复成功 → 副本留在原地，报告的 pre_copy_dir 告知位置，
+          确认无误后由用户手动删除（不进保留策略、也绝不被自动
+          清理——保命的东西不许被静默回收）；
+        - 恢复失败 → 调用方已回退原状，副本同样可手动删或留着。
+
+        返回 (副本目录, 错误说明)：成功时错误为 None；失败时目录
+        为 None、错误必有内容（调用方会中止恢复）。
+        """
+        root, _derived = self._resolve_root(game)
+        if root is None:
+            return None, ("档案未设置备份目录，且未配置 steamcmd 程序路径，"
+                          "保命副本没有可放的位置。请先在设置页填写"
+                          " steamcmd 程序，或给档案设置备份目录。")
+        try:
+            Path(root).mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return None, f"备份目录无法创建：{root}\n{exc}"
+        source = Path(game.download_dir or "") / str(mod.mod_id)
+        # 目录名与 _fresh_target 同款三段式，版本段写"未知"——
+        # 正经备份的版本段是数字，一眼可辨不会混淆。
+        # 同样放进 <mod编号>/ 子文件夹，与正经备份同一存放规律
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        mod_dir = Path(root) / str(mod.mod_id)
+        try:
+            mod_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return None, f"备份目录无法创建：{mod_dir}\n{exc}"
+        dst = mod_dir / f"{mod.mod_id}_v未知_{stamp}"
+        n = 2
+        while dst.exists():
+            dst = mod_dir / f"{mod.mod_id}_v未知_{stamp}_{n}"
+            n += 1
+
+        rc, out = self._run(str(source), str(dst))
+        if not is_success_rc(rc):
+            # 复制失败清掉半成品（只在备份根内动手，走路径保险丝）
+            if dst.is_dir():
+                try:
+                    _safe_rmtree(dst, Path(root))
+                except (RuntimeError, OSError):
+                    pass
+            return None, (f"robocopy 失败（退出码 {rc}，≥8 才算失败）：\n"
+                          f"{out[-800:]}")
+        return dst, None
 
     # ---------- 对外：删除 ----------
 
@@ -490,13 +578,22 @@ class BackupManager:
         return derived, derived is not None
 
     def _fresh_target(self, root: Path, mod_id: int, version: int) -> Path:
-        """目标目录名 <modid>_v<本地版本>_<时间戳>（记事本命名规范）。
-        同一秒内重复备份 → 追加 _2、_3 防撞（几乎不可能发生，纯保险）。"""
+        """目标目录 <备份根>/<mod编号>/<modid>_v<版本>_<时间戳>。
+
+        两层结构（备份轮拍板）：每个 mod 一个文件夹，里面装它
+        不同时间的备份——资源管理器按 mod 翻、整个 mod 的备份
+        一次删光，都只动一层；与备份页"按 mod 分组"视图同一心智。
+        同一秒内重复备份 → 追加 _2、_3 防撞（几乎不可能，纯保险）。
+        mod 编号文件夹在这里顺手建好（真 robocopy 也会自建，显式建
+        是给测试假 runner 和报错路径兜底）。
+        """
         stamp = time.strftime("%Y%m%d_%H%M%S")
         name = f"{mod_id}_v{version}_{stamp}"
-        candidate, n = root / name, 2
+        mod_dir = root / str(mod_id)
+        mod_dir.mkdir(parents=True, exist_ok=True)
+        candidate, n = mod_dir / name, 2
         while candidate.exists():
-            candidate = root / f"{name}_{n}"
+            candidate = mod_dir / f"{name}_{n}"
             n += 1
         return candidate
 

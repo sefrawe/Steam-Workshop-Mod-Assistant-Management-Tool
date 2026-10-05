@@ -23,14 +23,19 @@ STATUS_ZH = {
 }
 
 # ============================================================
-# 本地确认来源徽章（D21：库页第九列显隐 + 详情面板 + 更新对照组头）
+# 本地确认来源显示词（D21 修订：来源以文字短词并入「本地版本」格，
+# 显示成“3 天前 · 已验证”这样一格读完——不设独立列，列号零位移）
+# 显示规则（mod 库列表 / 详情面板两处共用，改词跟这里）：
+#   verified / claim / manual = 正常色；
+#   unverified / inherited_acf = 灰色弱化——含义：这版还没被终端
+#   “下载成功”判决背书，右键「设定本地版本…」可重新认定。
 # ============================================================
 CONFIRMED_SOURCE_ZH = {
-    "verified": "✓已验证",       # 终端 SUCCESS 判决背书（D4a）
-    "unverified": "？未验证",     # 批查失败照常确认（D4c）
-    "inherited_acf": "⤵继承旧账", # D9 一次性迁移
-    "claim": "👆认领",            # 盘面事实背书（D7）
-    "manual": "✎手动",            # 右键「设定本地版本…」（D5③；C 级提案②配套）
+    "verified": "已验证",     # 终端 SUCCESS 判决背书（D4a）
+    "unverified": "未验证",   # 批查失败照常确认（D4c）
+    "inherited_acf": "旧账",  # D9 一次性迁移继承的存量记录
+    "claim": "认领",          # 盘面事实背书（D7）
+    "manual": "手动",         # 右键「设定本地版本…」（D5③）
 }
 
 # ============================================================
@@ -67,10 +72,14 @@ WORKSHOP_URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id=
 # netGate 五入口（D37 实例：入口名收编，各页 acquire 只引常量不手写）
 # ============================================================
 NET_GATE_UPDATE_CHECK = "更新检测"
+NET_GATE_QUICK_QUERY = "下载命令快速查询"
+
 NET_GATE_DEEP_CHECK = "深度检测"
 NET_GATE_COLLECTION = "展开合集"
 NET_GATE_QUICK_CMD = "快速命令查询"
 NET_GATE_DEPENDENCIES = "依赖拉取"
+NET_GATE_BATCH_QUERY = "下载批次"   # 批次收尾批查（M2 判决闭环轮新增）
+NET_GATE_REGISTER = "入账登记"   # 登记区批查（入账中心轮新增）
 
 # ============================================================
 # 导航页 ID（D31 导航总表 → 代码形态的一半；树结构 _NAV_SCHEMA 留 MainWindow）

@@ -474,3 +474,39 @@ def remove_items_from_acf(
         raise ValueError(f"acf 写回失败（原文件已备份在 {backup}）：{exc}") from exc
 
     return removed, absent
+# ---------- 工坊账本文件（acf）定位 ----------
+#
+# acf 是 steamcmd 自己的记账文件，本项目的版本判定不用它，但两件事
+# 仍要按它的目录布局找到文件：① 清账后的"断根"（remove_items_from_acf，
+# 防 steamcmd 把已清条目重新装配回来占盘）；② 后续入账中心的只读
+# 盘点要读它的"账外线报"。路径布局知识只住这一份，调用方不自己拼。
+
+
+def locate_acf(base_path: str | Path | None, app_id: int) -> Path | None:
+    """按 steamcmd 目录布局定位 appworkshop_<appid>.acf。
+
+    base_path 认三种填写口径（程序内部自动推导时传的总是某一层目录，
+    后两种是兼容手工填写的容错）：
+      填 steamcmd 根  → <根>\\steamapps\\workshop\\appworkshop_<appid>.acf
+      填 steamapps 层 → <层>\\workshop\\appworkshop_<appid>.acf
+      填 workshop 层  → <层>\\appworkshop_<appid>.acf
+
+    游戏档案的 download_dir 指向 workshop\\content\\<appid>，所以调用方
+    传 Path(game.download_dir).parent（= workshop 层）即可命中第三种。
+
+    找不到返回 None——不是错误：可能 steamcmd 没配、该游戏从没下载过、
+    或下载目录被挪过，由调用方决定怎么提示，这里不弹窗不打日志。
+    """
+    raw = str(base_path or "").strip().strip('"').strip()
+    if not raw:
+        return None
+    base = Path(raw).expanduser()
+    name = f"appworkshop_{app_id}.acf"
+    for candidate in (
+            base / "steamapps" / "workshop" / name,  # 填了 steamcmd 根
+            base / "workshop" / name,                # 填了 steamapps 层
+            base / name,                             # 填了 workshop 层
+    ):
+        if candidate.is_file():
+            return candidate
+    return None

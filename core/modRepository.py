@@ -26,6 +26,9 @@ ALLOWED_ORDERS: frozenset[str] = frozenset({
     "time_updated DESC", "time_updated ASC",
     "title ASC", "title DESC",
     "local_size DESC",
+    "local_size DESC",
+    "local_size ASC",
+
     "confirmed_version DESC", "confirmed_version ASC",
     "status ASC", "status DESC",
     "is_special DESC",
@@ -217,6 +220,16 @@ class ModRepository(ABC):
         """确认队列：confirmed_at IS NULL 且 kind IN ('success','claim','manual')
         的行。game_id=None 返回全部（D20 档案隔离的"其他档案 N 条"计数
         也从带参调用拿）。按 occurred_at 新→旧。"""
+    @abstractmethod
+    def list_game_verdicts(self, game_id: int, limit: int = 200) -> list:
+        """按档案查最近判决史（跨 mod、含已确认行；入账中心时间线）。
+        行形状与 pending_confirmations 一致；occurred_at 倒序。"""
+    @abstractmethod
+    def drop_stale_claims(self, game_id: int, mod_ids: Iterable[int]) -> int:
+        """删除指定档案的未确认 claim 判决行（盘点发现文件夹已消失，
+        候选提案作废——提案跟随盘面）。返回删除行数。已确认行与其他
+        kind 一律不动（确认是账本事实，R17 只进不出；未确认行本就走
+        verdict_keep/90 天的既有修剪口径，删除与其同性质）。"""
 
     @abstractmethod
     def confirm_items(self, mod_ids: list[int]) -> int:
