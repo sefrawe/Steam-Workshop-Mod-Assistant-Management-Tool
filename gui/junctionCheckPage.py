@@ -46,7 +46,7 @@ rmdir 的安全性（已写进界面文案）：rmdir 对联接只摘链接本�
   预填不带来任何"拿旧结论当新事实"的风险）；
 - 检测通过直接写档案（页面自己持 repo），不再需要信号绕主窗口。
 """
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,Signal
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
     QPushButton, QScrollArea, QVBoxLayout, QWidget,
@@ -79,6 +79,9 @@ _STATE_LOOKS = {
 class JunctionCheckPage(QWidget):
     """单个档案的连接指引（页面版）。档案随主窗口切换，路径与
     实体随之刷新；判定逻辑与命令产出与 V1 对话框一字不差。"""
+    # 检测通过写档案后发给主窗口：让档案切换器重读最新档案信息
+    # （带参数 = 刚写入的档案 AppID；主窗口那边只管刷新，不看参数）
+    game_dir_written = Signal(int)
 
     def __init__(self, repo, settings, parent: QWidget | None = None,
                  *, log: LogBus | None = None) -> None:
@@ -108,8 +111,8 @@ class JunctionCheckPage(QWidget):
         outer.addWidget(scroll)
 
         v = QVBoxLayout(body)
-        v.setContentsMargins(16, 16, 16, 16)
-        v.setSpacing(10)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(6)
 
         title = QLabel("联接检测", self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
@@ -132,6 +135,9 @@ class JunctionCheckPage(QWidget):
         self._target_label = QLabel("", self)
         self._target_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
+        # 下载目录路径可能很长：允许换行，窄窗口下才不会把页面
+        # 撑出横向滚动条——只留纵向滚动，页面才是"紧凑可滚"
+        self._target_label.setWordWrap(True)
         v.addWidget(self._target_label)
 
         # 档案记录值与现推导值不一致时的提示（历史手填数据会走到这里）。
@@ -141,7 +147,6 @@ class JunctionCheckPage(QWidget):
         self._mismatch_note.setStyleSheet("color: gray;")
         self._mismatch_note.hide()
         v.addWidget(self._mismatch_note)
-
         row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
@@ -152,21 +157,16 @@ class JunctionCheckPage(QWidget):
         self._input.returnPressed.connect(self._on_check)
         self._input.textEdited.connect(self._on_edited)
         h.addWidget(self._input, 1)
-        v.addWidget(row)
-
-        # 检测按钮单独一行放在输入框下方（桌面惯例：输入框右侧那个
-        # 位置是"目录选择…"，放检测键会被误当成浏览目录按钮）
-        btn_row = QWidget(self)
-        bh = QHBoxLayout(btn_row)
-        bh.setContentsMargins(0, 0, 0, 0)
-        self._check_btn = QPushButton("检测", btn_row)
+        # 检测键与输入框同行：本页没有"目录选择…"浏览键，不存在
+        # 旧注释担心的误认问题；省下整行高度，页面更紧凑
+        self._check_btn = QPushButton("检测", row)
         self._check_btn.setToolTip(
             "判定你填的目录现在处于哪种连接状态，"
             "并按状态给出对应的操作步骤与命令。")
         self._check_btn.clicked.connect(self._on_check)
-        bh.addWidget(self._check_btn)
-        bh.addStretch(1)
-        v.addWidget(btn_row)
+        h.addWidget(self._check_btn)
+        v.addWidget(row)
+
 
         self._state_label = QLabel("", self)
         self._state_label.setWordWrap(True)
@@ -199,9 +199,16 @@ class JunctionCheckPage(QWidget):
         self._steps_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         v.addWidget(self._steps_label)
-
         v.addWidget(self._remove_box)
         v.addWidget(self._build_box)
+        # 收尾弹簧（关键）：内容不足一屏时，多余高度全部归它，
+        # 上面的内容保持紧凑贴顶——不给的话多余高度会摊给每个
+        # 标签，而标签文字默认垂直居中，页面上就出现大片空档
+        # （实测：标题到"当前游戏"之间空出一百多像素）。内容
+        # 超过一屏时弹簧自动归零，纵向滚动照常，互不影响。
+        # _refresh 里挪命令块次序的代码以"步骤标签"当锚点，
+        # 弹簧挂在最末尾，不受挪动影响，那边不用改。
+        v.addStretch(1)
 
     def _make_cmd_block(self) -> tuple[QWidget, QLabel, QPlainTextEdit]:
         """造一个命令块（标题 + 命令文本 + 复制按钮），初始隐藏。
@@ -468,6 +475,10 @@ class JunctionCheckPage(QWidget):
         self._game = self._repo.get_game(self._game.app_id)   # 内存同步
         self._log.ok(
             f"联接检测通过：游戏读取 mod 的目录已记入档案：{link}")
+        # 通知主窗口同步档案切换器：它手里的档案信息还停在写库前，
+        # 不同步的话编辑档案会一直显示旧值、直到重启
+        self.game_dir_written.emit(self._game.app_id)
+
 
     def _copy(self, text: str) -> None:
         QApplication.clipboard().setText(text)

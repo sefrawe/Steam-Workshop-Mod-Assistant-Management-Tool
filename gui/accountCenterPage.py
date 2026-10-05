@@ -34,12 +34,6 @@ park 保活（与批次控制器同口径）。
 from PySide6.QtCore import QSettings, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 
-from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QFrame, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QScrollArea,
-    QSplitter, QTableWidget, QTableWidgetItem, QTextEdit, QToolButton,
-    QVBoxLayout, QWidget,
-)
 
 from core import constants, netGate
 from core import registerFlow as rf
@@ -50,6 +44,26 @@ from types import SimpleNamespace
 
 from core import inventoryFlow
 from gui.modFolderOpener import open_mod_folder
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+from gui.collapsibleSection import CollapsibleSection  # 固定高度+可折叠分区（单源共享件）
+from gui.theme import font_px  # 字号单源（D25）
 
 _C_MUTED = "#8a8a8f"   # 弱化：已在册 / 未验证 / 已确认（与确认清单同口径）
 _C_WARN = "#c8a03c"    # 黄：黑名单警示
@@ -115,8 +129,7 @@ class AccountCenterPage(QWidget):
     """入账中心：repo/settings/log 注入，set_game 纳入主窗口广播
     循环（hasattr 自发现，零额外接线）；closeEvent 循环自动发现
     shutdown()。"""
-
-    _SES_SPLIT = "session/acct_split_v2"  # 四区分割位置（会话记忆；v2=盘点轮加待认领区）
+    _SES_FOLD = "session/acct_fold_v1"  # 五个分区的折叠记忆（v1=大改版：固定高度+折叠，分裂器退役）
 
     def __init__(self, repo, settings, parent: QWidget | None = None,
                  log=None) -> None:
@@ -133,43 +146,94 @@ class AccountCenterPage(QWidget):
         self._claims_rows: list = []
         self._history_view: list = []   # 过滤后的显示行（右键菜单按它取数）
 
+        # ---------- 页面骨架：标题 + 导读 + 先读我 + 查找 + 四个分区 ----------
+        # （旧版 = 一段常驻大提示 + QSplitter 四分格：没有大标题、提示
+        #   占半屏、四区高度互相拉扯、没有页内查找——本版全部重排）
         body = QWidget(self)
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 12, 16, 8)
-        head = QLabel(
-            "三条来路，一个门出：①终端判决（批次收尾自动排队）与"
-            "②盘点候选（【扫描游戏目录】扫出）都要在这里核对后"
-            "【确认/认领入账】——同一个确认门，入账才进账本，确认后"
-            "仍可右键撤销；③登记区收「想下载什么」，登记为「待下载」。\n"
-            "为什么默认不勾：确认 = 背书 = 写账本，背书须逐条显式；"
-            "标题/大小暂缺的条目照常入账，更新检测页会补全。\n"
-            "分工：批次收尾的确认清单弹窗是①的临时形态（【稍后处理】"
-            "的条目回到这里等）；磁盘占用由②顺手回填；版本判定只有"
-            "批次收尾与更新检测两处，本页只背书不判定。", self)
-        head.setWordWrap(True)
-        root.addWidget(head)
+
+        # 页面大标题：进页第一眼先知道这是哪一页
+        title = QLabel("入账中心", self)
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
+        root.addWidget(title)
+
+        # 一句话导读：只留最要紧的；详细说明全部搬进下面「先读我」
+        tip = QLabel(
+            "三条来路，一个门出：批次收尾的判决、盘点扫出的候选，都在"
+            "这里核对后确认/认领入账；登记区收「想下载什么」。"
+            "详细说明点开下方「先读我」。", self)
+        tip.setWordWrap(True)
+        tip.setStyleSheet("color: gray;")
+        root.addWidget(tip)
+
         self._others = QLabel("", self)
         self._others.setWordWrap(True)
         root.addWidget(self._others)
 
-        self._split = QSplitter(Qt.Orientation.Vertical, self)
-        self._split.setChildrenCollapsible(False)
-        self._split.addWidget(self._fold_zone(
-            "① 待确认——终端判决等背书", self._build_pending_zone()))
-        self._split.addWidget(self._fold_zone(
-            "② 待认领——盘上有文件、账上没版本，扫出来等你认",
-            self._build_claims_zone()))
-        self._split.addWidget(self._fold_zone(
-            "③ 最近判决（只读）", self._build_history_zone()))
-        self._split.addWidget(self._fold_zone(
-            "④ 登记（想下载什么）", self._build_register_zone()))
-        # 最小高度：窗口再矮各保几行可见，超出交给页面滚动条
-        for t, mh in ((self._pending_table, 140), (self._claims_table, 120),
-                      (self._history_table, 140), (self._preview_table, 120)):
-            t.setMinimumHeight(mh)
-        root.addWidget(self._split, 1)
+        # 「先读我」：功能介绍 · 名词解释 · 各区步骤（可折叠，交互
+        # 对齐异常处置页的同名卡）
+        self._sec_guide = CollapsibleSection(
+            "先读我：本页怎么用 · 名词解释 · 各区步骤")
+        self._sec_guide.set_content(self._build_guide_body(), 300)
+        root.addWidget(self._sec_guide)
 
-        # 全页可滚动（V1 站规）：四区整体装进滚动区，窗口不够高就出
+        # 页面级查找：对①②③三张表做"只隐藏不清数据"的行过滤（清空
+        # 即全部恢复）。原来只有判决史有搜索，待确认/待认领没有查找
+        # 入口——242 条候选里找一行只能肉眼扫
+        srow = QWidget(self)
+        sh = QHBoxLayout(srow)
+        sh.setContentsMargins(0, 0, 0, 0)
+        sh.addWidget(QLabel("查找：", srow))
+        self._filter_edit = QLineEdit(srow)
+        self._filter_edit.setClearButtonEnabled(True)
+        self._filter_edit.setPlaceholderText(
+            "按标题 / 编号过滤①②③三张表（即时生效，只隐藏；清空恢复）…")
+        self._filter_edit.textChanged.connect(self._apply_item_filter)
+        sh.addWidget(self._filter_edit, 1)
+        root.addWidget(srow)
+
+        # 四个分区：固定高度 + 点标题折叠。固定高度的用意：每区高度
+        # 恒定、互不拉扯；收起只藏内容、标题行常在；内容多时表格内部
+        # 出滚动条，分区高度不随内容涨（待认领 242 条也只占自己一格）
+        self._sec_pending = CollapsibleSection("① 待确认——终端判决等背书")
+        self._sec_pending.set_content(self._build_pending_zone(), 600)
+        root.addWidget(self._sec_pending)
+
+        self._sec_claims = CollapsibleSection("② 待认领——盘上有文件、账上没版本")
+        self._sec_claims.set_content(self._build_claims_zone(), 600)
+        root.addWidget(self._sec_claims)
+
+        self._sec_history = CollapsibleSection("③ 最近判决（只读）")
+        self._sec_history.set_content(self._build_history_zone(), 600)
+        root.addWidget(self._sec_history)
+
+        self._sec_register = CollapsibleSection("④ 登记（想下载什么）")
+        self._sec_register.set_content(self._build_register_zone(), 600)
+        root.addWidget(self._sec_register)
+
+        # 收尾弹簧：内容不足一屏时多余高度全归它，上面内容贴顶紧凑
+        # ——不给的话多余高度摊给各标签，页面重新出现大片空档
+        # （与联接检测页同款问题、同款解法）
+        root.addStretch(1)
+
+        # 折叠记忆：先恢复、后接线（set_expanded 会发信号，顺序反了
+        # 会把刚恢复的状态又写一遍）。首次使用没有记忆时默认：先读我
+        # 和①②④展开，③最近判决收起（只读备查，少占屏）
+        self._fold_state = [True, True, True, False, True]
+        fold = QSettings().value(self._SES_FOLD)
+        if fold is not None:
+            flags = ["1" == f for f in str(fold).split(",")]
+            self._fold_state = (flags + [True, True, True, False, True])[:5]
+        sections = (self._sec_guide, self._sec_pending, self._sec_claims,
+                    self._sec_history, self._sec_register)
+        for sec, on in zip(sections, self._fold_state):
+            sec.set_expanded(on)
+        for i, sec in enumerate(sections):
+            sec.expand_changed.connect(
+                lambda on, i=i: self._on_fold_changed(i, on))
+
+        # 全页可滚动（V1 站规）：所有分区装进滚动区，窗口不够高就出
         # 纵向滚动条，内容永不被裁
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
@@ -179,44 +243,14 @@ class AccountCenterPage(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
 
-        state = QSettings().value(self._SES_SPLIT)
-        if state is not None:
-            self._split.restoreState(state)
-        else:
-            self._split.setSizes([280, 200, 220, 270])
-
-        self._split.splitterMoved.connect(self._save_split)
-
     # ---------------- 三区构建 ----------------
     @staticmethod
     def _style_table(t: QTableWidget) -> None:
         t.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         t.verticalHeader().setVisible(False)
-    def _fold_zone(self, title: str, body: QWidget) -> QWidget:
-        """V1 同款可折叠分区：标题行即开关，箭头指示开合。收起只藏
-        内容，标题仍在——页面再挤也能只看关心的区。不记会话，
-        默认全展。"""
-        wrap = QWidget(self)
-        v = QVBoxLayout(wrap)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(2)
-        btn = QToolButton(wrap)
-        btn.setText(title)
-        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        btn.setArrowType(Qt.ArrowType.DownArrow)
-        btn.setCheckable(True)
-        btn.setChecked(True)
-        btn.setStyleSheet("QToolButton{text-align:left;font-weight:bold;}")
-        v.addWidget(btn)
-        v.addWidget(body, 1)
 
-        def _toggle(on: bool) -> None:
-            body.setVisible(on)
-            btn.setArrowType(Qt.ArrowType.DownArrow if on
-                             else Qt.ArrowType.RightArrow)
-        btn.toggled.connect(_toggle)
-        return wrap
+
 
     def _build_pending_zone(self) -> QWidget:
         zone = QWidget(self)
@@ -304,22 +338,14 @@ class AccountCenterPage(QWidget):
 
         lay.addLayout(btns)
         return zone
-
     def _build_history_zone(self) -> QWidget:
         zone = QWidget(self)
         lay = QVBoxLayout(zone)
         lay.setContentsMargins(0, 0, 0, 0)
-        hint = QLabel("含已确认行；已确认行右键可撤销确认", self)
+        hint = QLabel(
+            "含已确认行；已确认行右键可撤销确认。"
+            "页面上方的【查找】框对本表同样生效", self)
         lay.addWidget(hint)
-        frow = QHBoxLayout()
-        self._history_filter = QLineEdit(zone)
-        self._history_filter.setPlaceholderText(
-            "搜索：编号 / 标题（即时过滤，清空恢复全部）")
-        self._history_filter.setClearButtonEnabled(True)
-        self._history_filter.textChanged.connect(self._apply_history_filter)
-        frow.addWidget(self._history_filter, 1)
-        lay.addLayout(frow)
-
         self._history_table = QTableWidget(0, 8, zone)
         self._history_table.setHorizontalHeaderLabels(
             ["时间", "编号", "标题", "种类", "触发值", "写入值", "来源", "状态"])
@@ -332,6 +358,7 @@ class AccountCenterPage(QWidget):
             self._on_history_menu)
         lay.addWidget(self._history_table, 1)
         return zone
+
 
     def _build_register_zone(self) -> QWidget:
         zone = QWidget(self)
@@ -377,6 +404,94 @@ class AccountCenterPage(QWidget):
             2, QHeaderView.ResizeMode.Stretch)
         lay.addWidget(self._preview_table, 1)
         return zone
+    # ---------------- 先读我 / 页面级查找 / 折叠记忆 ----------------
+
+    def _build_guide_body(self) -> QWidget:
+        """「先读我」的内容：本页管什么、名词解释、各区步骤、路标。
+        外层套内部滚动区——说明较长且随窗口宽度换行，固定高度下
+        万一放不下，内部自己出滚动条，绝不裁字。"""
+        inner = QWidget(self)
+        iv = QVBoxLayout(inner)
+        iv.setContentsMargins(0, 0, 0, 0)
+        iv.setSpacing(8)
+        paragraphs = (
+            "【这页管什么】下载完成的 mod 不会自动算数——要在这里核对、"
+            "确认之后才进账本（账本 = 软件记住每个 mod 状态的地方）。"
+            "三条来路一个门：①批次收尾的终端判决、②盘点扫出的盘上候选、"
+            "③自己登记的编号，都从「确认」这道门进账本；确认后仍可右键"
+            "撤销。",
+
+            "【名词解释】判决：软件对一次下载/检测的判定记录（成功、失败、"
+            "超时都记）。待确认：判决说下载成功了，等你核对后背书才正式"
+            "记账。待认领：盘上有以编号命名的文件夹、账本里却没有这个"
+            "编号（手动拷进去的、别的工具下的）——盘点扫出来等你认。"
+            "登记：把「我想下载这个编号」记进账本，状态「待下载」。"
+            "版本未知：入账时没读到版本号（比如文件夹是空的）——重新下载"
+            "并在收尾清单确认后补上。黑名单：彻底清账/忽略过的编号，登记"
+            "与认领都会被拦；反悔去【已清账管理】允许录入。",
+
+            "【① 待确认 怎么用】下载批次收尾后，成功条目在这里排队 →"
+            " 逐条核对标题/大小/将写入的版本 → 勾选 →【确认入账】。"
+            "默认全不勾是刻意的：确认 = 背书 = 写账本，背书必须逐条显式。"
+            "标题/大小暂缺的条目照常入账，更新检测页会补全。",
+
+            "【② 待认领 怎么用】点【扫描游戏目录】盘点一次 → 勾选要收编"
+            "的 →【认领入账】（按盘面上读到的版本入账）；不想收的"
+            "【忽略选中…】，今后扫描不再为它们落候选（反悔去已清账管理）。"
+            "重复扫描不会重复落候选；文件夹删掉后下轮扫描自动清。",
+
+            "【④ 登记 怎么用】粘贴工坊网址 / 纯数字编号 / steamcmd 下载"
+            "命令（每行一条或空格分隔均可）→【解析预览】先对表（新登记 /"
+            " 已在册 / 黑名单警示 / 错档拦截 / 无法识别，五类分色，不写库）"
+            "→【登记新编号】（自动联网补标题/大小）→ 登记成「待下载」→"
+            " 到【下载命令生成】页勾选下载。",
+
+            "【路标】想看/管每个 mod 的状态 →【mod 库】页；批量下载 →"
+            "【下载命令生成】页；删文件 →【清理与删除】页；账与盘逐条"
+            "对账 →【账实核验】页；判决史只读备查，右键已确认行可撤销"
+            "确认（唯一的后悔药：本地版本清空，下次更新检测重新报告）。")
+        for text in paragraphs:
+            lbl = QLabel(text, inner)
+            lbl.setWordWrap(True)
+            iv.addWidget(lbl)
+        iv.addStretch(1)
+        wrap = QScrollArea(self)
+        wrap.setWidgetResizable(True)
+        wrap.setFrameShape(QFrame.Shape.NoFrame)
+        wrap.setWidget(inner)
+        return wrap
+
+    def _apply_item_filter(self, *_a) -> None:
+        """页面级查找：对①待确认、②待认领、③判决史三张表做行隐藏。
+        只隐藏不清数据——清空关键词全部恢复；隐藏不影响已勾选的行
+        （查找是视图帮手，不是数据闸门），不碰账本。"""
+        kw = self._filter_edit.text().strip().casefold()
+
+        def hide_table(t: QTableWidget, text_cols: list[int]) -> None:
+            for r in range(t.rowCount()):
+                if not kw:
+                    t.setRowHidden(r, False)
+                    continue
+                hit = False
+                for c in text_cols:
+                    it = t.item(r, c)
+                    if it is not None and kw in it.text().casefold():
+                        hit = True
+                        break
+                t.setRowHidden(r, not hit)
+
+        # 各表参与匹配的列：编号/标题优先，顺带说明类文字
+        hide_table(self._pending_table, [1, 2, 5, 7])   # 编号/标题/将写入/来源
+        hide_table(self._claims_table, [1, 2, 4])       # 编号/盘面版本/说明
+        hide_table(self._history_table, [1, 2, 3, 5])   # 编号/标题/种类/写入值
+
+    def _on_fold_changed(self, idx: int, on: bool) -> None:
+        """任一分区收展一变：更新影子账并整体落盘——下次打开软件还是
+        这个收展样子（哪个区常开、哪个区常收是自己的工作台习惯，
+        值得记住；与账实核验页的折叠记忆同一套 session 口径）。"""
+        self._fold_state[idx] = on
+        QSettings().setValue(self._SES_FOLD, ",".join(
+            "1" if on else "0" for on in self._fold_state))
 
     # ---------------- 刷新 ----------------
     def set_game(self, game) -> None:
@@ -452,6 +567,10 @@ class AccountCenterPage(QWidget):
                 "没有待确认的条目——下载批次收尾后，成功条目会在这里"
                 "排队等你确认入账。")
         self._btn_confirm.setText(f"确认入账（{len(rows)} 条待处理）")
+        # 分区标题带实时计数（收起也能看到有多少条在等）
+        self._sec_pending.set_title(
+            f"① 待确认——终端判决等背书（{len(rows)} 条）")
+
     def _reload_claims(self) -> None:
         gid = self._game.app_id if self._game else None
         rows = [v for v in (self._repo.pending_confirmations(gid)
@@ -473,7 +592,7 @@ class AccountCenterPage(QWidget):
             t.setItem(i, 3, QTableWidgetItem(
                 fmt_size(v.file_size) if v.file_size else "—"))
             t.setItem(i, 4, QTableWidgetItem(
-                f"来自盘点 {relative_time(v.occurred_at)}"
+                f"来自盘点， {relative_time(v.occurred_at)}"
                 if v.occurred_at else "来自盘点"))
         if rows:
             self._claims_hint.setText(
@@ -483,24 +602,21 @@ class AccountCenterPage(QWidget):
             self._claims_hint.setText(
                 "没有待认领的候选——点【扫描游戏目录】盘点一次；盘上有"
                 "文件、账上没版本的 mod 会出现在这里。")
+        # 分区标题带实时计数
+        self._sec_claims.set_title(
+            f"② 待认领——盘上有文件、账上没版本（{len(rows)} 条）")
+
     def _reload_history(self) -> None:
+        """重灌判决史表格：全部行一次进表。旧版页内自带的小搜索框和
+        "按关键字重建表格"已退役——查找统一交给页面级【查找】框
+        （只隐藏不清行，见 _apply_item_filter）；本方法只管灌数据。"""
         gid = self._game.app_id if self._game else None
         self._history_rows = (list(self._repo.list_game_verdicts(gid))
                               if gid else [])
-        self._apply_history_filter()
-
-    def _apply_history_filter(self) -> None:
-        """搜索即时过滤：编号/标题含关键字即留。只动显示（_history_view），
-        数据本尊 _history_rows 不动；右键菜单按显示行取数，防行号错位。"""
-        key = self._history_filter.text().strip().lower()
-        rows = [v for v in self._history_rows
-                if not key
-                or key in str(v.mod_id)
-                or key in (v.title or "").lower()]
-        self._history_view = rows
+        self._history_view = self._history_rows
         t = self._history_table
-        t.setRowCount(len(rows))
-        for i, v in enumerate(rows):
+        t.setRowCount(len(self._history_rows))
+        for i, v in enumerate(self._history_rows):
             t.setItem(i, 0, QTableWidgetItem(
                 relative_time(v.occurred_at) if v.occurred_at else "—"))
             t.setItem(i, 1, QTableWidgetItem(str(v.mod_id)))
@@ -508,14 +624,19 @@ class AccountCenterPage(QWidget):
             kind = constants.VERDICT_KIND_ZH.get(v.kind, v.kind)
             t.setItem(i, 3, QTableWidgetItem(kind))
             t.setItem(i, 4, QTableWidgetItem(
-                str(v.version_trigger) if v.version_trigger is not None else "—"))
+                str(v.version_trigger)
+                if v.version_trigger is not None else "—"))
             t.setItem(i, 5, QTableWidgetItem(
-                str(v.version_written) if v.version_written is not None else "—"))
+                str(v.version_written)
+                if v.version_written is not None else "—"))
             src = (constants.CONFIRMED_SOURCE_ZH.get(v.source)
                    if v.source else None)
             t.setItem(i, 6, QTableWidgetItem(src or "—"))
             t.setItem(i, 7, QTableWidgetItem(
                 "待确认" if v.confirmed_at is None else "已确认"))
+        # 分区标题带实时计数
+        self._sec_history.set_title(
+            f"③ 最近判决（只读 · {len(self._history_rows)} 条）")
 
     def _update_others_notice(self) -> None:
         if self._game is None:
@@ -866,8 +987,7 @@ class AccountCenterPage(QWidget):
         self._mismatch_label.hide()
 
     # ---------------- 收尾 ----------------
-    def _save_split(self, *_a) -> None:
-        QSettings().setValue(self._SES_SPLIT, self._split.saveState())
+
     def shutdown(self) -> None:
         """程序退出收尾（主窗口 hasattr 循环自动发现）：两个后台线程
         各等 1.5 秒，等不到 park 保活。批查线程只发网络请求；盘点线程

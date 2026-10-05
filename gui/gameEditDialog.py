@@ -167,8 +167,15 @@ class GameEditDialog(QDialog):
         self._dd_state = QLabel("", dd_field)
         self._dd_state.setWordWrap(True)
         dd_v.addWidget(self._dd_state)
+        # 按钮先创建、再挂说明与接线：先有对象才能往它身上挂东西
+        # （顺序反了 = 对象还不存在就访问它，实测就是这个错）
         self._dd_btn = QPushButton("改为推导值", dd_field)
+        self._dd_btn.setToolTip(
+            "把下载目录改成按 steamcmd 当前位置推导的标准值"
+            "（下载目录永远由 steamcmd 位置决定，不开放手填）。"
+            "点了之后还要点下方【保存】才真正写入。")
         self._dd_btn.clicked.connect(self._toggle_dd)
+
         dd_h = QHBoxLayout()
         dd_h.setContentsMargins(0, 0, 0, 0)
         dd_h.addWidget(self._dd_btn)
@@ -201,6 +208,16 @@ class GameEditDialog(QDialog):
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
 
+        # 建档时 steamcmd 还没配置的档案，下载目录在账本里是空串——
+        # 没有人会故意填空，这里直接替用户进入"改为推导值"的待保存
+        # 状态：打开对话框就能看到将要写入的值，点【保存】一次落库；
+        # 不点保存就什么都不发生（只动了内存，账本零改动）。
+        # steamcmd 至今没配置（推导不出）时不进这个状态，走下面
+        # _refresh_dd 的"推导不出"分支，维持空值并如实说明。
+        if not (self._game.download_dir or "").strip() \
+                and self._derived is not None:
+            self._dd_pending = True
+
         self._refresh_dd()
 
     def _wrap_with_browse(self, edit: QLineEdit) -> QWidget:
@@ -225,26 +242,38 @@ class GameEditDialog(QDialog):
             edit.setText(d)
 
     # ---------- 下载目录行的显示 ----------
-
     def _refresh_dd(self) -> None:
         """下载目录行的状态显示，共四种：
-        待保存改动(黄) / 推导不出(灰，不出按钮) / 一致(绿) / 不一致(黄+按钮)
-        """
+        待保存改动(黄) / 推导不出(灰，不出按钮) / 一致(绿) / 不一致(黄+按钮)。
+
+        主行永远显示"这个字段此刻的实效值"：待保存时就是将要写入的
+        推导值（旧记录降级到黄字里交代一句），其余状态是账本现值。
+        先显示"（空）"再在下面小字里给真值，会让人以为字段还是空的
+        ——顺序反了，实测被用户点名。"""
         if self._dd_pending:
-            self._dd_state.setText(f"保存后将改为推导值：\n{self._derived}")
+            # 待保存：主行直接亮出将要写入的推导值
+            self._dd_current.setText(self._derived or "")
+            old = str(self._game.download_dir or "").strip()
+            origin = f"原记录：{old}" if old else "原记录：（空）"
+            self._dd_state.setText(
+                "上面这个推导值还没写进账本——点【保存】后生效"
+                f"（{origin}）；不点保存则维持原状。")
             self._dd_state.setStyleSheet(f"color: {_C_WARN};")
-            self._dd_btn.setText("不改了，保留现值")
+            self._dd_btn.setText("不改了，保留原记录")
             self._dd_btn.setVisible(True)
         elif self._derived is None:
+            self._dd_current.setText(self._game.download_dir or "（空）")
             self._dd_state.setText(
                 "推导不出：设置页还没填 steamcmd 程序路径。保留档案现值。")
             self._dd_state.setStyleSheet(f"color: {_C_MUTED};")
             self._dd_btn.setVisible(False)
         elif _norm(self._derived) == _norm(self._game.download_dir):
+            self._dd_current.setText(self._game.download_dir or "（空）")
             self._dd_state.setText("✓ 与按当前 steamcmd 位置推导的值一致")
             self._dd_state.setStyleSheet(f"color: {_C_OK};")
             self._dd_btn.setVisible(False)
         else:
+            self._dd_current.setText(self._game.download_dir or "（空）")
             self._dd_state.setText(
                 "与推导值不一致。按当前 steamcmd 位置推导应为：\n"
                 f"{self._derived}\n"

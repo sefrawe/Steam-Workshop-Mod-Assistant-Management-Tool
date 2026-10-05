@@ -276,7 +276,7 @@ class QuickCommandDialog(QDialog):
                 notes.append(
                     f"Steam 接口看不见（result={it.result}）——多半已"
                     "下架/删除或从未存在；少数情况是仍可下载的隐藏"
-                    "条目。未生成命令，可到【异常处理】页核实")
+                    "条目。未生成命令，可到【异常处置】页核实")
             n_seen = self._dup_counts.get(mid, 0)
             if n_seen > 1:
                 notes.append(f"输入中重复出现 {n_seen} 次（已合并）")

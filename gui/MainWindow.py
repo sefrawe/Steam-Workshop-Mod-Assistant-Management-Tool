@@ -372,6 +372,11 @@ class MainWindow(QMainWindow):
         # 触发它的菜单项——先接线，落点就绪，谁发谁到）
         if hasattr(modlib, "backup_requested"):
             modlib.backup_requested.connect(self._on_backup_requested)
+        # mod 库页右键「获取下载命令…」→ 命令生成页并聚焦（核验页/
+        # 异常页同一落点：跳页 + focus_ids，缺聚焦能力时只跳页）
+        if hasattr(modlib, "command_gen_requested"):
+            modlib.command_gen_requested.connect(self._on_verify_command_gen)
+
 
 
         # 启动默认落「欢迎」页（setCurrentItem 会触发 currentItemChanged，
@@ -552,8 +557,15 @@ class MainWindow(QMainWindow):
             page.command_gen_requested.connect(self._on_verify_command_gen)
             return page
         if pid == constants.PAGE_JUNCTION_CHECK:
-            return JunctionCheckPage(self._repo, self._settings,
-                                     parent=self._stack, log=self._log)
+            page = JunctionCheckPage(self._repo, self._settings, parent=self._stack, log=self._log)
+            # 联接检测写完档案后，档案切换器手里的档案信息还停在写库前
+            # ——不同步的话，"编辑档案"等从它取值的窗口会一直显示旧值，
+            # 直到重启。这里接住通知，让切换器悄悄重读一次（不发全页
+            # 广播：广播会清空检测页刚出的绿勾结论，体验反而变差）。
+            page.game_dir_written.connect(
+                lambda _app_id: self._switcher.reload(broadcast=False))
+            return page
+
         if pid == constants.PAGE_CLEANUP:
             page = DeletePage(self._repo, self._settings,
                               parent=self._stack, log=self._log)
@@ -748,13 +760,13 @@ class MainWindow(QMainWindow):
             "位置推导并可预览")
         act_add_game.triggered.connect(self._switcher.add_game_dialog)
         m_game.addAction(act_add_game)
-        act_link_guide = QAction("连接指引…", self)
-        act_link_guide.setToolTip(
-            "打开「联接检测」页：判定游戏 mod 目录与下载目录的联接状态，"
-            "按步骤接通（原连接指引对话框的页面版，能力一致）")
-        act_link_guide.triggered.connect(
-            lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
-        m_game.addAction(act_link_guide)
+        # act_link_guide = QAction("连接指引…", self)
+        # act_link_guide.setToolTip(
+        #     "打开「联接检测」页：判定游戏 mod 目录与下载目录的联接状态，"
+        #     "按步骤接通（原连接指引对话框的页面版，能力一致）")
+        # act_link_guide.triggered.connect(
+        #     lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
+        # m_game.addAction(act_link_guide)
         act_edit_game = QAction("编辑档案…", self)
         act_edit_game.setToolTip(
             "编辑当前游戏档案（如显示名称）——保存成功后下拉框与"

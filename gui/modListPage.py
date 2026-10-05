@@ -19,10 +19,11 @@ gui/modListPage.py · mod 库页——工作台第一页，账本的日常操作
   回推（有 → 已下载；无 → 待下载），页面不做推断；
 - 彻底清账成功后自动"通知 steamcmd 忘记这些条目"（断根，防止它把
   已清账的 mod 重新装配回来占盘），实现单源 core/steamPaths；
-- 「手动备份」「下载选中项」「备份选中项」撤下：前者的引擎改造归
-  备份轮，后两者的落点页（命令生成/批量下载）未搬迁——信号
-  （command_gen_requested / download_requested / backup_requested）
-  保留待接线，菜单项不保留（点击无反应 = 假入口，界面三问不过）。
+ - 「手动备份」「备份选中项」「下载选中项」「获取/复制下载命令」
+   均已恢复：三个落点页（备份与恢复/批量下载/命令生成）已全部
+   搬迁接线——跨页的经信号转主窗口对应页面，命令文本直取
+   core.commandBuilder 单源；点击有真实去处（界面三问过关）。
+
 
 分工与边界（记事本架构约定）：
 - 只通过 ModRepository 接口读写，GUI 层零 SQL；
@@ -42,8 +43,10 @@ session/ 命名空间；排序恢复先过白名单校验，不合法回默认�
 
 from pathlib import Path
 
-from PySide6.QtCore import QModelIndex, QSettings, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtCore import (QDateTime, QModelIndex, QSettings, Qt, QTime, QTimer, QUrl, Signal)
+
+from PySide6.QtGui import QAction, QColor,  QDesktopServices
+
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -63,7 +66,7 @@ from PySide6.QtWidgets import (
     QTableView,
     QToolButton,
     QVBoxLayout,
-    QWidget,
+    QWidget,QColorDialog,
 )
 
 from core import steamPaths
@@ -71,6 +74,8 @@ from core.appSettings import AppSettings
 from core.backupManager import steamcmd_running
 from core.constants import STATUS_DOWNLOADED, STATUS_TRACKED
 from core.formatters import abs_time
+from core.urlParser import WORKSHOP_URL_TEMPLATE  # 工坊链接模板单源（决策 61④）
+
 from core.models import Game
 from gui.advancedSearchDialog import AdvancedSearchDialog
 from gui.batchSpecialDialog import BatchSpecialDialog
@@ -78,26 +83,29 @@ from gui.consolePanel import LogBus
 from gui.modDetailPanel import ModDetailPanel
 from gui.modFolderOpener import open_mod_folder
 from gui.modListModel import (
-    COL_ID,
-    COL_LOCAL,
-    COL_REMOTE,
-    COL_SIZE,
-    COL_STATUS,
-    COL_TITLE,
-    COLOR_CHOICES,
-    ModListModel,
-    _SORT_MAP,
-    _color_name,
+    COL_COLOR, COL_ID, COL_LOCAL, COL_NOTE, COL_REMOTE, COL_SIZE,
+    COL_SPECIAL, COL_STATUS, COL_TAGS, COL_TITLE, COL_UPDATE,
+    COLOR_CHOICES, ModListModel, _SORT_MAP, _color_name, _color_qcolor,
 )
+
+
+from core.commandBuilder import build_copy_text  # 下载命令文本单源（core 纯函数，不碰库不弹窗）
 
 # 列显隐开关（T19⑯ 沿用，键名不变：设置页的旧偏好语义相同时仍生效）。
 # 勾选/颜色/编号/标题是结构列，不提供开关
+# 列显隐开关：设置页 8 个键全数接线。此前 update/tags/special 三键
+# 无列可管（列在瘦身中没搬）= 拨了没反应的死开关；列补齐后全活
 _COL_SETTING = {
+    COL_COLOR: "mod_col_color",
+
     COL_STATUS: "mod_col_status",
     COL_LOCAL: "mod_col_local_ver",
     COL_REMOTE: "mod_col_remote_ver",
+    COL_UPDATE: "mod_col_update",
     COL_SIZE: "mod_col_size",
-    8: "mod_col_note",
+    COL_TAGS: "mod_col_tags",
+    COL_SPECIAL: "mod_col_special",
+    COL_NOTE: "mod_col_note",
 }
 
 # 排序下拉的人话（T19⑰ 沿用）：列号 → 中文名 / 方向说法。
@@ -119,8 +127,145 @@ _SORT_DESC = {
 # 的 _SES_* 同一套口径（session/ 命名空间）----
 _SES_SPLIT = "session/modlib_split"     # 左表格/右详情分割比例："左宽,右宽"
 _SES_SORT = "session/modlib_sort"       # 排序状态：/col 列号、/order_by 串
-_SES_COLW = "session/modlib_colwidths"  # 列宽：/列号 → 像素（标题列除外）
+_SES_COLW = "session/modlib_colwidths_v2"  # 列数 9→12 换血：旧键按列号错位，整体作废重记
 
+
+# ---- 「设定本地版本」对话框（单条右键与批量操作共用一张）----
+
+# 常用时段下拉：文字 → 从当前时刻往回推的算法。天数按天回退；
+# "半个月"取 15 天；月/年以上按日历月/年回退（addMonths/addYears）
+# ——"1 个月前"按日历算才符合直觉，固定 30 天会漂。
+_VERSION_PRESETS: tuple[tuple[str, object], ...] = (
+    ("1 天前",   lambda dt: dt.addDays(-1)),
+    ("3 天前",   lambda dt: dt.addDays(-3)),
+    ("1 周前",   lambda dt: dt.addDays(-7)),
+    ("半个月前", lambda dt: dt.addDays(-15)),
+    ("1 个月前", lambda dt: dt.addMonths(-1)),
+    ("3 个月前", lambda dt: dt.addMonths(-3)),
+    ("半年前",   lambda dt: dt.addMonths(-6)),
+    ("1 年前",   lambda dt: dt.addYears(-1)),
+)
+
+
+class ManualVersionDialog(QDialog):
+    """「设定本地版本」对话框——单条右键与批量操作共用一张。
+
+    只负责收集一个诚实的答案，写库一律由调用方走
+    repo.set_manual_version 正门（R17 第三扇门），本对话框零数据库。
+
+    两个固定口径（动这里前先读）：
+    - 时间填到分钟即可：工坊页面「最后更新」只显示到分钟；
+    - 秒一律按 59 记（result_version 里落刀）：判定公式是"远端版本
+      比本地版本新才报需更新"，若存 00 秒，同一分钟内发布的版本
+      会被误报成"有更新"；存 59 秒把整分钟盖住，不误报——真正
+      更晚的更新落在下一分钟、工坊会如实显示，也不漏报。
+    """
+
+    def __init__(self, items: list[tuple[int, str | None]], parent) -> None:
+        super().__init__(parent)
+        n = len(items)
+        batch = n > 1
+        self.setWindowTitle("批量设定本地版本" if batch else "设定本地版本")
+        lay = QVBoxLayout(self)
+
+        if batch:
+            names = "、".join((title or str(mid)) for mid, title in items[:5])
+            head = QLabel(f"为勾选的 {n} 个 mod 设定同一个本地版本时间"
+                          f"（{names}{' 等' if n > 5 else ''}）。", self)
+            head.setToolTip("\n".join(
+                f"{mid}  {title or ''}" for mid, title in items))
+        else:
+            mid, title = items[0]
+            head = QLabel(
+                f"为「{title or mid}」（mod {mid}）手工认定本地版本"
+                "（最重的人工背书，判决史会记一条「手动设定」）。", self)
+        head.setWordWrap(True)
+        lay.addWidget(head)
+
+        tip = QLabel(
+            "版本时间 = 该版本在创意工坊的更新时间（工坊页面右侧"
+            "「最后更新」可查，填到分钟就行）。", self)
+        tip.setWordWrap(True)
+        lay.addWidget(tip)
+
+        # 常用时段：选中即填进下方时刻框，仍可手动微调。用 activated
+        # 而非 currentIndexChanged——同一个时段连选两次也要生效
+        prow = QWidget(self)
+        ph = QHBoxLayout(prow)
+        ph.setContentsMargins(0, 0, 0, 0)
+        ph.addWidget(QLabel("常用时段：", prow))
+        self._preset = QComboBox(prow)
+        self._preset.addItem("（选一个常用时段，或直接在下面改时间）")
+        for text, _fn in _VERSION_PRESETS:
+            self._preset.addItem(text)
+        self._preset.activated.connect(self._on_preset)
+        self._preset.setToolTip(
+            "按当前时刻往回推：天数按天、月以上按日历月/年。"
+            "选中后填进下面时刻框，可再微调")
+        ph.addWidget(self._preset, 1)
+        lay.addWidget(prow)
+
+        self._dt = QDateTimeEdit(self)
+        self._dt.setCalendarPopup(True)
+        self._dt.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self._dt.setDateTime(QDateTime.currentDateTime())
+        self._dt.setToolTip(
+            "不知道确切时刻就填那天的大致时间——它只影响「需更新」"
+            "的判定基准、排序显示与备份目录名")
+        lay.addWidget(self._dt)
+
+        note = QLabel(
+            "时间只填到分钟：软件按这一分钟的 59 秒记账——工坊的"
+            "「最后更新」也只显示到分钟，这一分钟内发布的都算已覆盖。"
+            "想强制让【更新检测】重新报某条的更新（回拨），把时间设到"
+            "比工坊显示更早即可。", self)
+        note.setWordWrap(True)
+        note.setStyleSheet("color: gray;")
+        lay.addWidget(note)
+
+        self._unknown = QCheckBox("记为「版本未知」（不指定版本时间）", self)
+        self._unknown.setToolTip(
+            "本地版本记为未知：条目正常管理，但在确认出版本之前"
+            "不能给它做备份")
+        self._unknown.toggled.connect(lambda on: self._dt.setEnabled(not on))
+        lay.addWidget(self._unknown)
+
+        if batch:
+            skip = QLabel(
+                "已删除的条目自动跳过；会覆盖每条已有的本地版本记录；"
+                "每条在判决史各记一条「手动设定」。", self)
+            skip.setWordWrap(True)
+            skip.setStyleSheet("color: gray;")
+            lay.addWidget(skip)
+
+        btns = QHBoxLayout()
+        ok_btn = QPushButton(f"认定 {n} 个" if batch else "认定", self)
+        ok_btn.setDefault(True)
+        cancel_btn = QPushButton("取消", self)
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+        btns.addStretch(1)
+        btns.addWidget(ok_btn)
+        btns.addWidget(cancel_btn)
+        lay.addLayout(btns)
+
+    def _on_preset(self, index: int) -> None:
+        """常用时段选中：把对应时刻填进时刻框（0 号是占位项，忽略）。"""
+        if index <= 0:
+            return
+        _text, fn = _VERSION_PRESETS[index - 1]
+        self._dt.setDateTime(fn(QDateTime.currentDateTime()))
+
+    def result_version(self) -> int | None:
+        """收集结果：勾了「版本未知」→ None；否则按 59 秒口径返回
+        Unix 秒（显示格式只到分钟、秒一直停在 00，这里强制改成 59，
+        理由见类 docstring）。"""
+        if self._unknown.isChecked():
+            return None
+        dt = self._dt.dateTime()
+        t = dt.time()
+        dt.setTime(QTime(t.hour(), t.minute(), 59))
+        return dt.toSecsSinceEpoch()
 
 class ModListPage(QWidget):
     # 跨页信号（落点页未搬迁，暂无菜单项触发；定义保留待接线）：
@@ -278,6 +423,13 @@ class ModListPage(QWidget):
             "磁盘上一个文件都不动。已是删除状态的条目自动跳过")
         self._act_softdel.triggered.connect(self._on_softdel_checked)
         self._actions_menu.addAction(self._act_softdel)
+        self._act_batch_restore = QAction("批量恢复…", self._actions_menu)
+        self._act_batch_restore.setToolTip(
+            "把勾选的「已删除」条目整批恢复：有确认版本 → 回「已下载」，"
+            "没有 → 回「待下载」（账本按确认版本回推）；非删除状态的"
+            "自动跳过，盘上文件不会被动")
+        self._act_batch_restore.triggered.connect(self._on_batch_restore)
+        self._actions_menu.addAction(self._act_batch_restore)
 
         self._act_purge = QAction("彻底清账选中项", self._actions_menu)
         self._act_purge.setToolTip(
@@ -324,6 +476,23 @@ class ModListPage(QWidget):
             "文字（不动原内容），或整批替换/清空")
         self._act_batch_note.triggered.connect(self._on_batch_note)
         self._actions_menu.addAction(self._act_batch_note)
+        self._act_batch_setver = QAction("批量设定本地版本…", self._actions_menu)
+        self._act_batch_setver.setToolTip(
+            "给勾选的 mod 整批设定同一个本地版本时间（最重的人工背书，"
+            "逐条记进判决史）：常用时段一键填入，秒按 59 记。\n"
+            "典型用途：批量补录后把一整批的版本基准对齐到工坊"
+            "「最后更新」显示的时间；或整批回拨让检测重新报更新")
+        self._act_batch_setver.triggered.connect(self._on_batch_set_version)
+        self._actions_menu.addAction(self._act_batch_setver)
+        self._act_batch_revoke = QAction("批量撤销确认…", self._actions_menu)
+        self._act_batch_revoke.setToolTip(
+            "把勾选条目的本地版本确认清空（撤销确认的批量版）：本地版本"
+            "变「未知」、状态不变、判决史保留，下轮【更新检测】重新报告。"
+            "已删除的跳过（恢复去向取决于有无确认版本，先撤销会改变"
+            "恢复结果）、本就没确认的跳过")
+        self._act_batch_revoke.triggered.connect(self._on_batch_revoke)
+        self._actions_menu.addAction(self._act_batch_revoke)
+
         self._actions_menu.addSeparator()
 
         self._act_open_pages = QAction("打开工坊页面", self._actions_menu)
@@ -340,6 +509,12 @@ class ModListPage(QWidget):
             "先预览再打开，全程不改账本")
         self._act_open_pages_list.triggered.connect(self._on_open_pages_paste)
         self._actions_menu.addAction(self._act_open_pages_list)
+        self._act_open_folders = QAction("打开 mod 文件夹", self._actions_menu)
+        self._act_open_folders.setToolTip(
+            "把勾选 mod 的内容文件夹（下载目录\\编号）逐个在文件管理器"
+            "打开；文件夹不在盘上的跳过并报数，不逐个弹说明框")
+        self._act_open_folders.triggered.connect(self._on_open_folders_checked)
+        self._actions_menu.addAction(self._act_open_folders)
 
         self._act_copy_ids = QAction("复制勾选编号", self._actions_menu)
         self._act_copy_ids.setToolTip(
@@ -358,8 +533,24 @@ class ModListPage(QWidget):
             "steamcmd 没启动时会提示先到终端页启动")
         self._act_download.triggered.connect(self._on_download_checked)
         self._actions_menu.addAction(self._act_download)
+        self._act_backup = QAction("备份选中项", self._actions_menu)
+        self._act_backup.setToolTip(
+            "把勾选的 mod 交给【备份与恢复】页开备份批次：备份页自动切"
+            "到对应档案、只备「已下载」条目（本地版本未知的会被剔出"
+            "并说明）；磁盘空间预检与保留策略都在备份页")
+        self._act_backup.triggered.connect(self._on_backup_checked)
+        self._actions_menu.addAction(self._act_backup)
 
         self._actions_menu.addAction(self._act_copy_ids)
+        self._act_copy_cmds = QAction("复制勾选项下载命令", self._actions_menu)
+        self._act_copy_cmds.setToolTip(
+            "把勾选 mod 的下载命令（workshop_download_item …）整批复制进"
+            "剪贴板：一行一条、按列表当前顺序排列，贴进 steamcmd 终端"
+            "回车即逐条执行。\n"
+            "不含登录行——先在终端登录，或用命令生成页的「复制登录命令」。"
+            "已删除/已失败不出命令（与右键置灰同口径），自动跳过并报数")
+        self._act_copy_cmds.triggered.connect(self._on_copy_cmds_checked)
+        self._actions_menu.addAction(self._act_copy_cmds)
 
         self._actions_menu.setToolTipsVisible(True)  # QMenu 默认不显示 tooltip
         self._btn_actions.setMenu(self._actions_menu)
@@ -405,8 +596,9 @@ class ModListPage(QWidget):
         # 留着会邀请点击，点了没反应（界面三问）
         header.setSortIndicatorShown(False)
         header.setSectionsClickable(False)
-        for col, width in ((0, 34), (1, 26), (2, 92), (4, 96), (5, 150),
-                           (6, 92), (7, 88), (8, 170)):
+        for col, width in ((0, 34), (1, 72), (2, 92), (4, 96), (5, 150),
+                           (6, 92), (7, 92), (8, 88), (9, 150),
+                           (10, 32), (11, 170)):
             self._table.setColumnWidth(col, self._saved_col_width(col, width))
         # 列宽落盘：拖动连发用单发定时器合并成一次写（400ms 防抖）
         self._colw_save_timer = QTimer(self)
@@ -416,7 +608,10 @@ class ModListPage(QWidget):
         header.sectionResized.connect(self._on_col_resized)
         self._apply_col_visibility()
 
-        self._detail = ModDetailPanel(split)
+        # 面板要查判决史，必须把账本仓库交给它——曾把分割器当 repo
+        # 传进来，AttributeError 被 try/except 吞掉，"最近判决"永远暂无
+        self._detail = ModDetailPanel(self._repo, split)
+
         self._detail.open_folder_requested.connect(self._open_folder_from_detail)
         split.addWidget(self._table)
         split.addWidget(self._detail)
@@ -449,6 +644,8 @@ class ModListPage(QWidget):
         same_game = (self._game is not None and game is not None
                      and self._game.app_id == game.app_id)
         self._game = game
+        self._detail.set_download_dir(game.download_dir if game else None)
+
         if not same_game:
             self._selected_mod_id = None
             self._detail.show_mod(None)  # 显式清，不押在 Qt 实现细节上
@@ -629,9 +826,15 @@ class ModListPage(QWidget):
         return out
 
     def _select_all_visible(self) -> None:
-        """全选当前显示：把可见行并入勾选集合（已有勾选保持不变）。"""
+        """全选当前显示：把当前清单里的全部行并入勾选集合（已有勾选
+        保持不变；被筛选藏起来的行不在清单里，天然不受影响）。
+        旧实现并的是"可见的已勾选行"——已勾选集合的子集，等于把现状
+        抄一遍，一个新勾都不会产生，按钮全程空转（实测被用户点名）。"""
         checked = self._model.checked_ids()
-        checked |= set(self._visible_checked_ids())
+        for r in range(self._model.rowCount()):
+            mid = self._model.mod_id_at(r)
+            if mid is not None:
+                checked.add(mid)
         self._model.set_checked(checked)
 
     def _update_checked_label(self) -> None:
@@ -648,6 +851,13 @@ class ModListPage(QWidget):
         self._act_download.setText(f"下载选中项{label}")
         self._act_batch_color.setText(f"批量颜色标记{label}")
         self._act_batch_note.setText(f"批量编辑备注{label}")
+        self._act_batch_setver.setText(f"批量设定本地版本{label}")
+        self._act_batch_restore.setText(f"批量恢复{label}")
+        self._act_batch_revoke.setText(f"批量撤销确认{label}")
+        self._act_open_folders.setText(f"打开 mod 文件夹{label}")
+        self._act_backup.setText(f"备份选中项{label}")
+        self._act_copy_cmds.setText(f"复制勾选项下载命令{label}")
+
 
     # ---------- 列显隐与会话记忆（T19⑤⑯） ----------
 
@@ -749,10 +959,12 @@ class ModListPage(QWidget):
         mid = m.mod_id
 
         act_open = QAction("打开工坊页面", menu)
-        act_open.setToolTip("在浏览器打开该 mod 的 Steam 创意工坊页面")
-        act_open.setEnabled(bool(getattr(m, "url", "")))
+        act_open.setToolTip(
+            "在浏览器打开该 mod 的 Steam 创意工坊页面（存了网址用存的；"
+            "没存按编号现拼——工坊网址本来就是编号的确定函数）")
         act_open.triggered.connect(
-            lambda: QDesktopServices.openUrl(QUrl(m.url)))
+            lambda: QDesktopServices.openUrl(QUrl(self._resolve_url(m))))
+
         menu.addAction(act_open)
 
         act_folder = QAction("打开 mod 文件夹", menu)
@@ -793,6 +1005,41 @@ class ModListPage(QWidget):
             "可查，精确到分钟即可）。判决史会记一条「手动设定」")
         act_setver.triggered.connect(lambda: self._set_manual_version(m))
         menu.addAction(act_setver)
+        # 手动备份（单条）：经既有 backup_requested 信号 → 主窗口转
+        # 备份页开批次（备份页自理版本未知守卫）
+        act_backup = QAction("手动备份…", menu)
+        act_backup.setEnabled(m.status == STATUS_DOWNLOADED)
+        act_backup.setToolTip(
+            "为这个 mod 做一次备份（把当前已确认版本完整复制一份）："
+            "交给【备份与恢复】页执行。只有「已下载」可备；本地版本"
+            "还是「未知」的会被备份守卫拒绝——先设定版本")
+        act_backup.triggered.connect(
+            lambda: self.backup_requested.emit(self._game.app_id, [mid]))
+        menu.addAction(act_backup)
+
+        # 获取下载命令：跳命令生成页并聚焦本 mod——命令文本的单源在
+        # 命令引擎，这里绝不手拼 steamcmd 行（防止两处口径漂移）
+        act_cmd = QAction("获取下载命令…", menu)
+        act_cmd.setEnabled(m.status in (STATUS_TRACKED, STATUS_DOWNLOADED))
+        act_cmd.setToolTip(
+            "跳到【下载命令生成】页并聚焦这个 mod——在那里复制它的"
+            "下载命令（登录行 + 下载行，口径与批量命令完全一致）")
+        act_cmd.triggered.connect(
+            lambda: self.command_gen_requested.emit([mid]))
+        menu.addAction(act_cmd)
+        # 复制下载命令（单条直取）：文本单源 core.commandBuilder，
+        # 与命令生成页同一拼装口径；含登录行的整段批量文本在命令生成页
+        act_copy_cmd = QAction("复制下载命令", menu)
+        act_copy_cmd.setEnabled(
+            m.status in (STATUS_TRACKED, STATUS_DOWNLOADED))
+        act_copy_cmd.setToolTip(
+            "把这一条的下载命令（workshop_download_item …）直接复制进"
+            "剪贴板——粘贴到底部终端（steamcmd）回车即可。\n"
+            "不含登录行：先在终端登录，或用命令生成页的「复制登录命令」"
+            "按钮。要整段批量命令，用上面的「获取下载命令…」")
+        act_copy_cmd.triggered.connect(
+            lambda: self._copy_download_command(m))
+        menu.addAction(act_copy_cmd)
 
         if m.status == "deleted":
             act_restore = QAction("恢复（取消软删除）…", menu)
@@ -827,6 +1074,12 @@ class ModListPage(QWidget):
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
     # ---------- 单条动作 ----------
+    @staticmethod
+    def _resolve_url(m) -> str:
+        """mod 的工坊网址：存了用存的；没存按 urlParser 模板现拼
+        （决策 61④ 模板单源）。"""
+        u = (getattr(m, "url", "") or "").strip()
+        return u if u else WORKSHOP_URL_TEMPLATE.format(m.mod_id)
 
     def _edit_note(self, m) -> None:
         text, ok = QInputDialog.getMultiLineText(
@@ -847,14 +1100,24 @@ class ModListPage(QWidget):
             self._open_mod_folder(m)
 
     def _pick_color(self, m) -> None:
-        names = [*COLOR_CHOICES.keys(), "（清除标记）"]
+        names = [*COLOR_CHOICES.keys(), "（自定义颜色…）", "（清除标记）"]
         name, ok = QInputDialog.getItem(
-            self, "颜色标记", f"mod {m.mod_id}：", names,
-            current=0, editable=False)
-        if ok:
-            self._repo.set_color_tag(
-                m.mod_id, None if name.startswith("（") else COLOR_CHOICES.get(name))
-            self._reload()
+            self, "颜色标记", f"mod {m.mod_id}：",
+            names, current=0, editable=False)
+        if not ok:
+            return
+        tag = None
+        if name == "（自定义颜色…）":
+            c = QColorDialog.getColor(
+                _color_qcolor(m) or QColor("#808080"),
+                self, "自定义颜色")
+            if not c.isValid():
+                return  # 取色器里取消了：什么都不改
+            tag = c.name()  # 规范形 #rrggbb，D26：任意 hex 照认
+        elif not name.startswith("（"):
+            tag = COLOR_CHOICES.get(name)
+        self._repo.set_color_tag(m.mod_id, tag)
+        self._reload()
 
     def _toggle_special(self, m) -> None:
         cur = bool(getattr(m, "special", getattr(m, "is_special", False)))
@@ -864,59 +1127,28 @@ class ModListPage(QWidget):
     def _copy_id(self, mid: int) -> None:
         QApplication.clipboard().setText(str(mid))
         self._log.info(f"已复制编号 {mid}")
+    def _copy_download_command(self, m) -> None:
+        """「复制下载命令」（右键单条）：命令文本走单源
+        core.commandBuilder.build_copy_text——页面绝不手拼 steamcmd 行，
+        今后改命令口径只动 core 一处，这里与命令生成页永远一致。"""
+        text = build_copy_text(self._game.app_id, [m.mod_id])
+        QApplication.clipboard().setText(text)
+        self._log.ok(
+            f"mod {m.mod_id} 的下载命令已复制进剪贴板：{text.strip()}"
+            "（不含登录行）")
 
     def _set_manual_version(self, m) -> None:
-        """「设定本地版本…」：内置日期时间选择（版本时间 = 该版本在
-        工坊的更新时间）；勾选"版本未知"则 version=None。
-        写库走 repo.set_manual_version 正门——来源、判决史由账本管，
-        页面只管收集一个诚实的时间。"""
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"设定本地版本 — mod {m.mod_id}")
-        lay = QVBoxLayout(dlg)
-        tip = QLabel(
-            f"为「{m.title or m.mod_id}」手工认定本地版本"
-            "（最重的人工背书，判决史会记一条「手动设定」）。\n"
-            "版本时间 = 这个版本在创意工坊的更新时间"
-            "（工坊页面右侧「最后更新」可查，精确到分钟即可）。",
-            dlg)
-        tip.setWordWrap(True)
-        lay.addWidget(tip)
-
-        dt = QDateTimeEdit(dlg)
-        dt.setCalendarPopup(True)
-        dt.setDisplayFormat("yyyy-MM-dd HH:mm")
-        from PySide6.QtCore import QDateTime
-        dt.setDateTime(QDateTime.currentDateTime())
-
-        dt.setToolTip("不知道确切时刻就选那天的大致时间——它只影响"
-                      "「需更新」的判定基准与排序显示")
-        lay.addWidget(dt)
-        unknown = QCheckBox("记为「版本未知」（不指定版本时间）", dlg)
-        unknown.setToolTip("本地版本记为未知：条目正常管理，但在确认出"
-                           "版本之前不能给它做备份")
-        unknown.toggled.connect(lambda on: dt.setEnabled(not on))
-        lay.addWidget(unknown)
-
-        btns = QHBoxLayout()
-        ok_btn = QPushButton("认定", dlg)
-        ok_btn.setDefault(True)
-        cancel_btn = QPushButton("取消", dlg)
-        ok_btn.clicked.connect(dlg.accept)
-        cancel_btn.clicked.connect(dlg.reject)
-        btns.addStretch(1)
-        btns.addWidget(ok_btn)
-        btns.addWidget(cancel_btn)
-        lay.addLayout(btns)
-
+        """「设定本地版本…」（单条）：共用对话框收集时间，写库走
+        repo.set_manual_version 正门——来源与判决史由账本管，页面只管
+        收集一个诚实的时间（秒口径 = 59，见 ManualVersionDialog）。"""
+        dlg = ManualVersionDialog([(m.mod_id, m.title)], self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        version = (None if unknown.isChecked()
-                   else dt.dateTime().toSecsSinceEpoch())
+        version = dlg.result_version()
         self._repo.set_manual_version(m.mod_id, version)
         self._log.ok(
             f"mod {m.mod_id} 已手工设定本地版本"
-            + ("（版本未知）" if version is None
-               else f"：{abs_time(version)}"))
+            + ("（版本未知）" if version is None else f"：{abs_time(version)}"))
         self._reload()
 
     def _soft_delete(self, m) -> None:
@@ -1298,6 +1530,206 @@ class ModListPage(QWidget):
                 "清空备注": "已清空备注"}[mode]
         self._log.ok(f"{verb}：{len(ids)} 个")
         self._reload()
+    def _on_batch_set_version(self) -> None:
+        """【批量设定本地版本…】：勾选的 mod 整批设定同一个版本时间。
+        逐条走 repo.set_manual_version 正门（R17 第三扇门），每条独立
+        事务、一条被拒不挡其余（与批量彻底清账同一容错口径）；
+        时间收集与 59 秒口径都在共用对话框 ManualVersionDialog。"""
+        if not self._require_game():
+            return
+        ids = self._visible_checked_ids()
+        if not ids:
+            QMessageBox.information(
+                self, "批量设定本地版本",
+                "先在表格第一列勾选要设定的 mod。")
+            return
+        targets, skipped_deleted = [], []
+        for mid in ids:
+            m = self._repo.get_mod(mid)
+            if m is None:
+                continue  # 勾选与落库之间刚被清账（极端竞态）：跳过
+            if m.status == "deleted":
+                skipped_deleted.append(mid)
+            else:
+                targets.append(m)
+        if not targets:
+            QMessageBox.information(
+                self, "批量设定本地版本",
+                "勾选的条目都是「已删除」状态——设定版本前请先恢复"
+                "（状态筛选选「已删除」→ 右键「恢复」）。")
+            return
+        dlg = ManualVersionDialog([(m.mod_id, m.title) for m in targets], self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            self._log.info("已取消批量设定本地版本：没有做任何改动")
+            return
+        version = dlg.result_version()
+        done, blocked = [], []
+        for m in targets:
+            try:
+                self._repo.set_manual_version(m.mod_id, version)
+                done.append(m.mod_id)
+            except ValueError as exc:
+                blocked.append((m.mod_id, str(exc)))
+        self._log.ok(
+            "已批量设定本地版本"
+            + ("（版本未知）" if version is None else f"：{abs_time(version)}")
+            + f"：{len(done)} 个"
+            + (f"；跳过已删除 {len(skipped_deleted)} 个" if skipped_deleted else "")
+            + (f"；被拒 {len(blocked)} 个" if blocked else ""))
+        for mid, reason in blocked:
+            self._log.warn(f"mod {mid} 设定被拒：{reason}")
+        self._reload()
+    def _on_batch_restore(self) -> None:
+        """【批量恢复】：勾选的「已删除」条目整批恢复。走
+        repo.mark_restored（目标状态由账本按"有没有确认版本"回推，
+        页面不推断）；非删除状态跳过；一个事务，要么全成要么原样。"""
+        if not self._require_game():
+            return
+        ids = self._visible_checked_ids()
+        if not ids:
+            QMessageBox.information(
+                self, "批量恢复", "先在表格第一列勾选要恢复的 mod。")
+            return
+        targets, skipped = [], 0
+        for mid in ids:
+            m = self._repo.get_mod(mid)
+            if m is None:
+                continue  # 勾选与落库之间刚被清账（极端竞态）：跳过
+            if m.status == "deleted":
+                targets.append(m)
+            else:
+                skipped += 1
+        if not targets:
+            QMessageBox.information(
+                self, "批量恢复",
+                "勾选里没有「已删除」状态的条目（状态筛选选「已删除」"
+                "能找到它们）。")
+            return
+        n_dl = sum(1 for m in targets if m.confirmed_version is not None)
+        n_tr = len(targets) - n_dl
+        ret = QMessageBox.question(
+            self, "批量恢复",
+            f"把 {len(targets)} 个已删除条目恢复为正常管理？\n"
+            f"有确认版本的 {n_dl} 个 → 回「已下载」；"
+            f"没有的 {n_tr} 个 → 回「待下载」。\n"
+            "盘上文件不会被动，缺了文件的之后由账实核验/盘点如实报出。"
+            + (f"\n另有 {skipped} 个非删除状态的条目已跳过。" if skipped else ""))
+        if ret != QMessageBox.StandardButton.Yes:
+            self._log.info("已取消批量恢复：没有做任何改动")
+            return
+        with self._repo.transaction():
+            for m in targets:
+                self._repo.mark_restored(m.mod_id)
+        self._log.ok(
+            f"已恢复 {len(targets)} 个（回「已下载」{n_dl}、"
+            f"「待下载」{n_tr}）"
+            + (f"；跳过非删除状态 {skipped} 个" if skipped else ""))
+        self._reload()
+
+    def _on_batch_revoke(self) -> None:
+        """【批量撤销确认…】：repo.revoke_confirmation 的批量版
+        （D8 唯一回滚点：确认三件套清空、status 不动、判决史保留，
+        下轮检测重新报更新）。已删除的跳过——恢复去向取决于有无
+        确认版本，先撤销会改变恢复结果；本就没确认的跳过（空操作）。"""
+        if not self._require_game():
+            return
+        ids = self._visible_checked_ids()
+        if not ids:
+            QMessageBox.information(
+                self, "批量撤销确认", "先在表格第一列勾选要操作的 mod。")
+            return
+        targets, skipped_del, already = [], 0, 0
+        for mid in ids:
+            m = self._repo.get_mod(mid)
+            if m is None:
+                continue
+            if m.status == "deleted":
+                skipped_del += 1
+            elif m.confirmed_version is None:
+                already += 1
+            else:
+                targets.append(m)
+        if not targets:
+            QMessageBox.information(
+                self, "批量撤销确认",
+                "勾选里没有已确认本地版本的条目，没有可撤销的。")
+            return
+        ret = QMessageBox.question(
+            self, "批量撤销确认",
+            f"确定撤销 {len(targets)} 个 mod 的本地版本确认？\n"
+            "本地版本变「未知」、状态不变、判决史保留；下轮"
+            "【更新检测】会把它们重新报出来。想恢复：重新设定版本"
+            "（右键单条或操作菜单批量设定均可）。\n"
+            + (f"另有已删除 {skipped_del} 个、本就没确认 {already} 个，"
+               "均不受影响。" if (skipped_del or already) else ""))
+        if ret != QMessageBox.StandardButton.Yes:
+            self._log.info("已取消批量撤销确认：没有做任何改动")
+            return
+        with self._repo.transaction():
+            for m in targets:
+                self._repo.revoke_confirmation(m.mod_id)
+        self._log.ok(f"已撤销确认：{len(targets)} 个（本地版本清空、"
+                     "状态未动；下轮检测重新报告）")
+        self._reload()
+
+    def _on_open_folders_checked(self) -> None:
+        """【打开 mod 文件夹】：勾选 mod 的内容文件夹逐个在文件
+        管理器打开。先按"下载目录\\编号"的既定路径规则做存在性
+        预检（路径规则单源见 gui/modFolderOpener，这里只做防弹窗
+        轰炸的预检），在盘的才交给单源 opener。"""
+        if not self._require_game():
+            return
+        ids = self._visible_checked_ids()
+        if not ids:
+            QMessageBox.information(
+                self, "打开 mod 文件夹", "先在表格第一列勾选 mod。")
+            return
+        base = (self._game.download_dir or "").strip()
+        if not base:
+            QMessageBox.information(
+                self, "打开 mod 文件夹",
+                "当前档案还没设置下载目录——请先到【编辑档案】补上。")
+            return
+        existing, missing = [], []
+        for mid in ids:
+            on_disk = (Path(base) / str(mid)).is_dir()
+            (existing if on_disk else missing).append(mid)
+        if not existing:
+            QMessageBox.information(
+                self, "打开 mod 文件夹",
+                f"勾选的 {len(missing)} 个 mod 的内容文件夹都不在盘上"
+                "（可能还没下载过或已清理）。")
+            return
+        ret = QMessageBox.question(
+            self, "打开 mod 文件夹",
+            f"在文件管理器打开 {len(existing)} 个 mod 内容文件夹？"
+            f"（会连开 {len(existing)} 个窗口，多的话建议分批）"
+            + (f"\n另有 {len(missing)} 个文件夹不在盘上，将跳过。"
+               if missing else ""))
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        opened = 0
+        for mid in existing:
+            m = self._repo.get_mod(mid)
+            if m is not None:
+                self._open_mod_folder(m)
+                opened += 1
+        self._log.ok(
+            f"已打开 {opened} 个 mod 文件夹"
+            + (f"；{len(missing)} 个不在盘上已跳过" if missing else ""))
+
+    def _on_backup_checked(self) -> None:
+        """【备份选中项】：把勾选编号经 backup_requested 交给主窗口 →
+        备份页开备份批次（信号 mod 库轮留好、主窗口早已接线；备份页
+        自理切档案、过滤可备份条目与版本未知守卫）。"""
+        if not self._require_game():
+            return
+        ids = self._visible_checked_ids()
+        if not ids:
+            QMessageBox.information(
+                self, "备份选中项", "先在表格第一列勾选要备份的 mod。")
+            return
+        self.backup_requested.emit(self._game.app_id, ids)
 
     def _on_batch_color(self) -> None:
         if not self._require_game():
@@ -1307,14 +1739,23 @@ class ModListPage(QWidget):
             QMessageBox.information(
                 self, "批量颜色标记", "先在表格第一列勾选要标记的 mod。")
             return
-        names = [*COLOR_CHOICES.keys(), "（清除标记）"]
+        names = [*COLOR_CHOICES.keys(), "（自定义颜色…）", "（清除标记）"]
+
         name, ok = QInputDialog.getItem(
             self, "批量颜色标记",
             f"给勾选的 {len(ids)} 个 mod 设置颜色标记：",
             names, current=0, editable=False)
         if not ok:
             return
-        tag = None if name.startswith("（") else COLOR_CHOICES.get(name)
+        tag = None
+        if name == "（自定义颜色…）":
+            c = QColorDialog.getColor(parent=self, title="自定义颜色")
+            if not c.isValid():
+                return
+            tag = c.name()
+        elif not name.startswith("（"):
+            tag = COLOR_CHOICES.get(name)
+
         with self._repo.transaction():
             for mid in ids:
                 self._repo.set_color_tag(mid, tag)
@@ -1337,17 +1778,12 @@ class ModListPage(QWidget):
             "可先关掉多余页面再逐个处理。")
         if ret != QMessageBox.StandardButton.Yes:
             return
-        opened, missing = 0, []
+        # 编号 → 网址是确定规则（urlParser 模板单源）：认领/手动设定
+        # 入账的条目没有存储 url 也一律能开，不再挂"未打开"警告
         for mid in ids:
-            m = self._repo.get_mod(mid)
-            if m is not None and getattr(m, "url", ""):
-                QDesktopServices.openUrl(QUrl(m.url))
-                opened += 1
-            else:
-                missing.append(mid)
-        self._log.ok(f"已请求浏览器打开 {opened} 个工坊页面")
-        if missing:
-            self._log.warn(f"这些编号没有网址记录，未打开：{missing}")
+            QDesktopServices.openUrl(
+                QUrl(WORKSHOP_URL_TEMPLATE.format(mid)))
+        self._log.ok(f"已请求浏览器打开 {len(ids)} 个工坊页面")
 
     def _on_open_pages_paste(self) -> None:
         """【打开工坊页面（贴清单）…】：三步对话框。就地 import：
@@ -1367,6 +1803,40 @@ class ModListPage(QWidget):
         QApplication.clipboard().setText(
             "\n".join(str(i) for i in ids) + "\n")
         self._log.ok(f"已复制 {len(ids)} 个编号（每行一个）")
+    def _on_copy_cmds_checked(self) -> None:
+        """【复制勾选项下载命令】：勾选 mod 的下载命令整批复制进剪贴板。
+        文本单源 core.commandBuilder.build_copy_text——与单条右键、
+        命令生成页同一拼装口径，页面绝不手拼 steamcmd 行。已删除/已失败
+        不出命令（引擎口径，与右键置灰一致），跳过并报数。"""
+        if not self._require_game():
+            return
+        ids = self._visible_checked_ids()
+        if not ids:
+            QMessageBox.information(
+                self, "复制勾选项下载命令",
+                "先在表格第一列勾选要复制命令的 mod。")
+            return
+        targets, skipped = [], 0
+        for mid in ids:
+            m = self._repo.get_mod(mid)
+            if m is None:
+                continue  # 勾选与落库之间刚被清账（极端竞态）：跳过
+            if m.status in (STATUS_TRACKED, STATUS_DOWNLOADED):
+                targets.append(mid)
+            else:
+                skipped += 1
+        if not targets:
+            QMessageBox.information(
+                self, "复制勾选项下载命令",
+                "勾选里没有可出命令的条目（已删除/已失败不出命令）。")
+            return
+        text = build_copy_text(self._game.app_id, targets)
+        QApplication.clipboard().setText(text)
+        self._log.ok(
+            f"已复制 {len(targets)} 条下载命令进剪贴板"
+            + (f"；跳过已删除/已失败 {skipped} 个" if skipped else "")
+            + "（不含登录行）")
+
 
     # ---------- 收尾 ----------
     def _on_download_checked(self) -> None:

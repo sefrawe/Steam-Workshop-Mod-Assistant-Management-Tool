@@ -79,16 +79,21 @@ class GameSwitcher(QWidget):
         self.reload()
 
     # ---------- 对外 ----------
-    def reload(self) -> None:
+    def reload(self, *, broadcast: bool = True) -> None:
         """重读 games 表。添加/删除档案、导入账本后由调用方触发；
         尽量保持当前选择不变。当前档案被删时 findData 落空 → 停在
         剩余第一项并广播（删档收尾正好靠这个语义：界面各页自动切到
-        新当前档案）。"""
+        新当前档案；档案被删光时广播 None，界面整体归零）。
+
+        broadcast=False：只刷新内存里的档案清单和下拉框，不发广播——
+        给"页面自己写完档案字段、把最新值同步进来"的场景用（联接
+        检测页写完目录后调的就是它）：此刻各页都停在原地，广播反而
+        会把人家页面上的现场清掉。"""
         previous = self.current_game()
         self._games = self._repo.list_games()
-        # 先掐断信号（blockSignals）再重建选项，防止重建过程中
-        # currentIndexChanged 每加一项就乱发一次；重建完手动补发
-        # 一次（_emit_current），保证外部拿到的是最终状态
+        # 先掐断信号再重建选项，防止重建过程中 currentIndexChanged
+        # 每加一项就乱发一次；重建完手动补发一次（_emit_current），
+        # 保证外部拿到的是最终状态
         self._combo.blockSignals(True)
         self._combo.clear()
         for game in self._games:
@@ -105,8 +110,12 @@ class GameSwitcher(QWidget):
                 idx = self._combo.findData(previous.app_id)
                 if idx >= 0:
                     self._combo.setCurrentIndex(idx)
+        # 恢复信号 + 广播都无条件执行（放在 if/else 外面）：空库分支
+        # 也要恢复信号屏蔽、也要广播"没有档案了"——档案全删光时，
+        # 各页必须跟着归零，不能还拿着已删档案的旧值
         self._combo.blockSignals(False)
-        self._emit_current()
+        if broadcast:
+            self._emit_current()
 
     def current_game(self) -> Game | None:
         """当前选中的档案；空库（或占位项）返回 None。"""

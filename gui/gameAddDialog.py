@@ -14,8 +14,7 @@ PyQt6 / PySide6 混装会在运行期崩溃——本文件因此不留任何 PyQ
 注入函数——本文件不 import steamPaths，推导逻辑留在 core，对话框只
 显示结果。落账走契约 add_game(app_id, name, download_dir, …)，其中
 download_dir 必填：由 derive_dir 现场推导；推导不出（steamcmd 未配置）
-就存空串——steamcmd 配好后首次扫描会经 steamPaths.refresh_download_dir
-自动回填，建档不被卡住。
+就存空串——steamcmd 配好后之后到【编辑档案】补上（打开时会自动选中"改为推导值"，点保存即落），建档不被卡住。
 
 查名结果的三档语义（实测约定，调用方必须区分对待，绝不混同）：
 - name=str：查到了；
@@ -175,7 +174,7 @@ class GameAddDialog(QDialog):
 
     def _refresh_dir_preview(self, app_id: int) -> None:
         # 推导不出（steamcmd 未配置）≠ 出错：如实说明、不拦建档，
-        # steamcmd 配好后首次扫描会自动回填（refresh_download_dir）
+        # 空值档案之后到【编辑档案】点保存补上推导值
         try:
             path = self._derive_dir(app_id)
         except Exception as exc:
@@ -247,7 +246,7 @@ class GameAddDialog(QDialog):
         app_id = int(self._edit_appid.text().strip())
         name = self._edit_name.text().strip()
         # 契约：add_game(app_id, name, download_dir, …) —— download_dir
-        # 必填。推导不出就存空串：账先立起来，steamcmd 配好后首次扫描
+        # 必填。推导不出就存空串：账先立起来，空值档案之后到【编辑档案】点保存补上推导值
         # 自动回填
         download_dir = self._derive_dir(app_id) or ""
         try:
