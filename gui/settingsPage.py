@@ -21,8 +21,9 @@ core/appSettings 的界面侧）。
   逗号，入库口径保持单一，消费端只按半角逗号/空白切分。
 
 目录推导原则：本地扫描和建档的目录都从 steamcmd 程序路径推导
-（core/steamPaths.py），界面上只保留这一把钥匙；steam_client_library
-只关 Steam 客户端的订阅记录，与 steamcmd 目录树无关。
+（core/steamPaths.py），界面上只保留这一把钥匙；
+steam_client_library 只关 Steam 客户端的订阅记录，与 steamcmd
+目录树无关。
 
 布局注意：长文字的 QLabel 必须开 setWordWrap(True)——不开换行的
 标签会把整行文字宽度当作"最小宽度"上报，一条一百多字的提示就能
@@ -31,25 +32,14 @@ core/appSettings 的界面侧）。
 说明（灰、11px，文本就是 _FIELDS 的 hint），校验状态单独一行、
 只对已填内容说话——说明层常驻、校验层按需，两层不互相顶掉。
 """
-
-
 import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QFileDialog,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPlainTextEdit,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-    QComboBox,
+    QCheckBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+    QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout,
+    QWidget, QComboBox,
 )
 
 from gui.theme import reapply_theme
@@ -68,6 +58,7 @@ _FIELDS = [
      "也可以直接填包含 steamcmd.exe 的文件夹——保存时自动补全 exe 文件名。"
      "命令生成、本地扫描、新建档案时的下载目录推导，都按它定位",
      "file"),
+
     # 决策 95：登录命令改多行——一行一条、可存多个账号；第一行 =
     # 批量下载自动登录发送的命令，其余行在 steamcmd 终端的
     # 「发送登录命令」下拉框里选发
@@ -80,28 +71,42 @@ _FIELDS = [
      "设置文件里，注意保管。"
      "账号必须拥有对应游戏，否则下载其创意工坊内容会报错",
      "text_multi"),
+
     ("steam_client_library", "Steam 客户端库目录",
      "Steam 客户端存放游戏内容库的位置（如 D:\\SteamLibrary），"
      "「纳入已有 mod」向导按它读取客户端的订阅记录；"
      "选库根、steamapps 或 workshop 层都可以。"
      "它只关系到 Steam 客户端，与 steamcmd 的目录无关",
      "dir"),
+
     ("api_request_interval_ms", "API 请求间隔（毫秒）",
      "批量查询 Steam 工坊接口时，两次请求之间的等待时间；"
      "太小可能被服务器限流",
      "number"),
+
     ("api_max_retries", "API 重试次数",
      "请求被服务器限流（429/503）时的自动重试上限，"
      "每次重试间隔会逐渐拉长",
      "number"),
+
     ("slow_update_days", "慢更新提醒阈值（天）",
      "距上次已知更新超过这个天数的 mod，在更新检测结果里标红提示"
      "（作者更新节奏慢，值得留意）",
      "number"),
+
     ("snapshot_keep", "快照保留条数",
      "每个 mod 保留的历史版本记录条数；检测到新版本时自动淘汰更旧的记录。"
      "修改后重启程序才生效（条数在启动时读入一次）",
      "number"),
+
+    # 界面字号缩放（重启生效，与 snapshot_keep 同一惯例：启动读一次）。
+    # 用百分数绕开 number 类"正整数"校验，不新增字段类型；
+    # 超出合理范围的值在启动应用处被忽略（等于 100）
+    ("ui_font_scale", "界面字号缩放（%）",
+     "整体字号缩放百分比，100 = 默认（建议 80~200，超出范围不生效）。"
+     "改后重启程序生效（字号在启动时统一应用一次）",
+     "number"),
+
     # 备份保留策略两键（与 core/appSettings.DEFAULTS、备份页兜底同口径）
     ("backup_keep_per_mod", "备份每 mod 保留份数",
      "每个 mod 保留的备份份数；超出后自动淘汰最旧的备份（钉住的除外）",
@@ -109,6 +114,7 @@ _FIELDS = [
     ("backup_total_quota_gb", "备份总配额（GB）",
      "全部备份合计的容量上限；超出后从最旧的备份开始清腾（钉住的除外）",
      "number"),
+
     # ↓ mod 库页列显示开关（T19⑯）：编号与标题两列永远显示，不设开关；
     # 改完点保存，回 mod 库页点【刷新】生效，无需重启
     ("mod_col_status", "列表显示：状态列",
@@ -135,6 +141,7 @@ _FIELDS = [
     ("mod_col_note", "列表显示：备注列",
      "关闭后 mod 库页隐藏「备注」列；改完点保存，回 mod 库页点【刷新】生效",
      "bool"),
+
     # 批次自动登录开关（决策 91，全局开关）：关掉的使用场景 = 换账号
     # 下载——终端手动 login 另一个账号后再开批次，批次不再自动把
     # 设置里的登录命令抢先发出去
@@ -144,6 +151,7 @@ _FIELDS = [
      "执行 login 另一个账号再开批次；没登录的话批次会停在「需要登录」"
      "等你处理",
      "bool"),
+
     # 批次前清缓存开关（决策 100）：默认开 = RimSort 同款对策同默认
     ("steamcmd_clear_cache_before_batch", "批次前清理 steamcmd 缓存",
      "开：每批下载开始前自动清空 steamcmd 的下载缓存（depotcache 与 "
@@ -158,27 +166,31 @@ _FIELDS = [
      "开：产生新日志时，底部的控制台自动弹出让你看见（默认，原行为）；\n"
      "关：控制台不再自动弹出——非当前标签页会亮红点提醒，想看时自己点开",
      "bool"),
+
     # 高级筛选关窗清空开关（决策 97）：默认开 = 现状（关窗即清空，原行为）
     ("advsearch_autoclear", "关闭高级筛选时自动清空条件",
      "开：关闭高级筛选窗口即清空全部条件，列表恢复全量（默认，原行为）；\n"
      "关：关窗保留条件，重开窗口接着用——mod 库页工具条的「高级筛选 ✕」"
      "指示按钮和窗口里的【清除全部】随时可手动清",
-     "bool"),    # 本地标题提醒词表（桶C，维护版）：异常处理页【开始检测】顺带扫
-    # 本地标题，命中即黄字提醒。留空 = 停用；默认值与
+     "bool"),
+
+    # 本地标题提醒词表（桶C，维护版）：标题检测页按词表扫本地标题，
+    # 命中即黄字提醒。留空 = 停用；默认值与
     # workflows/exceptionFlow.DEFAULT_TITLE_KEYWORDS 同文
     ("local_title_warn_keywords", "本地标题提醒关键词",
-     "mod 库里标题含这些词的条目，在【异常处理 → 开始检测】结果里"
-     "黄字提醒（离线、毫秒级）。中英文逗号或空格分隔（中文逗号保存时自动转半角），大小写不影响匹配；"
-     "留空 = 停用。默认：abandoned, deprecated, discontinued, "
-     "unmaintained, outdated——像 \"Abandoned Mines\" 这类地图名也会"
-     "被命中，只是提醒不是判定，误报就把对应词删掉", "text"),
-
-
+     "mod 库里标题含这些词的条目，在【标题检测】页黄字提醒（离线、"
+     "毫秒级）。中英文逗号或空格分隔（中文逗号保存时自动转半角），"
+     "大小写不影响匹配；留空 = 停用。默认：abandoned, deprecated, "
+     "discontinued, unmaintained, outdated——像 \"Abandoned Mines\" "
+     "这类地图名也会被命中，只是提醒不是判定，误报就把对应词删掉",
+     "text"),
 ]
 
 
 class SettingsPage(QWidget):
-    def __init__(self, settings: AppSettings, parent: QWidget | None = None) -> None:
+
+    def __init__(self, settings: AppSettings,
+                 parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
         self._edits: dict[str, QLineEdit] = {}
@@ -231,7 +243,7 @@ class SettingsPage(QWidget):
                 # 账号。读写接口与 QLineEdit 不同，单独收进
                 # _multi_edits，统一读取走 _field_text 助手
                 edit = QPlainTextEdit()
-                edit.setFixedHeight(72)  # 约四行：多个账号一眼可见
+                edit.setFixedHeight(72)   # 约四行：多个账号一眼可见
                 edit.textChanged.connect(self._refresh_states)
                 self._multi_edits[key] = edit
             else:
@@ -239,7 +251,6 @@ class SettingsPage(QWidget):
                 edit.textChanged.connect(self._refresh_states)
                 self._edits[key] = edit
             self._kinds[key] = kind
-
             if kind == "number":
                 # 数字不用那么宽的输入框，视觉上和路径行区分开
                 edit.setMaximumWidth(160)
@@ -251,13 +262,15 @@ class SettingsPage(QWidget):
             v = QVBoxLayout(field)
             v.setContentsMargins(0, 0, 0, 0)
             v.setSpacing(2)
+
             if kind in ("file", "dir"):
                 # 路径行 = 输入框 + 浏览按钮并排；文本项直接放输入框。
                 # 不设最小宽度：QLineEdit 横向本来就是扩张策略，
                 # 会自动填满页面剩余宽度，设了反而把窗口顶宽（踩坑 ⑨）
                 browse = QPushButton("浏览…")
                 browse.clicked.connect(
-                    lambda _=False, e=edit, f=(kind == "file"): self._browse(e, f))
+                    lambda _=False, e=edit, f=(kind == "file"):
+                    self._browse(e, f))
                 h = QHBoxLayout()
                 h.setContentsMargins(0, 0, 0, 0)
                 h.addWidget(edit, 1)
@@ -267,7 +280,7 @@ class SettingsPage(QWidget):
                 v.addWidget(edit)
 
             desc = QLabel(hint)
-            desc.setWordWrap(True)  # 必须换行，否则整句长度变成窗口最小宽度
+            desc.setWordWrap(True)   # 必须换行，否则整句长度变成窗口最小宽度
             desc.setStyleSheet("color: gray; font-size: 11px;")
             v.addWidget(desc)
 
@@ -329,7 +342,7 @@ class SettingsPage(QWidget):
             path = QFileDialog.getExistingDirectory(
                 self, "选择目录", edit.text() or "")
         if path:
-            edit.setText(str(path))  # Path 的字符串形式，跟原写法等价但更直白
+            edit.setText(str(path))   # Path 的字符串形式，跟原写法等价但更直白
 
     # ---------- 数据 ----------
     def _load_to_ui(self) -> None:
@@ -343,7 +356,8 @@ class SettingsPage(QWidget):
         for key, cb in self._checks.items():
             cb.setChecked(self._settings.get(key) != "0")
         # 记住打开时的开关状态：保存时对比，才知道"这次有没有动列显示"
-        self._bools_at_load = {k: cb.isChecked() for k, cb in self._checks.items()}
+        self._bools_at_load = {k: cb.isChecked()
+                               for k, cb in self._checks.items()}
         # 主题三态初始值（缺键/非法值回落 auto）
         mode = str(self._settings.get("theme_mode") or "auto").strip()
         i = self._theme_combo.findData(mode)
@@ -400,7 +414,7 @@ class SettingsPage(QWidget):
                 valid = True
                 ok_text = "已填写（使用时原样传递，不校验内容）"
                 bad_text = ok_text
-            else:  # number
+            else:   # number
                 valid = self._number_ok(text)
                 ok_text = "数值有效"
                 bad_text = "需要正整数，保存前请修正"
@@ -419,6 +433,7 @@ class SettingsPage(QWidget):
             self._saved_label.setText(f"以下设置需要正整数，未保存：{labels}")
             self._saved_label.setStyleSheet("color: #e5484d;")
             return
+
         for key, edit in self._edits.items():
             value = edit.text().strip()
             if key == "steamcmd_path":
@@ -426,30 +441,33 @@ class SettingsPage(QWidget):
                 # 从此下游（终端启动 / steamPaths 推导 / 备份引擎）
                 # 拿到的恒为完整 exe 路径
                 value = ensure_steamcmd_exe(value)
-                edit.setText(value)  # 界面同步显示保存后的真实值
+                edit.setText(value)   # 界面同步显示保存后的真实值
             if key == "local_title_warn_keywords":
                 # 中文逗号归一半角：界面允许顺手打中文逗号，入库
-                # 口径保持单一——消费端（异常检测的标题提醒，第 7
-                # 轮适配）按半角逗号/空白切分；手改 JSON 绕过这里
-                # 的由消费端兜底
+                # 口径保持单一——消费端（标题检测页，本版已落位）
+                # 按半角逗号/空白切分；手改 JSON 绕过这里的由消费端兜底
                 value = value.replace("，", ",")
-
             self._settings.set(key, value)
+
         # 多行文本（决策 95）：逐行 strip、丢空行后按 \n 拼回入库——
         # 下游（批次取首行、终端下拉框）拿到的每行都是干净命令
         for key, multi in self._multi_edits.items():
             lines = [ln.strip() for ln in multi.toPlainText().splitlines()]
             self._settings.set(key, "\n".join(ln for ln in lines if ln))
+
         # 开关项（T19⑯）：勾选 → "1"/"0"
         for key, cb in self._checks.items():
             self._settings.set(key, "1" if cb.isChecked() else "0")
         self._settings.save()
+
         # 列显示的生效时机是"回 mod 库页点刷新"，不在保存瞬间——
         # 动过开关就提醒一句，别让用户以为没生效
         changed = [k for k, cb in self._checks.items()
                    if cb.isChecked() != self._bools_at_load.get(k, True)]
-        self._bools_at_load = {k: cb.isChecked() for k, cb in self._checks.items()}
-        msg = f"已保存 {time.strftime('%H:%M:%S')} → {self._settings.path}"
+        self._bools_at_load = {k: cb.isChecked()
+                               for k, cb in self._checks.items()}
+        msg = (f"已保存 {time.strftime('%H:%M:%S')} → "
+               f"{self._settings.path}")
         if changed:
             msg += "\n列显示有改动：回 mod 库页点【刷新】生效"
         self._saved_label.setText(msg)

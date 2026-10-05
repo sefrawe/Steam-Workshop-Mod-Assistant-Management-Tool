@@ -42,6 +42,11 @@ from gui.verifyPage import VerifyPage
 from gui.junctionCheckPage import JunctionCheckPage
 from gui.deletePage import DeletePage
 from gui.purgedPage import PurgedPage
+from gui.titleCheckPage import TitleCheckPage
+from gui.remoteHealthPage import RemoteHealthPage
+from gui.depCheckPage import DepCheckPage
+from gui.exceptionPage import ExceptionPage
+from gui.batchOpenPage import BatchOpenPage
 
 from gui.welcomePage import PROJECT_URL, WelcomePage
 from PySide6.QtCore import QSettings, Qt, QUrl
@@ -555,6 +560,24 @@ class MainWindow(QMainWindow):
         if pid == constants.PAGE_API_KEY:
             return ApiKeyPage(self._settings, parent=self._stack,
                               log=self._log)
+        if pid == constants.PAGE_TITLE_CHECK:
+            return TitleCheckPage(self._repo, self._settings,
+                                  parent=self._stack, log=self._log)
+        if pid == constants.PAGE_REMOTE_HEALTH:
+            return RemoteHealthPage(self._repo, self._settings,
+                                    parent=self._stack, log=self._log)
+        if pid == constants.PAGE_DEP_CHECK:
+            return DepCheckPage(self._repo, self._settings,
+                                parent=self._stack, log=self._log)
+        if pid == constants.PAGE_EXCEPTION:
+            page = ExceptionPage(self._repo, self._settings,
+                                 parent=self._stack, log=self._log)
+            # 与核验页同一个跳命令页落点（切页 + 只勾这些）
+            page.command_gen_requested.connect(self._on_verify_command_gen)
+            return page
+        if pid == constants.PAGE_BATCH_OPEN:
+            return BatchOpenPage(self._repo, parent=self._stack,
+                                 log=self._log)
 
         return PlaceholderPage(_PAGE_TITLES[pid], pid)
 
