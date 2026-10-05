@@ -103,15 +103,15 @@ _PAGE_TITLES: dict[int, str] = {
     constants.PAGE_GAME_EXIT: "游戏退场",
     constants.PAGE_UNINSTALL: "卸载与清理",
     constants.PAGE_COMMAND_GEN: "下载命令生成",
-    constants.PAGE_BATCH_OPEN: "批量下载",  # ※
+    constants.PAGE_BATCH_OPEN: "批量下载",
     constants.PAGE_BACKUP: "备份与恢复",
     constants.PAGE_BACKUP_OVERVIEW: "备份总览",
-    constants.PAGE_TITLE_CHECK: "标题检测",  # ※
-    constants.PAGE_REMOTE_HEALTH: "远端健康",  # ※
-    constants.PAGE_DEP_CHECK: "依赖检测",  # ※
-    constants.PAGE_EXCEPTION: "异常处理",  # ※
+    constants.PAGE_TITLE_CHECK: "标题检测",
+    constants.PAGE_REMOTE_HEALTH: "远端健康",
+    constants.PAGE_DEP_CHECK: "依赖检测",
+    constants.PAGE_EXCEPTION: "异常处置",
     constants.PAGE_VERIFY: "账实核验",
-    constants.PAGE_JUNCTION_CHECK: "联接检测",  # ※
+    constants.PAGE_JUNCTION_CHECK: "联接检测",
     constants.PAGE_CLEANUP: "清理与删除",
     constants.PAGE_PURGED: "已清账管理",
     constants.PAGE_IMPORT: "网址批量导入",
@@ -300,6 +300,8 @@ class MainWindow(QMainWindow):
                                       settings=self._settings,
                                       log=self._log)
         self._switcher.current_game_changed.connect(self._on_game_changed)
+        self._switcher.overview_requested.connect(self._on_switcher_overview)
+
         side_layout.addWidget(self._switcher)
 
         # 左下：导航树——按 _NAV_SCHEMA 生成，条目挂 constants.PAGE_*
@@ -655,6 +657,30 @@ class MainWindow(QMainWindow):
         act_link_guide.triggered.connect(
             lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
         m_game.addAction(act_link_guide)
+        act_edit_game = QAction("编辑档案…", self)
+        act_edit_game.setToolTip(
+            "编辑当前游戏档案（如显示名称）——保存成功后下拉框与"
+            "各页同步更新")
+        act_edit_game.triggered.connect(self._switcher.open_edit)
+        m_game.addAction(act_edit_game)
+        self._act_game_edit = act_edit_game
+
+        act_relocate = QAction("备份目录重定位…", self)
+        act_relocate.setToolTip(
+            "备份文件夹被搬动/改名后，把当前档案的备份目录指针指回"
+            "文件真正所在的位置——先预演命中率，确认后才写库"
+            "（只改档案的备份目录一个字段，逐条备份记录零改动）")
+        act_relocate.triggered.connect(self._switcher.open_relocate)
+        m_game.addAction(act_relocate)
+        self._act_game_relocate = act_relocate
+
+        act_del_game = QAction("删除档案…", self)
+        act_del_game.setToolTip(
+            "删除当前游戏档案：先盘点名下账目，确认后自动做数据库"
+            "快照兜底、一个事务清账；磁盘备份目录按勾选处理（默认保留）")
+        act_del_game.triggered.connect(self._switcher.open_delete)
+        m_game.addAction(act_del_game)
+        self._act_game_delete = act_del_game
 
         # —— 顶级动作「高级筛选(&S)」：不挂菜单、点字即开（拍板记录：
         # 主打随时搜索——人在任何页都能拉开就查）。Alt+S 或
@@ -792,6 +818,15 @@ class MainWindow(QMainWindow):
         setter = getattr(page, "set_game", None)
         if callable(setter):
             setter(self._current_game)
+    def _on_switcher_overview(self, app_id: int) -> None:
+        """删除对话框「先去备份总览看看」的落点：先按档案设过滤再
+        跳页——进页 refresh 钩子按新过滤刷新；总览页没有
+        set_filter_game 时只跳页（hasattr 自适应，与广播循环同哲学）。"""
+        page = self._pages.get(constants.PAGE_BACKUP_OVERVIEW)
+        setter = getattr(page, "set_filter_game", None)
+        if callable(setter):
+            setter(app_id)
+        self._goto_page(constants.PAGE_BACKUP_OVERVIEW)
 
     def _toggle_detail(self, visible: bool) -> None:
         """视图菜单「详情面板」开关落点：面板是 mod 库页 splitter 的
@@ -829,6 +864,10 @@ class MainWindow(QMainWindow):
 
         self._act_open_download.setEnabled(
             game is not None and bool(game.download_dir))
+        self._act_game_edit.setEnabled(game is not None)
+        self._act_game_relocate.setEnabled(game is not None)
+        self._act_game_delete.setEnabled(game is not None)
+
         # 收尾确认清单跟着档案走：切档案即关（非模态三件套之二）。
         # 待确认队列按档案过滤，新档案的清单由下一次批次收尾再弹
         if self._confirm_dialog is not None:
