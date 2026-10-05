@@ -26,18 +26,22 @@ closeEvent 收尾循环都靠 hasattr 自适应，页面搬迁零接线成本。
 动作、视图菜单详情面板项、对话框跳页请求均随 mod 库轮接线；
 其余页面为占位器（见 _PAGE_TITLES 与 _build_page 的分支表）。
 """
-
+import sqlite3
 import sys
 import threading
 from pathlib import Path
 from gui.backupOverviewPage import BackupOverviewPage
 from gui.backupPage import BackupPage
-
+from core import dataExporter
 from gui.batchDownloadController import BatchDownloadController
 from gui.confirmListDialog import ConfirmListDialog
 from gui.accountCenterPage import AccountCenterPage
 from gui.updateCheckPage import UpdateCheckPage
 from gui.updateSelectDialog import UpdateSelectDialog
+from gui.verifyPage import VerifyPage
+from gui.junctionCheckPage import JunctionCheckPage
+from gui.deletePage import DeletePage
+from gui.purgedPage import PurgedPage
 
 from gui.welcomePage import PROJECT_URL, WelcomePage
 from PySide6.QtCore import QSettings, Qt, QUrl
@@ -53,7 +57,7 @@ from PySide6.QtWidgets import (
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
-    QWidget,
+    QWidget,QFileDialog,
 )
 
 from core import appPaths
@@ -69,6 +73,9 @@ from gui.updateComparePage import UpdateComparePage
 from gui.commandGenPage import CommandGenPage
 from gui.statsPage import StatsPage
 from gui.settingsPage import SettingsPage
+from gui.importPage import ImportPage
+from gui.shareListPage import ShareListPage
+from gui.apiKeyPage import ApiKeyPage
 
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根单源（源码=项目根\data）
 _NAV_WIDTH = 210
@@ -513,14 +520,78 @@ class MainWindow(QMainWindow):
             return StatsPage(self._repo, parent=self._stack)
         if pid == constants.PAGE_SETTINGS:
             return SettingsPage(self._settings, parent=self._stack)
+        if pid == constants.PAGE_VERIFY:
+            page = VerifyPage(self._repo, self._settings,
+                              parent=self._stack, log=self._log)
+            page.command_gen_requested.connect(self._on_verify_command_gen)
+            return page
+        if pid == constants.PAGE_JUNCTION_CHECK:
+            return JunctionCheckPage(self._repo, self._settings,
+                                     parent=self._stack, log=self._log)
+        if pid == constants.PAGE_CLEANUP:
+            page = DeletePage(self._repo, self._settings,
+                              parent=self._stack, log=self._log)
+            page.goto_account_center_requested.connect(
+                lambda: self._goto_page(constants.PAGE_ACCOUNT_CENTER))
+            page.goto_import_requested.connect(
+                lambda: self._goto_page(constants.PAGE_IMPORT))
+            page.ledger_changed.connect(self._on_cleanup_ledger_changed)
+            return page
+        if pid == constants.PAGE_PURGED:
+            return PurgedPage(self._repo, parent=self._stack,
+                              log=self._log, settings=self._settings)
+        if pid == constants.PAGE_IMPORT:
+            page = ImportPage(self._repo, parent=self._stack, log=self._log)
+            page.imported.connect(self._on_import_page_imported)
+            return page
+        if pid == constants.PAGE_SHARE_LIST:
+            page = ShareListPage(self._repo, self._settings,
+                                 parent=self._stack, log=self._log)
+            page.share_out_requested.connect(self._export_sharepack)
+            page.share_in_requested.connect(self._import_sharepack)
+            page.open_update_requested.connect(
+                lambda: self._goto_page(constants.PAGE_UPDATE_CHECK))
+            return page
+        if pid == constants.PAGE_API_KEY:
+            return ApiKeyPage(self._settings, parent=self._stack,
+                              log=self._log)
 
         return PlaceholderPage(_PAGE_TITLES[pid], pid)
 
     def _build_menus(self) -> None:
-        # —— 文件(&F)：本轮只挂目录两项 + 退出。账本/分享包导出导入
-        # 走 core/dataExporter（尚未搬迁，且 v2 要按判决制适配），
-        # 随其轮次回填 ——
+
         m_file = self.menuBar().addMenu("文件(&F)")
+        # —— 账本导出/导入 + 分享包两项（dataExporter 消费轮回填）。
+        # 导出纯读不需确认；导入完整账本 = 清库重灌，破坏性确认 + 默认
+        # 按钮"否"双保险 + 批次进行中直接拒绝；分享包导入纯增量
+        # （已有 mod 跳过、现有数据一字不改），无需确认 ——
+        act_exp_ledger = QAction("导出完整账本…", self)
+        act_exp_ledger.setToolTip(
+            "把全部档案与全部 mod 记录（含快照、备份登记、操作日志、"
+            "判决史等 8 张表）导出为一个 JSON 文件，用于换机迁移 / "
+            "整机备份")
+        act_exp_ledger.triggered.connect(self._export_ledger)
+        m_file.addAction(act_exp_ledger)
+        act_imp_ledger = QAction("导入完整账本…", self)
+        act_imp_ledger.setToolTip(
+            "从导出的 JSON 文件恢复账本。注意：导入会整体替换当前账本"
+            "（清库重灌），操作前会再次确认")
+        act_imp_ledger.triggered.connect(self._import_ledger)
+        m_file.addAction(act_imp_ledger)
+        m_file.addSeparator()
+        self._act_share_out = QAction("导出分享包（当前游戏）…", self)
+        self._act_share_out.setToolTip(
+            "把当前游戏的收录清单（含备注、标签、特别关注等整理成果）"
+            "导出为 JSON 发给别人；不含下载状态等本机信息")
+        self._act_share_out.triggered.connect(self._export_sharepack)
+        m_file.addAction(self._act_share_out)
+        act_imp_share = QAction("导入分享包…", self)
+        act_imp_share.setToolTip(
+            "把别人发来的分享包并入当前账本：已有的 mod 自动跳过，"
+            "绝不改动现有数据")
+        act_imp_share.triggered.connect(self._import_sharepack)
+        m_file.addAction(act_imp_share)
+        m_file.addSeparator()
 
         act_open_dl = QAction("打开 steamcmd 下载目录", self)
         act_open_dl.setToolTip(
@@ -554,6 +625,13 @@ class MainWindow(QMainWindow):
             "位置推导并可预览")
         act_add_game.triggered.connect(self._switcher.add_game_dialog)
         m_game.addAction(act_add_game)
+        act_link_guide = QAction("连接指引…", self)
+        act_link_guide.setToolTip(
+            "打开「联接检测」页：判定游戏 mod 目录与下载目录的联接状态，"
+            "按步骤接通（原连接指引对话框的页面版，能力一致）")
+        act_link_guide.triggered.connect(
+            lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
+        m_game.addAction(act_link_guide)
 
         # —— 顶级动作「高级筛选(&S)」：不挂菜单、点字即开（拍板记录：
         # 主打随时搜索——人在任何页都能拉开就查）。Alt+S 或
@@ -672,6 +750,25 @@ class MainWindow(QMainWindow):
         opener = getattr(page, "open_advanced_search", None)
         if callable(opener):
             opener()
+    def _on_verify_command_gen(self, mod_ids: list[int]) -> None:
+        """核验页修复三选「重新下载」：跳命令生成页并聚焦勾选。
+        命令生成页没有 focus_ids 能力时只跳页不聚焦，绝不炸。"""
+        self._goto_page(constants.PAGE_COMMAND_GEN)
+        page = self._pages.get(constants.PAGE_COMMAND_GEN)
+        focus = getattr(page, "focus_ids", None)
+        if callable(focus):
+            focus(mod_ids)
+
+    def _on_cleanup_ledger_changed(self) -> None:
+        """清理页处置落账 → mod 库页强制重读（set_game 重载整表）。
+        只动 mod 库页，不走 _on_game_changed——那会顺手关掉更新/确认
+        清单，处置落账不该连坐。"""
+        if self._current_game is None:
+            return
+        page = self._pages.get(constants.PAGE_MOD_LIST)
+        setter = getattr(page, "set_game", None)
+        if callable(setter):
+            setter(self._current_game)
 
     def _toggle_detail(self, visible: bool) -> None:
         """视图菜单「详情面板」开关落点：面板是 mod 库页 splitter 的
@@ -705,6 +802,8 @@ class MainWindow(QMainWindow):
 
         # 无档案时目录入口没有操作对象；添加档案不在其列——空库也能加
         # （更新确认清单"切档案自动关"随更新检测轮回补）
+        self._act_share_out.setEnabled(game is not None)  # 分享包按当前档案导出
+
         self._act_open_download.setEnabled(
             game is not None and bool(game.download_dir))
         # 收尾确认清单跟着档案走：切档案即关（非模态三件套之二）。
@@ -719,6 +818,151 @@ class MainWindow(QMainWindow):
             self._update_dialog = None
         self._pending_triggers = None
 
+    # ---------- 账本导出/导入 + 分享包（dataExporter 消费）----------
+    # 全程主线程：导出/导入都是一轮 SQL（毫秒级），与"数据库操作全在
+    # 主线程"的既有口径一致，不需要工作线程。
+
+    def _ask_open_json(self, title: str) -> str | None:
+        """选一个 JSON 文件；取消返回 None。起始目录固定为数据目录——
+        便携模式下数据跟着软件走，从数据目录起步最可预期。"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, title, str(appPaths.data_dir()), "JSON 文件 (*.json)")
+        return path or None
+
+    def _refresh_switcher_after_import(self) -> None:
+        """账本/分享包导入后的档案下拉刷新：reload 是档案切换器的方法，
+        该轮尚未搬迁——hasattr 守卫，没有就手动重广播一次当前选择，
+        让各页把内存里的旧账重读成导入后的新账（并提示下拉要重启才全）。"""
+        reload_sw = getattr(self._switcher, "reload", None)
+        if callable(reload_sw):
+            reload_sw()
+            return
+        self._on_game_changed(self._switcher.current_game())
+        self._log.info("提示：左上角档案下拉要重启后才显示新导入的档案"
+                       "（档案切换器的 reload 尚未搬迁）")
+
+    def _export_ledger(self) -> None:
+        """文件 → 导出完整账本…：8 张表全量 → JSON。先在内存构建
+        payload（纯读操作），再用它生成带时间戳的建议文件名弹保存框；
+        用户取消就什么都不写。"""
+        payload = dataExporter.build_ledger(self._repo)
+        suggested = appPaths.data_dir() / dataExporter.default_filename(payload)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出完整账本", str(suggested), "JSON 文件 (*.json)")
+        if not path:
+            return
+        out = dataExporter.save(payload, path)
+        self._log.ok(f"账本已导出：{out}")
+        self.statusBar().showMessage(f"账本已导出：{out}", 8000)
+
+    def _import_ledger(self) -> None:
+        """文件 → 导入完整账本…：清库重灌（引擎拍板，不做合并）。
+        失败路径全部安全：load 的格式问题在动手前被拦下；import_ledger
+        整体事务，任何失败回滚后原账无损——弹窗把这一点说清，别让
+        用户以为账本被弄坏了。批次进行中拒绝：清库会跟批次收尾链
+        互相踩脚，等一等没有坏处。"""
+        if self._batch_ctrl.is_busy():
+            QMessageBox.warning(
+                self, "下载批次进行中",
+                "批量下载尚未完成，等批次结束后再导入账本。")
+            return
+        path = self._ask_open_json("导入完整账本")
+        if path is None:
+            return
+        try:
+            payload = dataExporter.load(path)
+        except ValueError as exc:
+            QMessageBox.warning(self, "无法导入", str(exc))
+            return
+        ret = QMessageBox.question(
+            self, "导入完整账本",
+            dataExporter.ledger_summary(payload)
+            + "\n\n当前账本将被整体替换，此操作无法撤销。\n确定继续吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)   # 破坏性操作：默认停在"否"
+        if ret != QMessageBox.StandardButton.Yes:
+            self._log.info("已取消账本导入")
+            return
+        try:
+            counts = dataExporter.import_ledger(payload, self._repo)
+        except (ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(
+                self, "导入失败",
+                f"导入没有完成，当前账本原样保留、未做任何改动。\n\n{exc}")
+            return
+        self._refresh_switcher_after_import()
+        self._log.ok(f"账本导入完成：{counts}")
+        self.statusBar().showMessage(
+            f"账本导入完成：{counts['games']} 个档案、"
+            f"{counts['mods']} 条 mod 记录", 8000)
+
+    def _export_sharepack(self) -> None:
+        """文件 → 导出分享包…：当前游戏的清单 + 整理成果 → JSON。
+        无档案时菜单项已置灰，这里双保险直接返回。"""
+        game = self._current_game
+        if game is None:
+            return
+        try:
+            payload = dataExporter.build_sharepack(self._repo, game.app_id)
+        except ValueError as exc:   # 理论不可达：档案来自同一 repo
+            QMessageBox.warning(self, "导出失败", str(exc))
+            return
+        suggested = appPaths.data_dir() / dataExporter.default_filename(payload)
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"导出分享包 — {game.name}", str(suggested),
+            "JSON 文件 (*.json)")
+        if not path:
+            return
+        out = dataExporter.save(payload, path)
+        n = len(payload["tables"]["mods"])
+        self._log.ok(f"分享包已导出：「{game.name}」共 {n} 条 mod → {out}")
+        self.statusBar().showMessage(f"分享包已导出：{n} 条 mod", 5000)
+
+    def _import_sharepack(self) -> None:
+        """文件 → 导入分享包…：增量并入——已有的 mod 跳过、现有数据
+        一字不改，风险低，不做确认弹窗，结果报数。TypeError 也在拦的
+        行列：分享包的 schema 闸靠 Game(**row)/Mod(**row) 的构造
+        （dataExporter 文件头说明），形状不对会从这里冒出来，弹窗兜住
+        照样"原账无损"。"""
+        path = self._ask_open_json("导入分享包")
+        if path is None:
+            return
+        try:
+            payload = dataExporter.load(path)
+        except ValueError as exc:
+            QMessageBox.warning(self, "无法导入", str(exc))
+            return
+        try:
+            report = dataExporter.import_sharepack(payload, self._repo)
+        except (ValueError, TypeError, sqlite3.Error) as exc:
+            QMessageBox.warning(
+                self, "导入失败",
+                f"分享包没有并入，当前账本未做任何改动。\n\n{exc}")
+            return
+        self._refresh_switcher_after_import()
+        game = self._repo.get_game(report["app_id"])
+        name = game.name if game else str(report["app_id"])
+        elsewhere = (self._current_game is None
+                     or self._current_game.app_id != report["app_id"])
+        self._log.ok(f"分享包导入完成：「{name}」新增 {report['added']} 条、"
+                     f"跳过 {report['skipped']} 条")
+        self.statusBar().showMessage(
+            f"分享包导入完成：「{name}」新增 {report['added']} 条、"
+            f"跳过 {report['skipped']} 条"
+            f"（导入条目均为「待下载」；本机已有文件的话，到【入账中心】"
+            "点【扫描游戏目录】摆成待认领、确认补版本）"
+            + ("；在左上角下拉切换到该游戏查看" if elsewhere else ""),
+            8000)
+
+    def _on_import_page_imported(self, count: int) -> None:
+        """导入页 imported(int) 的落点：跳 mod 库页并强制重读（V1
+        _on_imported 同款），状态栏报数。"""
+        self._goto_page(constants.PAGE_MOD_LIST)
+        page = self._pages.get(constants.PAGE_MOD_LIST)
+        setter = getattr(page, "set_game", None)
+        if callable(setter):
+            setter(self._current_game)
+        self.statusBar().showMessage(f"已导入 {count} 个 mod", 5000)
 
 
     def _open_download_dir(self) -> None:
