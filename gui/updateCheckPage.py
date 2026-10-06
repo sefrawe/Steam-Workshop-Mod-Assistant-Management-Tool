@@ -133,7 +133,10 @@ class _CheckWorker(QThread):
 class _CollectionWorker(QThread):
     """后台查询合集成员：单次网络请求，只发不写。"""
 
-    succeeded = Signal(int, list)   # (合集编号, 成员编号列表)
+    succeeded = Signal(object, list)  # (合集编号, 成员编号列表)
+    # 合集编号也是工坊编号（publishedfileid 同一编号空间，>2³¹ 常态），
+    # 与 mod_id 同坑（踩坑 79），必须 object
+
     failed = Signal(str)
 
     def __init__(self, collection_id: int, *, max_retries: int) -> None:
@@ -165,7 +168,12 @@ class UpdateCheckPage(QWidget):
     无害。"""
 
     checks_finished = Signal(int)
-    updates_found = Signal(int, list, dict)
+    updates_found = Signal(int, list, object)
+    # 尾参 object 而非 dict（踩坑 87 漏网）：dict 信号走 QVariantMap
+    # 要求字符串键，本映射是 {mod_id: 触发值} 的 int 键 → Shiboken
+    # 静默换空字典（实证：检测到 73 条，开批后触发值全丢）。list 参数
+    # 不用动：列表元素走 64 位转换，大编号能活。首参 app_id 小值，int 合法
+
     progress_changed = Signal(int, int)
     check_interrupted = Signal(str)
 
@@ -516,8 +524,13 @@ class UpdateCheckPage(QWidget):
                         last_time_updated=row.time_updated,
                         **meta)
                     # 拍版本快照（远端观测史，滚动保留）
+                    # 拍版本快照（远端观测史，滚动保留）。
+                    # v2 签名在 * 之后只收带名参数；这里沿用旧版的位置
+                    # 传参会报 "takes 2 positional arguments but 3 were
+                    # given"，触发检测结果整体回滚——改成带名即愈
                     self._repo.add_snapshot(item.mod_id,
-                                            item.time_updated)
+                                            time_updated=item.time_updated)
+
                     if row.is_special:
                         # 特别关注：同一远端版本只提醒一次
                         last = self._repo.get_last_alert(item.mod_id)

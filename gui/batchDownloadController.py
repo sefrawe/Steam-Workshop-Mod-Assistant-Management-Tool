@@ -84,8 +84,12 @@ class _BackupPhaseWorker(QThread):
       备份失败意味着环境有问题，覆盖旧版本风险太大，宁可不下。
     """
 
-    item_done = Signal(int, bool, str)   # mod_id, 是否继续下载, 说明
-    phase_done = Signal(int, int)        # (备份成功数, 剔除数)
+    # object 而非 int：第一参装的是 mod_id（工坊编号，常态超 int32 上限，
+    # 踩坑 79 实证 2753176859 emit 即 Overflow、被截成 -1541790437，
+    # 工作线程炸死整批中断）。object 直传 Python 对象零转换，emit 点
+    # 与接收槽一律不用动
+    item_done = Signal(object, bool, str)  # mod_id, 是否继续下载, 说明
+    phase_done = Signal(int, int)  # (备份成功数, 剔除数)——计数器，int 合法
 
     def __init__(self, repo: ModRepository, game, mod_ids: list[int],
                  settings, parent=None) -> None:

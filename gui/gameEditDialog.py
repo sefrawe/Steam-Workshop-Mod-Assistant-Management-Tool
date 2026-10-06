@@ -143,13 +143,23 @@ class GameEditDialog(QDialog):
         bk_field = self._wrap_with_browse(self._bk_edit)
         default_root = steamPaths.backup_root_default(
             self._steamcmd_exe, self._game.app_id)
-
         if default_root:
             bk_hint = f"（当前推导：{default_root}）"
+            # 「改为推导值」：一键把输入框填成推导值。与下载目录那颗的
+            # 区别：备份目录本来就是自由编辑字段，这里只是替用户把字
+            # 打进输入框，没有"待保存"状态机——填完仍要点下方【保存】
+            # 才写入档案。修的场景：老档案/迁移来的档案备份目录是空的，
+            # 账上的备份记录解析不了位置；点这里 + 保存，全部记录立即对上。
+            bk_btn = QPushButton("改为推导值", bk_field)
+            bk_btn.setToolTip(
+                "把上方输入框填成按 steamcmd 当前位置推导的标准备份目录。\n"
+                "填好还要点下方【保存】才真正写入档案。")
+            bk_btn.clicked.connect(
+                lambda _=False: self._bk_edit.setText(default_root))
+            bk_field.layout().addWidget(bk_btn)
         else:
             bk_hint = "（设置页没填 steamcmd，暂推导不出）"
-        bk_desc = QLabel("留空 = 每次按 steamcmd 位置自动推导" + bk_hint,
-                         bk_field)
+        bk_desc = QLabel("留空 = 每次按 steamcmd 位置自动推导" + bk_hint, bk_field)
         bk_desc.setWordWrap(True)
         bk_desc.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
         bk_field.layout().addWidget(bk_desc)

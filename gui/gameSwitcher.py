@@ -144,13 +144,11 @@ class GameSwitcher(QWidget):
         导 mod，停在旧档案上会让人以为"没加上"。"""
         steamcmd_exe = self._settings.get("steamcmd_path") \
             if self._settings else ""
-        dlg = GameAddDialog(
-            self._repo,
-            self._make_api(),
-            # appid → 下载目录推导（core 的权威公式，core 不在对话框里
-            # import）
-            lambda aid: steamPaths.workshop_content_dir(steamcmd_exe, aid),
-            self)
+        dlg = GameAddDialog(self._repo, self._make_api(), lambda aid: steamPaths.workshop_content_dir(
+            self._settings.get("steamcmd_path"), aid), self,
+                            derive_backup_dir=lambda aid: steamPaths.backup_root_default(
+                                self._settings.get("steamcmd_path"), aid))
+
         dlg.exec()
         if dlg.created_app_id is None:
             return   # 用户取消，或建档未成（对话框内已报过原因）
