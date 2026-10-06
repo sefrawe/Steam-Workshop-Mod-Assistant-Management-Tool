@@ -50,7 +50,8 @@ core/commandBuilder.py（纯函数）；只读 ModRepository，GUI 层零 SQL；
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths, QUrl, Signal
+from PySide6.QtCore import QStandardPaths, Qt, QUrl, Signal
+
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -174,17 +175,30 @@ class CommandGenPage(QWidget):
 
         root.addLayout(top)
 
-        # 第 2 块：用法提示 + 复制登录命令
-        hint = QHBoxLayout()
+        # 第 2 块：用法提示（可折叠）+ 复制登录命令
+        # 任务清单「提示不能折叠」的落地：提示装进共享件分区，默认
+        # 展开（新手第一次就能看到），老手点箭头收起省一截高度。
+        # 文本包一层内滚区：窗口窄到折行变多时出滚动条、分区高度
+        # 恒定——照共享件契约"收起/展开占同样空间，内容多时控件
+        # 内部滚动"。折叠状态刻意不记 QSettings：提示总共三行，
+        # 为它引一条记忆链路不值当，要记再议
         lbl_usage = QLabel(_USAGE_TEXT)
         lbl_usage.setWordWrap(True)
+        lbl_usage.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
+        usage_scroll = QScrollArea(self)
+        usage_scroll.setWidgetResizable(True)
+        usage_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        usage_scroll.setWidget(lbl_usage)
+        self._usage_sec = CollapsibleSection("使用方法（点击收起 / 展开）", self)
+        self._usage_sec.set_content(usage_scroll, 48)  # ≈三行 12px 文本
+        hint = QHBoxLayout()
+        hint.addWidget(self._usage_sec, 1)
         self._btn_login = QPushButton("复制登录命令")
         self._btn_login.setToolTip(
             "复制设置页里填的 steamcmd 登录命令；"
             "还没填的话去设置页 → steamcmd 登录命令")
         self._btn_login.clicked.connect(self._on_copy_login)
-        hint.addWidget(lbl_usage, 1)
-        hint.addWidget(self._btn_login)
+        hint.addWidget(self._btn_login, 0, Qt.AlignTop)  # 与分区标题行齐平
         root.addLayout(hint)
 
         # 第 2.5 块：页内筛选框——三组清单共用一个过滤词

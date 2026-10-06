@@ -180,7 +180,15 @@ def describe(v: Verdict) -> str:
     if v.kind == KIND_NOT_LOGGED_ON:
         return "尚未登录：请先执行登录命令再下载"
     if v.kind == KIND_DISCONNECTED:
+        if v.code == 1:
+            # result 1 (OK) 出现在登录瞬间 = 旧会话被新登录挤掉的
+            # 正常提示，不是断线——照实说，免得用户虚惊
+            # （2026-10-06 批次日志实证：报这句的下一秒登录成功、
+            # 批次全程无碍）
+            return ("会话提示（result 1 OK）：旧登录会话被本次登录"
+                    "挤掉，无害，无需处理")
         return f"与 Steam 断开连接（result {v.code}：{v.note}），steamcmd 会自动重试"
+
     if v.kind == KIND_COMMAND_NOT_FOUND:
         return f"steamcmd 不认识这条命令：{v.note}"
     if v.kind == KIND_LOGIN_OK:

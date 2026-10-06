@@ -19,10 +19,13 @@ pytest 覆盖）；本文件只做界面与流程串联——解析、入库、�
   （读 acf 自动回填状态）在判决制下已退役：账本状态只经确认门写入，
   机器不替人背书。
 
-（改善项池）浏览器标签页采集：V1 的"从浏览器取标签页"依赖
-core/tabCollector（实时采集浏览器标签页），V2 树暂无此件，按钮与
-信号暂撤；采集器迁入后恢复。跨页回填入口 receive_external_lines
-保留——选择器回来即插即用，不用重写。
+浏览器标签页采集（V1 完善功能归位）：依赖 core/tabCollector（实时
+采集浏览器标签页，已收编进 V2）。第②步【从浏览器取标签页…】弹
+页内选择器（gui/browserPickDialog，内嵌与【工作台 · 从浏览器取
+网址】独立页同一份 BrowserTabPage）；勾选清单经 open_browser_picker
+→ 主窗口 → receive_external_lines 回填本步并自动解析预览。采集
+占用键鼠与中断方式见选择器页内说明。
+
 
 防呆要点（继承自引擎与既有页面的同款规矩）：
 - 入库前强制重新解析：预览属于"解析那一刻"的账本，中间可能变化；
@@ -36,6 +39,7 @@ core/tabCollector（实时采集浏览器标签页），V2 树暂无此件，按
 """
 import sqlite3
 from pathlib import Path
+from core import tabCollector
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -67,6 +71,11 @@ class AddModPage(QWidget):
     # 【核验命令可行性…】：跳【快速命令查询】页并预填命令文本
     # （MainWindow 落点 _goto_quick_cmd——文本只填不跑，防呆不省）
     quick_command_requested = Signal(str)
+    # 【从浏览器取标签页…】：弹页内选择器（BrowserPickDialog，内嵌
+    # 与独立页同一份 BrowserTabPage）——V1 完善功能归位（tabCollector
+    # 已收编）；依赖预检在 _go_browser，缺包就地给安装指引不弹空窗
+    open_browser_picker = Signal()
+
 
     def __init__(self, repo, settings: AppSettings | None,
                  parent: QWidget | None = None, *,
@@ -172,8 +181,17 @@ class AddModPage(QWidget):
         self._btn_clear.setToolTip(
             "清空第②步的输入框和解析结果（不影响已入库的批次）")
         self._btn_clear.clicked.connect(self._on_clear_clicked)
+        self._btn_browser = QPushButton("从浏览器取标签页…", self)
+        self._btn_browser.setToolTip(
+            "弹出选择器读取浏览器当前打开的标签页：勾选后自动填进"
+            "上面的输入框并解析预览（实时采集会占用鼠标键盘，"
+            "选择器里有说明）")
+        self._btn_browser.clicked.connect(self._go_browser)
+
         row2.addWidget(self._btn_parse)
         row2.addWidget(self._btn_file)
+        row2.addWidget(self._btn_browser)
+
         row2.addWidget(self._btn_clear)
         row2.addStretch(1)
         box2.addLayout(row2)
@@ -280,6 +298,8 @@ class AddModPage(QWidget):
         self._btn_status.setEnabled(False)
         self._btn_parse.setEnabled(self._game is not None)
         self._btn_file.setEnabled(self._game is not None)
+        self._btn_browser.setEnabled(self._game is not None)
+
         if self._game is None:
             self._set_card(self._d1,
                            "未选择档案——请先在左上角添加或选择游戏档案",
@@ -325,6 +345,20 @@ class AddModPage(QWidget):
         self._set_card(self._d2,
                        "已清空。粘贴新的网址或命令文本，点【解析预览】。",
                        _C_MUTED)
+    def _go_browser(self) -> None:
+        """弹出浏览器选择器（对话框内嵌，不跳页）。弹之前先查依赖：
+        没装就地弹窗教安装——功能模块要能独立走到头，小白不需要理解
+        基础功能页。"""
+        missing = tabCollector.missing_packages()
+        if missing:
+            QMessageBox.information(
+                self, "需要先安装采集依赖",
+                "实时采集缺 " + "、".join(missing) + "。\n\n"
+                                                    "安装命令（复制到 cmd 执行）：\n"
+                                                    "pip install pywinauto pyautogui pyperclip psutil\n\n"
+                                                    "装完后无需重启本工具，再点一次本按钮即可继续。")
+            return
+        self.open_browser_picker.emit()
 
     def _on_load_file_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

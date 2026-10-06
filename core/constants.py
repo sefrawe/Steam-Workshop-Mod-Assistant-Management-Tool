@@ -143,3 +143,6 @@ PAGE_SETTINGS = 26
 # 下载与备份组（后补：快速命令查询独立成页。编号追加不重排——
 # 导航里的显示顺序由 MainWindow._NAV_SCHEMA 决定，与编号无关）
 PAGE_QUICK_CMD = 27
+# 下载与备份组（后补二）：从浏览器取网址独立成页（工作台组）。
+# 编号追加不重排（决策 13 精神）
+PAGE_BROWSER_TABS = 28

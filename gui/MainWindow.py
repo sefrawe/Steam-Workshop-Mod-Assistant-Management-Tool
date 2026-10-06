@@ -46,7 +46,7 @@ from gui.titleCheckPage import TitleCheckPage
 from gui.remoteHealthPage import RemoteHealthPage
 from gui.depCheckPage import DepCheckPage
 from gui.exceptionPage import ExceptionPage
-
+from gui.browserPickDialog import BrowserPickDialog
 from gui.dailyUpdatePage import DailyUpdatePage
 from gui.migrationPage import MigrationPage
 from gui.rescuePage import RescuePage
@@ -70,6 +70,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,QFileDialog,
 )
+from gui.browserTabPage import BrowserTabPage
+from gui.browserPickDialog import BrowserPickDialog
+
 
 from core import appPaths
 from core import constants
@@ -129,6 +132,7 @@ _PAGE_TITLES: dict[int, str] = {
     constants.PAGE_API_KEY: "Steam API 密钥",
     constants.PAGE_SETTINGS: "设置",
     constants.PAGE_QUICK_CMD: "快速命令查询",
+    constants.PAGE_BROWSER_TABS: "从浏览器取网址"
 }
 
 
@@ -153,8 +157,9 @@ _NAV_SCHEMA: list[tuple[str, int | list[int]]] = [
                   constants.PAGE_DAILY_UPDATE, constants.PAGE_GAME_EXIT,
                   constants.PAGE_MIGRATION, constants.PAGE_RESCUE,
                   constants.PAGE_UNINSTALL]),
-    ("工作台", [constants.PAGE_MOD_LIST, constants.PAGE_ACCOUNT_CENTER,
-                constants.PAGE_UPDATE_CHECK, constants.PAGE_UPDATE_COMPARE]),
+    ("工作台", [constants.PAGE_MOD_LIST, constants.PAGE_ACCOUNT_CENTER, constants.PAGE_UPDATE_CHECK,
+                constants.PAGE_UPDATE_COMPARE, constants.PAGE_BROWSER_TABS]),
+
     ("下载与备份", [constants.PAGE_COMMAND_GEN, constants.PAGE_QUICK_CMD,
                     constants.PAGE_BACKUP, constants.PAGE_BACKUP_OVERVIEW]),
 
@@ -668,6 +673,7 @@ class MainWindow(QMainWindow):
                               parent=self._stack, log=self._log)
             page.download_requested.connect(self._on_download_requested)
             page.quick_command_requested.connect(self._goto_quick_cmd)
+            page.open_browser_picker.connect(self._on_open_browser_picker)
 
             return page
         if pid == constants.PAGE_GAME_EXIT:
@@ -695,6 +701,14 @@ class MainWindow(QMainWindow):
             page.link_guide_requested.connect(
                 lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
             return page
+        if pid == constants.PAGE_BROWSER_TABS:
+            page = BrowserTabPage(parent=self._stack, log=self._log)
+            # 独立页【送到「加入新 mod」】：清单交模块②自动填入并
+            # 解析预览，随即跳页（模块②的页内选择器入口按 V2 原计划
+            # "采集器迁入后恢复"，见改善项池，本轮不接）
+            page.handoff_to_addmod.connect(self._on_browser_handoff)
+            return page
+
         if pid == constants.PAGE_QUICK_CMD:
             return QuickCommandPage(self._repo, self._settings,
                                     parent=self._stack, log=self._log)
@@ -949,6 +963,44 @@ class MainWindow(QMainWindow):
             fn()
         else:
             self._log.info("请在本页点【扫描游戏目录】完成盘点确认")
+    def _on_browser_handoff(self, urls: list) -> None:
+        """独立页【送到「加入新 mod」】：清单交模块②的
+        receive_external_lines（自动填入并解析预览），随即跳页。"""
+        page = self._pages.get(constants.PAGE_ADD_MOD)
+        receiver = getattr(page, "receive_external_lines", None)
+        if not callable(receiver):
+            self._log.warn("加入新 mod 页未就绪，网址未送出——可在"
+                           "原页复制网址后到【入账中心 · 登记】")
+            return
+        receiver(urls)
+        self._goto_page(constants.PAGE_ADD_MOD)
+    def _on_open_browser_picker(self) -> None:
+        """模块②【从浏览器取标签页…】的落点：弹页内选择器（内嵌
+        同一个 BrowserTabPage，零复制）。勾选送回 = receive_external_
+        lines 自动填入并解析预览，对话框即关——人本来就在模块②，
+        全程无跳页（独立页的跳页方案与之并存，两条入口同一份代码）。"""
+        page = self._pages.get(constants.PAGE_ADD_MOD)
+        receiver = getattr(page, "receive_external_lines", None)
+        if not callable(receiver):
+            self._log.warn("加入新 mod 页未就绪，浏览器选择器未打开")
+            return
+        dlg = BrowserPickDialog(self, log=self._log)
+        dlg.lines_picked.connect(receiver)
+        dlg.exec()
+    def _on_open_browser_picker(self) -> None:
+        """模块②【从浏览器取标签页…】的落点：弹页内选择器（内嵌
+        同一个 BrowserTabPage，零复制）。勾选送回 = receive_external_
+        lines 自动填入并解析预览，对话框即关——人本来就在模块②，
+        全程无跳页（独立页的跳页方案与之并存，两条入口同一份代码）。"""
+        page = self._pages.get(constants.PAGE_ADD_MOD)
+        receiver = getattr(page, "receive_external_lines", None)
+        if not callable(receiver):
+            self._log.warn("加入新 mod 页未就绪，浏览器选择器未打开")
+            return
+        dlg = BrowserPickDialog(self, log=self._log)
+        dlg.lines_picked.connect(receiver)
+        dlg.exec()
+
     def _goto_quick_cmd(self, text: str = "") -> None:
         """跳到【快速命令查询】页，可选预填输入框（命令生成页按钮、
         加入新 mod 页【核验命令可行性…】的统一落点）。文本只填不跑

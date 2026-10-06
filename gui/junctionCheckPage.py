@@ -49,9 +49,9 @@ rmdir 的安全性（已写进界面文案）：rmdir 对联接只摘链接本�
 from PySide6.QtCore import Qt,Signal
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget,QFileDialog
 )
-
+from pathlib import Path
 from core import steamPaths
 from core.models import Game
 from gui.logBus import LogBus
@@ -157,16 +157,26 @@ class JunctionCheckPage(QWidget):
         self._input.returnPressed.connect(self._on_check)
         self._input.textEdited.connect(self._on_edited)
         h.addWidget(self._input, 1)
-        # 检测键与输入框同行：本页没有"目录选择…"浏览键，不存在
-        # 旧注释担心的误认问题；省下整行高度，页面更紧凑
+        # 浏览键回归（任务⑫）：Documents 下的深层路径手打太苦。
+        # 选完只填框、不自动判定——判定可能写档案（linked /
+        # linked_reverse 落 game_mod_dir），写库动作仍由【检测】
+        # 显式触发，与 returnPressed 的先例同一哲学
+        self._btn_browse = QPushButton("浏览文件夹…", row)
+        self._btn_browse.setToolTip(
+            "打开系统目录选择器，选中游戏读取 mod 的目录填入输入框；"
+            "填入后点【检测】判定。")
+        self._btn_browse.clicked.connect(self._on_browse)
+        h.addWidget(self._btn_browse)
+        v.addWidget(row)
+        # 检测键独立成行靠左（任务⑫）：浏览键占住输入行右端后，
+        # 两键相邻误认的旧顾虑重新成立——挪出来单列一行，建链后
+        # 反复点【检测】核对结果也好找
         self._check_btn = QPushButton("检测", row)
         self._check_btn.setToolTip(
             "判定你填的目录现在处于哪种连接状态，"
             "并按状态给出对应的操作步骤与命令。")
         self._check_btn.clicked.connect(self._on_check)
-        h.addWidget(self._check_btn)
-        v.addWidget(row)
-
+        v.addWidget(self._check_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
         self._state_label = QLabel("", self)
         self._state_label.setWordWrap(True)
@@ -292,6 +302,18 @@ class JunctionCheckPage(QWidget):
     def _on_edited(self) -> None:
         self._show_idle()
         self._state_label.setText("内容已改动，点【检测】重新判定。")
+    def _on_browse(self) -> None:
+        """浏览选择游戏 mod 目录：选完只填框并作废旧结论（新路径 =
+        旧判定作废，与 textEdited 同口径），判定仍由【检测】触发。"""
+        start = self._input.text().strip().strip('"').strip()
+        if start and not Path(start).is_dir():
+            start = ""  # 框里是手打的半截路径：别拿它当起点
+        picked = QFileDialog.getExistingDirectory(
+            self, "选择游戏 mod 目录", start)
+        if not picked:
+            return
+        self._input.setText(picked)
+        self._on_edited()
 
     def _on_check(self) -> None:
         if not self._input.text().strip().strip('"').strip():
