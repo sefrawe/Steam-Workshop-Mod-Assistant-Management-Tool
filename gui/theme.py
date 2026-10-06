@@ -154,3 +154,39 @@ def font_px(base: int) -> int:
     页面构造发生在启动时，值与全局字体同刻同源。"""
     return max(1, round(base * _font_scale()))
 
+# —— 运行日志按级别着色（consolePanel 消费）——
+# 与斑马纹同一哲学（踩坑 51）：颜色事实源收在本模块、按当前生效主题
+# 档位显式给色。深色套 = consolePanel 旧硬编码值（历史行为不变）；
+# 亮色套按白底对比度校准——info #d4d4d4 与 warn #f5a623 在白底几乎
+# 不可见（实测报障），各加深到可读档。
+_LOG_COLORS: dict[str, dict[str, str]] = {
+    "dark": {
+        "info": "#d4d4d4",   # 普通信息
+        "ok": "#46a758",     # 成功结论
+        "warn": "#f5a623",   # 警告
+        "error": "#e5484d",  # 错误
+        "ts": "#888888",     # 行首时间戳
+    },
+    "light": {
+        "info": "#555555",   # 深灰：白底清晰可读
+        "ok": "#2e7d32",     # 绿加深一档
+        "warn": "#b45309",   # 橙转赭，白底可读
+        "error": "#d13438",  # 红加深一档
+        "ts": "#767676",     # 时间戳中性灰
+    },
+}
+
+def log_colors() -> dict[str, str]:
+    """运行日志着色（键 = LogBus 四级别名 + "ts"）。QSS 未生效
+    （库缺席/应用失败）按深色套 = 历史默认行为；auto 档判定与
+    zebra_colors 同源（styleHints().colorScheme()）。"""
+    mode = _ACTIVE_MODE
+    if mode == "auto":
+        try:
+            from PySide6.QtCore import Qt
+            from PySide6.QtGui import QGuiApplication
+            scheme = QGuiApplication.styleHints().colorScheme()
+            mode = "dark" if scheme == Qt.ColorScheme.Dark else "light"
+        except Exception:
+            mode = "dark"
+    return _LOG_COLORS.get(mode or "dark", _LOG_COLORS["dark"])

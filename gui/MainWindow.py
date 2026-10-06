@@ -700,7 +700,15 @@ class MainWindow(QMainWindow):
             page.add_game_requested.connect(self._switcher.add_game_dialog)
             page.link_guide_requested.connect(
                 lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
+            # ⑤ 步三跳（录入已有 mod 文件链）：认领 / 设基准 / 首轮检测
+            page.goto_account_center.connect(
+                lambda: self._goto_page(constants.PAGE_ACCOUNT_CENTER))
+            page.goto_mod_list.connect(
+                lambda: self._goto_page(constants.PAGE_MOD_LIST))
+            page.goto_daily_update.connect(
+                lambda: self._goto_page(constants.PAGE_DAILY_UPDATE))
             return page
+
         if pid == constants.PAGE_BROWSER_TABS:
             page = BrowserTabPage(parent=self._stack, log=self._log)
             # 独立页【送到「加入新 mod」】：清单交模块②自动填入并
@@ -974,19 +982,7 @@ class MainWindow(QMainWindow):
             return
         receiver(urls)
         self._goto_page(constants.PAGE_ADD_MOD)
-    def _on_open_browser_picker(self) -> None:
-        """模块②【从浏览器取标签页…】的落点：弹页内选择器（内嵌
-        同一个 BrowserTabPage，零复制）。勾选送回 = receive_external_
-        lines 自动填入并解析预览，对话框即关——人本来就在模块②，
-        全程无跳页（独立页的跳页方案与之并存，两条入口同一份代码）。"""
-        page = self._pages.get(constants.PAGE_ADD_MOD)
-        receiver = getattr(page, "receive_external_lines", None)
-        if not callable(receiver):
-            self._log.warn("加入新 mod 页未就绪，浏览器选择器未打开")
-            return
-        dlg = BrowserPickDialog(self, log=self._log)
-        dlg.lines_picked.connect(receiver)
-        dlg.exec()
+
     def _on_open_browser_picker(self) -> None:
         """模块②【从浏览器取标签页…】的落点：弹页内选择器（内嵌
         同一个 BrowserTabPage，零复制）。勾选送回 = receive_external_

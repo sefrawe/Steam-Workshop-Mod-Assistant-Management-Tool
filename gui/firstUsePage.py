@@ -91,6 +91,10 @@ class FirstUsePage(QWidget):
     settings_requested = Signal()
     add_game_requested = Signal()
     link_guide_requested = Signal()
+    # ⑤ 步三跳（主窗口接 _goto_page）：b 认领 / c 设基准 / d 首轮检测
+    goto_account_center = Signal()
+    goto_mod_list = Signal()
+    goto_daily_update = Signal()
 
     def __init__(self, repo, settings: AppSettings | None,
                  parent: QWidget | None = None, *,
@@ -134,10 +138,11 @@ class FirstUsePage(QWidget):
         nb.setContentsMargins(8, 6, 8, 6)
         nb.setSpacing(2)
         for text in (
-            "流程：① 定位 steamcmd → ② 建立游戏档案 → ③ 接通游戏读取"
-            "目录 → ④ 纳入客户端已有的 mod。四步可跳步、可重入，缺哪步"
-            "走哪步。",
-            "为什么这么做：纳入走「先预览再写入」，只补缺不覆盖、已删除/"
+                "流程：① 定位 steamcmd → ② 建立游戏档案 → ③ 接通游戏读取"
+                "目录 → ④ 纳入客户端已有的 mod（Steam 订阅迁移）或 ⑤ 录入"
+                "已有的 mod 文件（其余来源，一路指引到跑通第一轮日常更新）。"
+                "各步可跳步、可重入，缺哪步走哪步。",
+                "为什么这么做：纳入走「先预览再写入」，只补缺不覆盖、已删除/"
             "已失效的不复活；纳入后是「待下载」，下载完在批次收尾的确认"
             "清单里勾选背书才算「已下载」——客户端那份拷贝不算数（账实"
             "口径以 steamcmd 目录为准）。",
@@ -263,6 +268,55 @@ class FirstUsePage(QWidget):
         row4.addWidget(self._btn_copy)
         row4.addStretch(1)
         box4.addLayout(row4)
+        # ⑤ 录入已有 mod 文件（静态引导卡）：无状态刷新、零业务逻辑，
+        # 三个按钮 = 跳既有页面的既有入口，本页只串联（文件头"只做
+        # 串联，不抄第二份实现"同纪律）。落点由主窗口接三个信号
+        self._d5, box5 = self._make_card(
+            "step5", "⑤ 录入已有的 mod 文件 → 跑通第一轮日常更新")
+        guide = QLabel(
+            "mod 文件已经在手里（以前用 steamcmd 下过、换机带来的、"
+            "别的下载器下的——Steam 客户端订阅来的走第④步，不要两边"
+            "重复），不用重新下载，四小步：\n"
+            "a. 复制进下载目录：mod 文件夹（每个 mod 一个以工坊编号"
+            "命名的文件夹）复制到本游戏的下载目录——第①步卡片显示的"
+            "那个，steamcmd 和游戏都从它读 mod，就这一个目录；游戏若"
+            "只认自己的目录，第③步的联接已处理。\n"
+            "b. 认领入账：到【入账中心】点【扫描游戏目录】——盘上"
+            "发现、账上没有的摆成「待认领」，逐条确认收录；知道编号"
+            "不想扫盘的，直接用【登记】。\n"
+            "c. 设定版本基准（防漏更新的关键一步）：到【mod 库】页"
+            "全选刚认领的条目 → 操作 ▾ →【批量设定本地版本…】，时间"
+            "设为「你最后一次确认全部 mod 都是最新」的那一天；从没"
+            "整批确认过，就选最早下载日期再往前推几个月。宁早勿晚："
+            "选早了，头一两轮可能把已是最新版的误报成「有更新」——"
+            "重下一遍无害且自动纠正；选晚了才会永久漏报更新。\n"
+            "d. 首轮日常更新：到【日常更新】点【开始检测】——远端"
+            "信息（标题、大小、远端版本）自动补全回写账本，并报出"
+            "所有比你版本基准更新的 mod，勾选执行即可。\n"
+            "自检点：检测结果里「版本未知」应为 0——不是 0 = 有条目"
+            "漏了 c 步，回 mod 库页补上，再检测一次。")
+        guide.setWordWrap(True)
+        guide.setStyleSheet(
+            f"border:none; color:{_C_MUTED}; font-size: {font_px(12)}px;")
+        box5.addWidget(guide)
+        row5 = QHBoxLayout()
+        self._btn_goto_account = QPushButton("去入账中心认领…")
+        self._btn_goto_account.setToolTip(
+            "跳到「入账中心」：【扫描游戏目录】认领盘上已有文件")
+        self._btn_goto_account.clicked.connect(self.goto_account_center.emit)
+        self._btn_goto_modlist = QPushButton("去 mod 库设基准…")
+        self._btn_goto_modlist.setToolTip(
+            "跳到「mod 库」：全选条目 → 操作 ▾ →【批量设定本地版本…】")
+        self._btn_goto_modlist.clicked.connect(self.goto_mod_list.emit)
+        self._btn_goto_daily = QPushButton("去日常更新检测…")
+        self._btn_goto_daily.setToolTip(
+            "跳到「日常更新」：【开始检测】补全远端信息并报出更新")
+        self._btn_goto_daily.clicked.connect(self.goto_daily_update.emit)
+        for b in (self._btn_goto_account, self._btn_goto_modlist,
+                  self._btn_goto_daily):
+            row5.addWidget(b)
+        row5.addStretch(1)
+        box5.addLayout(row5)
 
         root.addStretch(1)
 

@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import vdf
+from core.steamPaths import locate_acf  # noqa: F401  # acf 定位单源在 steamPaths（v1.3 既定归位）；
+# 本模块 re-export 保旧 import 路径——firstUsePage 与测试零改动
 
 # 质量谓词拦下的跳过原因统一用这个前缀：
 # ScanResult.interrupted 靠它把"疑似下载中断"和"格式不完整"分开算数
@@ -71,31 +73,34 @@ class ScanResult:
         return [k for k, reason in self.skipped
                 if reason.startswith(_INTERRUPTED_PREFIX)]
 
-
-def locate_acf(base_path: str | Path | None, app_id: int) -> Path | None:
-    """按工坊目录布局定位账本文件。
-
-    base_path 认三种填写口径（程序内部推导传的总是库根，后两种是
-    兼容手工填写的容错）：
-      填库根 →     <根>\\steamapps\\workshop\\appworkshop_<appid>.acf
-      填 steamapps 层 → <层>\\workshop\\appworkshop_<appid>.acf
-      填 workshop 层 →  <层>\\appworkshop_<appid>.acf
-    找不到返回 None——不是错误，由调用方决定怎么提示。
-    """
-    raw = str(base_path or "").strip().strip('"').strip()
-    if not raw:
-        return None
-    base = Path(raw).expanduser()
-    name = f"appworkshop_{app_id}.acf"
-    for candidate in (
-        base / "steamapps" / "workshop" / name,  # 填了库根
-        base / "workshop" / name,                # 填了 steamapps 层
-        base / name,                             # 填了 workshop 层
-    ):
-        if candidate.is_file():
-            return candidate
-    return None
-
+#
+# def locate_acf(base_path: str | Path | None, app_id: int) -> Path | None:
+#     """按工坊目录布局定位账本文件。
+#
+#     base_path 认三种填写口径（程序内部推导传的总是库根，后两种是
+#     兼容手工填写的容错）：
+#       填库根 →     <根>\\steamapps\\workshop\\appworkshop_<appid>.acf
+#       填 steamapps 层 → <层>\\workshop\\appworkshop_<appid>.acf
+#       填 workshop 层 →  <层>\\appworkshop_<appid>.acf
+#     找不到返回 None——不是错误，由调用方决定怎么提示。
+#     """
+#     raw = str(base_path or "").strip().strip('"').strip()
+#     if not raw:
+#         return None
+#     base = Path(raw).expanduser()
+#     name = f"appworkshop_{app_id}.acf"
+#     for candidate in (
+#         base / "steamapps" / "workshop" / name,  # 填了库根
+#         base / "workshop" / name,                # 填了 steamapps 层
+#         base / name,                             # 填了 workshop 层
+#     ):
+#         if candidate.is_file():
+#             return candidate
+#     return None
+#
+# locate_acf 已上收单源：core/steamPaths（"路径布局知识只住这一份"纪律
+# 兑现）。收编前两版逐行 diff 行为零差异，无漂移损失；
+# from core.localScanner import locate_acf 旧路径经顶部 re-export 有效
 
 def _to_int(value) -> int | None:
     """acf 的数字全是字符串；转不动/缺失返回 None。"""
