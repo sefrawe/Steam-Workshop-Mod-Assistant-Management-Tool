@@ -1,64 +1,53 @@
-"""快速命令查询对话框
-"""
-r"""gui/quickCommandDialog.py · 贴任意工坊网址/编号/命令行 → 生成
-归属正确的下载命令。
+"""快速命令查询页 """
+r"""gui/quickCommandPage.py · 贴任意工坊网址/编号/命令行 → 生成归属
+正确的下载命令。原 QuickCommandDialog 整编为独立页（导航：下载与备份
+组，紧挨命令生成页）：判定边界、离线生成、互斥闸、审计记账全部照旧，
+只换壳——QDialog→QWidget、关窗取消改 shutdown()（页面循环自动发现）。
 
 【吞掉第三方下载站的核心用法】steamworkshopdownloader.io 一类网站
-做的事：给一个工坊链接，还你一条 workshop_download_item 命令。本
-对话框用官方接口 GetPublishedFileDetails 做同一件事，而且多还一样
-东西——每条返回自带的 consumer_app_id（条目所属游戏）：
+做的事：给一个工坊链接，还你一条 workshop_download_item 命令。本页
+用官方接口 GetPublishedFileDetails 做同一件事，而且多还一样东西——
+每条返回自带的 consumer_app_id（条目所属游戏）：
     workshop_download_item <条目自己的游戏AppID> <编号>
 与账本无关、与当前界面显示的游戏无关：混着贴，各生成各的命令。
-整行下载命令也认（urlParser 单源解析）——AppID 以联网重查结果为
-准，填错的会被顺带纠正（实测场景：把 RimWorld 编号塞进别的游戏的
-命令里，steamcmd 报 No match）。
 
 【判定边界（如实约束，绝不猜）】
 - result≠1（接口看不见条目）：拿不到 consumer_app_id，无法生成
   命令——可能已失效也可能仍可下载，说明列如实注明；
 - result=1 但 consumer_app_id 缺失（极少见）：同样不生成；
-- 联网失败：本次给不出任何命令——绝不拿当前档案的 AppID 瞎猜
-  归属，猜错的命令就是 No match；
-- 【离线生成】= 把"猜归属"从程序的静默行为变成用户的显式选择：
-  确认弹窗说清风险、默认停在取消。
+- 联网失败：本次给不出任何命令——绝不拿当前档案的 AppID 瞎猜；
+- 【离线生成】= 把"猜归属"变成用户的显式选择：确认弹窗说清风险、
+  默认停在取消。
 
 【与终端的咬合】复制出的命令粘到 控制台 → steamcmd 终端 回车即可：
-命令自带 AppID，批次按它归属（当前界面显示别的游戏也照常下载）；
-批次收尾自动盘点（设置可关），盘上内容进该档案的待认领区，到
-【入账中心】勾选确认转正。命令已按游戏分组排序、同游戏相邻——
-一个批次只服务一个游戏，逐游戏复制粘贴最稳。
+命令自带 AppID，批次按它归属；批次收尾自动盘点，盘上内容进该档案
+的待认领区，到【入账中心】勾选确认转正。命令已按游戏分组排序。
 
-【纪律】
-- 只读不写业务账：复制时记一笔 operations_log（result="generated"，
-  审计可回溯）；
-- 查询走 QThread，取消协议：关窗即请求取消、等 2 秒、等不到 park
-  给退场守卫——绝不销毁活线程（闪退 0xC0000409 老坑）；
-- 联网互斥闸 netGate：与深检/更新检测同一把闸。
+【纪律】只读不写业务账（复制记 operations_log 审计）；查询走
+QThread，等不到 park 保活（0xC0000409 老坑）；联网互斥闸 netGate。
 """
-
 import threading
-from core import constants
-from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QDialog, QHBoxLayout, QHeaderView,
-    QLabel, QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QMessageBox,
-)
 
+from core import constants
+from core import netGate
 from core import urlParser
 from core.appSettings import AppSettings
 from core.commandBuilder import build_plain_commands
 from core.steamApiClient import SteamApiCancelled, SteamApiClient, SteamApiError
-from core import netGate
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import (
+    QAbstractItemView, QApplication, QHeaderView, QHBoxLayout, QLabel,
+    QMessageBox, QPlainTextEdit, QPushButton, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
+)
 from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
-
 
 
 class _QueryWorker(QThread):
     """查询线程：客户端自动按 100/批分批限速；取消事件置位后
     等待与重试立即中断（steamApiClient 的 v2.45 协议）。"""
-    succeeded = Signal(list)  # list[WorkshopItem]
+    succeeded = Signal(list)   # list[WorkshopItem]
     failed = Signal(str)
 
     def __init__(self, mod_ids: list[int], *, interval_ms: int,
@@ -74,53 +63,57 @@ class _QueryWorker(QThread):
 
     def run(self) -> None:
         client = SteamApiClient(
-            interval_ms=self._interval_ms,
-            max_retries=self._max_retries,
+            interval_ms=self._interval_ms, max_retries=self._max_retries,
             cancel_event=self._cancel)
         try:
             items = client.query_details(self._mod_ids)
         except SteamApiCancelled:
-            return  # 关窗取消：静默收场，什么都不发
+            return  # 关窗/退出取消：静默收场
         except SteamApiError as exc:
             self.failed.emit(str(exc))
             return
         self.succeeded.emit(items)
 
 
-class QuickCommandDialog(QDialog):
-    """快速命令查询：贴 → 解析 → 联网查归属 → 生成命令 → 复制。"""
+class QuickCommandPage(QWidget):
+    """快速命令查询页：贴 → 解析 → 联网查归属 → 生成命令 → 复制。"""
 
-    def __init__(self, repo, settings: AppSettings, parent=None, *,
+    def __init__(self, repo, settings: AppSettings,
+                 parent: QWidget | None = None, *,
                  log: LogBus | None = None, game=None) -> None:
-
         super().__init__(parent)
-        self.setWindowTitle("快速命令查询——贴网址 / 编号，生成归属正确的下载命令")
-        self.resize(760, 540)
         self._repo = repo
         self._settings = settings
         self._log = log if log is not None else LogBus()
-        self._game = game  # 当前档案（离线生成的 AppID 来源；None=未选档案）
-
+        self._game = game  # 当前档案（离线生成的 AppID 来源）
         self._worker: _QueryWorker | None = None
         self._commands: list[str] = []   # 复制用（已按游戏分组排序）
         self._invalid: list[str] = []    # 认不出的原始片段
         self._net_held = False           # 联网闸持有标志（防双放）
-        # 输入体检结果（每次查询/离线生成前重算）：重复计数与命令行
-        # AppID 归属 → _on_ok 里做错配/重复/跨档案说明（v2.49 增补）
         self._dup_counts: dict[int, int] = {}
         self._line_app_of: dict[int, int] = {}
-
         self._build_ui()
+
+    def set_game(self, game) -> None:
+        """档案广播（MainWindow 循环自动发现）：离线生成的 AppID
+        来源随当前档案走。"""
+        self._game = game
 
     # ---------------- UI ----------------
     def _build_ui(self) -> None:
         v = QVBoxLayout(self)
+        title = QLabel("快速命令查询", self)
+        title.setStyleSheet(
+            f"font-size: {font_px(18)}px; font-weight: 600;")
+        v.addWidget(title)
         hint = QLabel(
             "每行贴一个，三种随便混：工坊网址 / 纯编号 / 整行下载命令"
             "（可多游戏混杂）。查询后按每个条目自己的游戏生成命令——"
             "与当前界面显示的游戏、与账本都无关；命令行里的旧 AppID "
             "以重查结果为准（填错的会被纠正）。\n"
-            "复制后粘到 控制台 → steamcmd 终端 回车执行：批次按命令自带的 AppID 归属；批次收尾自动盘点，盘上内容进该档案的待认领区，到【入账中心】勾选确认，命令已按游戏分组，"
+            "复制后粘到 控制台 → steamcmd 终端 回车执行：批次按命令"
+            "自带的 AppID 归属；批次收尾自动盘点，盘上内容进该档案的"
+            "待认领区，到【入账中心】勾选确认。命令已按游戏分组，"
             "一个批次只服务一个游戏——逐游戏复制粘贴最稳。", self)
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
@@ -147,7 +140,6 @@ class QuickCommandDialog(QDialog):
             " No match，点下去前有确认弹窗说清风险")
         self._btn_offline.clicked.connect(self._on_offline)
         row.addWidget(self._btn_offline)
-
         self._status = QLabel("", self)
         self._status.setWordWrap(True)
         row.addWidget(self._status, 1)
@@ -180,11 +172,8 @@ class QuickCommandDialog(QDialog):
         self._btn_copy = QPushButton("复制命令", self)
         self._btn_copy.setEnabled(False)
         self._btn_copy.clicked.connect(self._on_copy)
-        btn_close = QPushButton("关闭", self)
-        btn_close.clicked.connect(self.reject)
         bottom.addStretch(1)
         bottom.addWidget(self._btn_copy)
-        bottom.addWidget(btn_close)
         v.addLayout(bottom)
 
     # ---------------- 查询 ----------------
@@ -211,7 +200,6 @@ class QuickCommandDialog(QDialog):
         self._net_held = True
         self._invalid = list(report.invalid)
         self._dup_counts, self._line_app_of = self._analyze_lines(text)
-
         self._set_status(f"已解析 {len(report.mod_ids)} 个编号，正在查询…", "")
         self._btn_go.setEnabled(False)
         self._worker = _QueryWorker(
@@ -222,15 +210,12 @@ class QuickCommandDialog(QDialog):
         self._worker.failed.connect(self._on_fail)
         self._worker.finished.connect(self._on_finished)
         self._worker.start()
+
     @staticmethod
     def _analyze_lines(text: str) -> tuple[dict[int, int], dict[int, int]]:
-        """输入侧体检（v2.49 增补）：逐行复用同一解析器（单源，不改
-        urlParser 契约）统计两件事——
-        ① 每个编号出现在几行里 → 重复输入提醒（合并本就是解析器的
-        既有行为，这里只把"发生了合并"说出口）；
-        ② 命令行自带的 AppID 记到该行每个编号名下 → 供重查结果比对，
-        发现"游戏与 mod 命令错配"时明说并纠正，不再悄悄改。
-        返回 (编号→出现行数, 编号→命令行 AppID)。"""
+        """输入侧体检：逐行复用同一解析器（单源）统计——① 每个编号
+        出现在几行里 → 重复提醒；② 命令行自带 AppID 记到该行编号名下
+        → 供重查比对，错配时明说并纠正。"""
         dup: dict[int, int] = {}
         line_app: dict[int, int] = {}
         for ln in text.splitlines():
@@ -242,9 +227,10 @@ class QuickCommandDialog(QDialog):
                 for mid in rep.mod_ids:
                     line_app[mid] = apps[0]
         return dup, line_app
+
     def _on_ok(self, items: list) -> None:
         rows: list[dict] = []
-        pairs: list[tuple[int, int]] = []   # (appid, mod_id) 可生成命令的
+        pairs: list[tuple[int, int]] = []
         n_invisible = n_noapp = n_mismatch = n_cross = 0
         n_dup = sum(1 for n in self._dup_counts.values() if n > 1)
         cur_app = self._game.app_id if self._game is not None else None
@@ -257,14 +243,10 @@ class QuickCommandDialog(QDialog):
                 notes.append("✓ 已生成命令")
                 src = self._line_app_of.get(mid)
                 if src is not None and src != it.consumer_app_id:
-                    # 错配（用户实测场景）：命令行塞了别的游戏的 AppID
-                    # ——重查已纠正，明说一声而不是悄悄改
                     n_mismatch += 1
                     notes.insert(0, f"⚠ 原命令 AppID {src} 与条目实际"
                                     f"所属不符，已纠正为 {it.consumer_app_id}")
                 if cur_app is not None and it.consumer_app_id != cur_app:
-                    # 跨档案是特性不是错：命令照常、批次按条目自己的
-                    # 游戏归属——说明到位即可，不吓唬人
                     n_cross += 1
                     notes.append(f"属其他游戏（非当前档案"
                                  f"「{self._game.name}」）")
@@ -282,11 +264,9 @@ class QuickCommandDialog(QDialog):
                 notes.append(f"输入中重复出现 {n_seen} 次（已合并）")
             rows.append({"mid": mid, "title": title, "app": row_app,
                          "note": "；".join(notes)})
-        # 表格行序 = 命令行序（按游戏分组、组内按编号）：对照不漂移；
-        # 接口看不见/缺归属的行垫底
+        # 表格行序 = 命令行序（按游戏分组、组内按编号）；查不到的垫底
         rows.sort(key=lambda r: ((0, r["app"], r["mid"]) if r["app"]
                                  else (1, 0, r["mid"])))
-        # 命令按（游戏AppID, 编号）排序：同游戏相邻；格式走单源
         self._commands = []
         apps = sorted({a for a, _ in pairs})
         for app in apps:
@@ -328,12 +308,10 @@ class QuickCommandDialog(QDialog):
             "（本次给不出命令——绝不拿当前档案的 AppID 猜归属，"
             "猜错的命令就是 No match。）", "color: #e5484d;")
         self._log.error(f"快速命令查询失败：{message}")
+
     def _on_offline(self) -> None:
-        """【离线生成】（决策 105 增补，用户提案）：不联网，按当前
-        档案的游戏 AppID 给全部编号出命令。网络不畅时的兜底——
-        "猜归属"从程序的静默行为变成用户的显式选择：确认弹窗说清
-        风险、默认停在取消（决策 69⒋ 口径）。走 netGate 之外的纯
-        本地路径，与联网查询互不干扰。"""
+        """【离线生成】：不联网，按当前档案的 AppID 出命令。确认弹窗
+        说清风险、默认停在取消。纯本地路径，与联网查询互不干扰。"""
         if self._worker is not None:
             return
         if self._game is None:
@@ -356,8 +334,8 @@ class QuickCommandDialog(QDialog):
         ret = QMessageBox.question(
             self, "离线生成（不联网）",
             f"不联网核实，直接按当前档案「{self._game.name}」"
-            f"（AppID {app_id}）给全部 {len(report.mod_ids)} 个编号出命令？\n\n"
-            "风险（离线 = 靠假定，不靠事实）：\n"
+            f"（AppID {app_id}）给全部 {len(report.mod_ids)} 个编号出"
+            "命令？\n\n风险（离线 = 靠假定，不靠事实）：\n"
             "· 贴进来的条目若其实属于别的游戏 → steamcmd 报 No match；\n"
             "· 命令行里原带的游戏 AppID 会被当前档案的覆盖。\n\n"
             "网络通畅时更推荐【解析并查询】——按条目自己的游戏出命令。")
@@ -365,7 +343,6 @@ class QuickCommandDialog(QDialog):
             return
         self._invalid = list(report.invalid)
         self._dup_counts, self._line_app_of = self._analyze_lines(text)
-
         ids = sorted(report.mod_ids)
         self._commands = build_plain_commands(app_id, ids)
         rows = []
@@ -376,7 +353,6 @@ class QuickCommandDialog(QDialog):
                 note += f"；输入中重复出现 {n_seen} 次（已合并）"
             rows.append({"mid": mid, "title": "（离线·未查标题）",
                          "app": app_id, "note": note})
-
         self._fill_table(rows)
         self._output.setPlainText("\n".join(self._commands) + "\n")
         self._btn_copy.setEnabled(True)
@@ -389,6 +365,7 @@ class QuickCommandDialog(QDialog):
             f"{len(self._commands)} 条命令（未联网核实归属）")
 
     def _on_finished(self) -> None:
+        # 线程收尾纪律：摘引用置 None 后再 wait（0xC0000409 老坑）
         w = self._worker
         self._worker = None
         self._btn_go.setEnabled(True)
@@ -396,25 +373,23 @@ class QuickCommandDialog(QDialog):
             w.wait()
         self._release_net()
 
-    # ---------------- 收尾（关窗取消 + 闸单源）----------------
+    # ---------------- 收尾（闸单源 + 退出守卫） ----------------
     def _release_net(self) -> None:
         if self._net_held:
             self._net_held = False
             netGate.release(constants.NET_GATE_QUICK_QUERY)
 
-    def done(self, result: int) -> None:
-        """关窗唯一漏斗（Esc / X / 关闭按钮）：查询还在跑就请求取消，
-        等 2 秒；在途请求最长约 40 秒（连接 10 + 读取 30），等不到就
-        park 给退场守卫——绝不销毁活线程（闪退 0xC0000409 老坑）。
-        闸的释放走 _release_net 单源（标志位防双放）。"""
+    def shutdown(self) -> None:
+        """退出收尾（MainWindow.closeEvent 页面循环自动发现）：查询
+        在跑就请求取消、等 2 秒；在途请求最长约 40 秒，等不到 park
+        保活——绝不销毁活线程。闸释放走 _release_net 单源。"""
         w = self._worker
         if w is not None:
             w.stop()
             if not w.wait(2000):
                 netGate.park(w)
             self._worker = None
-            self._release_net()
-        super().done(result)
+        self._release_net()
 
     # ---------------- 展示与复制 ----------------
     def _fill_table(self, rows: list[dict]) -> None:
@@ -432,9 +407,9 @@ class QuickCommandDialog(QDialog):
     def _set_status(self, text: str, color: str) -> None:
         self._status.setText(text)
         self._status.setStyleSheet(color)
+
     def set_input_text(self, text: str) -> None:
-        """外部预填输入框（向导类页面的核验入口预留）：
-        只填不跑——查询要点【解析并查询】亲手触发，防呆不省。"""
+        """外部预填输入框（向导类页面预留）：只填不跑。"""
         self._input.setPlainText(text)
 
     def _on_copy(self) -> None:
@@ -445,7 +420,6 @@ class QuickCommandDialog(QDialog):
         self._log.ok(f"已复制 {len(self._commands)} 条下载命令，"
                      "去 steamcmd 终端粘贴回车即可")
         # 记账与命令生成页同款：operations_log 存完整命令原文
-        # （result="generated"，审计可回溯）；失败不拦复制
         try:
             op_id = self._repo.add_operation(text)
             self._repo.finish_operation(op_id, result="generated")

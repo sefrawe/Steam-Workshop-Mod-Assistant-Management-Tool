@@ -171,15 +171,7 @@ class ModDetailPanel(QWidget):
         bl.addWidget(self._verdicts)
         bl.addStretch(1)
 
-        btn_row = QHBoxLayout()
-        self._btn_folder = QPushButton("打开 mod 文件夹", body)
-        self._btn_folder.setToolTip(
-            "在文件管理器打开这个 mod 的下载内容文件夹"
-            "（下载目录\\编号）")
-        self._btn_folder.clicked.connect(self._on_open_folder)
-        btn_row.addWidget(self._btn_folder)
-        btn_row.addStretch(1)
-        bl.addLayout(btn_row)
+
 
         # 字段行一次建齐（固定顺序 = 固定行序）：show_mod 只改字，
         # 不再加删行——面板不跳动，惰性重建的老坑不存在

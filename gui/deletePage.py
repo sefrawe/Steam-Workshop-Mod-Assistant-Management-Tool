@@ -52,7 +52,7 @@ from gui.collapsibleSection import CollapsibleSection as _Section
 from gui.logBus import LogBus                     # V2：LogBus 独立成文件
 from workflows import deleteManageFlow as dmf
 from gui.theme import font_px  # 字号单源（D25）
-
+from core.urlParser import workshop_url
 # 状态色（与日常更新页/备份页同一套语义）
 _C_OK = "#46a758"      # 完成 / 一切正常
 _C_WARN = "#f5a623"    # 需要注意
@@ -151,7 +151,7 @@ class _ExecuteWorker(QThread):
 
 class DeletePage(QWidget):
     goto_account_center_requested = Signal()  # 孤儿认领 → 入账中心（V2 改名）
-    goto_import_requested = Signal()          # 孤儿认领 → 网址批量导入页
+
     ledger_changed = Signal()                 # 处置落账 → 强制 mod 库页重读
 
     def __init__(self, repo, settings: AppSettings,
@@ -420,8 +420,7 @@ class DeletePage(QWidget):
             "的文件。默认全部不选——来路不明的目录要逐个确认。\n"
             "认领（推荐先想这条路）：到【入账中心】点【扫描游戏目录】——"
             "盘点会把账外目录摆成待认领（盘面记了版本的带版本，没记的"
-            "认成版本未知），确认后入账。也可以先到导入页贴网址登记，"
-            "再回入账中心扫描，结果相同。\n"
+            "认成版本未知），确认后入账。\n"
             "删除不可恢复，且多前端环境里别的工具（如 RimSort）清单里"
             "留着的 mod 会被它指挥下回来——悬浮此处可看多前端自查要点。",
             body)
@@ -452,23 +451,18 @@ class DeletePage(QWidget):
         box4.addWidget(self._sec_orphan)
 
         btn_row = QHBoxLayout()
-        # 拍板③：第一按钮改指入账中心（V2 统一认领路线）；导入页按钮保留
+        # 拍板③：统一指入账中心（导入页已撤，登记并入账中心④）
         self._btn_claim_scan = QPushButton("去入账中心认领（扫描游戏目录）", body)
         self._btn_claim_scan.clicked.connect(
             self.goto_account_center_requested.emit)
         btn_row.addWidget(self._btn_claim_scan)
-        self._btn_claim_import = QPushButton("去导入页登记网址", body)
-        self._btn_claim_import.clicked.connect(self.goto_import_requested.emit)
-        btn_row.addWidget(self._btn_claim_import)
+
         btn_row.addStretch(1)
         box4.addLayout(btn_row)
         self._btn_claim_scan.setToolTip(
             "跳到【入账中心】点【扫描游戏目录】：账外目录会摆成待认领，"
             "确认后入账（盘面记了版本的带版本）")
-        self._btn_claim_import.setToolTip(
-            "跳到【网址批量导入】页把编号登记进账本（记为「待下载」），"
-            "再回【入账中心】扫描游戏目录：盘点同样把它摆成待认领，"
-            "确认时补上盘面版本")
+
 
         # ---- 卡⑤ 执行（常驻）----
         _, box5 = self._make_card(root, "exec", "⑤ 执行所选处置")
@@ -702,7 +696,7 @@ class DeletePage(QWidget):
         self._sec_orphan.set_expanded(n_orphan > 0)
         self._bar_orphan.setVisible(n_orphan > 0)
         self._btn_claim_scan.setVisible(n_orphan > 0)
-        self._btn_claim_import.setVisible(n_orphan > 0)
+
 
     def _apply_filters(self) -> None:
         """三节清单的行过滤（mod 库页同款交互：即时、只隐藏显示）。"""
@@ -872,12 +866,10 @@ class DeletePage(QWidget):
         self._open_row_url(int(it.data(Qt.ItemDataRole.UserRole)))
 
     def _open_row_url(self, mod_id: int) -> None:
-        """开工坊页面：网址取账本字段，缺省按模板现拼（D37 单源）。"""
-        m = self._mods_by_id.get(mod_id)
-        url = (getattr(m, "url", None) or "").strip() if m is not None else ""
-        if not url:
-            url = constants.WORKSHOP_URL_TEMPLATE.format(mod_id)
-        QDesktopServices.openUrl(QUrl(url))
+        """开工坊页面：网址走唯一入口 workshop_url（存了用存的、
+        没存按编号现拼）。此前引用的 constants.WORKSHOP_URL_TEMPLATE
+        已删，再调用就是 AttributeError。"""
+        QDesktopServices.openUrl(QUrl(workshop_url(mod_id)))
 
     def _open_content_folder(self, mod_id: int) -> None:
         """打开该 mod 的 content 文件夹（删之前看看里面实际有什么）。"""

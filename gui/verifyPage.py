@@ -50,7 +50,8 @@ from core import modVerifier, steamPaths
 from core.appSettings import AppSettings
 from core.commandBuilder import build_validate_copy_text
 from core.models import Game
-from core.constants import WORKSHOP_URL_TEMPLATE
+from core.urlParser import workshop_url
+
 from core.formatters import status_zh          # V2：formatters 住 core
 from gui.logBus import LogBus                  # V2：LogBus 独立成文件
 from gui.modFolderOpener import open_mod_folder
@@ -586,7 +587,7 @@ class VerifyPage(QWidget):
             QApplication.clipboard().setText(str(mid))
             self._log.ok(f"已复制编号 {mid}")
         elif chosen is act_url:
-            QDesktopServices.openUrl(QUrl(WORKSHOP_URL_TEMPLATE.format(mid)))
+            QDesktopServices.openUrl(QUrl(workshop_url(mid)))
         elif act_dir is not None and chosen is act_dir:
             # 账本外行没有 Mod 对象：打开器只摸 mod_id/local_path 两字段，
             # SimpleNamespace 喂最小事实（local_path=None → 自动走

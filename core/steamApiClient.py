@@ -153,12 +153,15 @@ class WorkshopItem:
 class KeyedItem:
     """keyed GetDetails 的单条解析结果——依赖检测（桶B）专用。
     children 三态：list = 清单（可为空 = 真无依赖）；None = 响应
-    条目里没有 children 键（includechildren 未生效/接口行为变了）
-    ——两种状态绝不混同（绝不静默口径）。"""
+    条目里没有 children 键。键缺席 ≠ 无依赖——用 num_children 仲裁
+    （2026-10 探针实测：Steam 对零依赖条目省略空清单不回键，但
+    num_children 照发且不受 includechildren 参数影响）：0 = 官方
+    盖章的"没有必需物品"。"""
     mod_id: int | None
     result: int | None
     title: str | None
     children: list[int] | None
+    num_children: int | None = None  # Steam 原文多为字符串，_to_int 归一
 
     @classmethod
     def from_api(cls, d: dict) -> "KeyedItem":
@@ -176,7 +179,8 @@ class KeyedItem:
             mod_id=_to_int(d.get("publishedfileid")),
             result=_to_int(d.get("result")),
             title=str(d["title"]) if d.get("title") is not None else None,
-            children=children)
+            children=children,
+            num_children=_to_int(d.get("num_children")))
 
 
 class SteamApiClient:

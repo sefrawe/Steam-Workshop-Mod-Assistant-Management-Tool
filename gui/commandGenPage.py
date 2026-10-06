@@ -50,7 +50,7 @@ core/commandBuilder.py（纯函数）；只读 ModRepository，GUI 层零 SQL；
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths, QUrl
+from PySide6.QtCore import QStandardPaths, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -107,6 +107,8 @@ _USAGE_TEXT = (
 
 class CommandGenPage(QWidget):
     """命令生成页：选 mod → 预览 → 复制 / 另存。"""
+    # 【快速命令查询…】按钮 → 跳独立页（导航：下载与备份组，紧挨本页）
+    quick_command_requested = Signal()
 
     def __init__(self, repo, settings, parent=None, *, log=None):
         super().__init__(parent)
@@ -146,6 +148,11 @@ class CommandGenPage(QWidget):
         page_scroll.setWidget(page_body)
         outer.addWidget(page_scroll, 1)
         root = QVBoxLayout(page_body)
+        # 页标题：本页此前直接以游戏信息行开头，是任务清单
+        # 「部分页面缺少标题」的主体；补齐与其他页一致的页首标题
+        title = QLabel("下载命令生成", self)
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
+        root.addWidget(title)
 
         # 第 1 块：游戏信息 + 重新载入
         top = QHBoxLayout()
@@ -525,14 +532,9 @@ class CommandGenPage(QWidget):
     # ---------------- 三个动作 ----------------
 
     def _on_quick_query(self) -> None:
-        """【快速命令查询…】（决策 105）：弹对话框生成任意工坊条目的
-        下载命令。与账本无关，对话框自带联网查询；本页勾选清单不受
-        影响。就地 import：本页唯一用点。"""
-        from gui.quickCommandDialog import QuickCommandDialog
-        dlg = QuickCommandDialog(self._repo, self._settings, self,
-                                 log=self._log, game=self._game)
-
-        dlg.exec()
+        """【快速命令查询…】：跳到独立成页的【快速命令查询】（与
+        账本无关；本页勾选清单不受影响）。"""
+        self.quick_command_requested.emit()
 
     def _on_copy_login(self):
         """复制设置页里的登录命令，原样进剪贴板（我们不解析、不拼装内容）。"""

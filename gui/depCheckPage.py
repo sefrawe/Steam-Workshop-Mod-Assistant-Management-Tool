@@ -1,11 +1,14 @@
 """依赖检测
 """
+from core.urlParser import workshop_url
+
 r"""gui/depCheckPage.py · 桶B 依赖检测（D24 拆分页之一）。
 
 必需物品清单由带 key 的官方接口拉取（key 现场粘贴、用完即弃——
 本页不保存）：清单里编号不在账本 = 缺依赖（红）；与上次拉取有差 =
 依赖变化（黄，以最新为准）。拉取成功后依赖边入账（replace_
-dependencies，本页唯一的写库动作；children 键缺席的条目绝不写——
+dependencies，本页唯一的写库动作；children 入账与判定同口径：num_children=0 的无依赖条目照写空清单（基线可比）；说有依赖却拿不到清单的不写——不冒充"无依赖"
+——
 没拿到的东西不冒充"无依赖"）。
 netGate「依赖拉取」闸（constants.NET_GATE_DEPENDENCIES）；
 RemoteQueryWorker + keyed 查询闭包。
@@ -71,12 +74,22 @@ class DepCheckPage(QWidget):
         tip = QLabel(
             "mod 的「必需物品」清单由带 key 的官方接口拉取（key 现场粘贴、"
             "用完即弃，注册方法见【Steam API 密钥】页）：清单里编号不在"
-            "账本 = 缺依赖（红，一键复制编号去【网址批量导入】添加）；"
-            "与上次拉取有差 = 依赖变化（黄，作者增删了依赖，以最新为准）。",
+            "账本 = 缺依赖（红，一键复制编号到【入账中心 · 登记】补进"
+            "账本）；与上次拉取有差 = 依赖变化（黄，作者增删了依赖，"
+            "以最新为准）。",
             self)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
+        # key 管理页直链：已申请过的用户点开就能查看/复制自己的 key，
+        # 不用再去【Steam API 密钥】页翻注册步骤
+        key_link = QLabel(
+            '<a href="https://steamcommunity.com/dev/apikey">'
+            "已申请过 key？点这里打开 Steam 官方 key 页面"
+            "（登录后可见并可复制）</a>", self)
+        key_link.setOpenExternalLinks(True)  # 没有这行 <a> 只是字、点不动
+        root.addWidget(key_link)
+
         self.root_layout = root   # _make_section 与复制按钮的挂载点
 
         row = QWidget(self)
@@ -104,7 +117,7 @@ class DepCheckPage(QWidget):
 
         self._sec_missing = self._make_section(
             "缺依赖（必需物品编号不在账本——下载了也跑不起来）",
-            "点按钮复制全部缺失编号，到【网址批量导入】添加后再下载；"
+            "点按钮复制全部缺失编号，到【入账中心 · 登记】补登记后再下载；"
             "右键单条可打开工坊页面看是什么。", _C_FAIL)
         self._sec_changed = self._make_section(
             "依赖变化（与上次拉取相比，作者增删了必需物品）",
@@ -238,19 +251,31 @@ class DepCheckPage(QWidget):
         deps = exceptionFlow.classify_dependencies(
             entries, self._lib_ids, self._baseline,
             first_fetch=self._first_fetch)
-        # ② 依赖边入账（本页唯一的写库动作）：children 键缺席的条目
-        # 不写——没拿到的东西绝不冒充"无依赖"。逐条原子，中途失败
-        # 下次拉取全量覆盖
+        # ② 依赖边入账（本页唯一的写库动作）。入账与判定用同一把尺子
+        # （num_children 仲裁，2026-10 探针实测：Steam 对零依赖条目
+        # 省略空清单不回键，但 num_children 照发）：
+        #   children 是清单（可为空）→ 照写，空清单也写——记录
+        #   "已核实无依赖"，下次拉取才有基线可比，不会永远停在未判定；
+        #   children 键缺席且 num_children=0 → Steam 官方盖章的零依赖，
+        #   同样写空清单；
+        #   说有依赖却拿不到清单（num_children>0）或数据不全 → 继续绝不
+        #   写——没拿到的东西不冒充"无依赖"，保守桶不污染账本。
+        # 逐条原子，中途失败下次拉取全量覆盖
         written = 0
         for e in entries:
-            if e.get("children") is None:
-                continue
+            children = e.get("children")
+            if children is None:
+                if e.get("num_children") == 0:
+                    children = []
+                else:
+                    continue
             try:
-                self._repo.replace_dependencies(e["mod_id"], e["children"])
+                self._repo.replace_dependencies(e["mod_id"], children)
                 written += 1
             except ValueError as exc:
                 self._log.error(
                     f"依赖入账失败（mod {e.get('mod_id')}）：{exc}")
+
         # ③ 渲染
         self._fill_list(self._sec_missing[1], [
             (mid, self._title_of(mid),
@@ -286,8 +311,7 @@ class DepCheckPage(QWidget):
                 {i for lack in deps.missing.values() for i in lack})
             btn = QPushButton(
                 f"复制全部缺失编号（{len(all_missing)} 个）…", self)
-            btn.setToolTip("复制到剪贴板（每行一个）：到【网址批量导入】"
-                           "粘贴即可全部入库，之后正常下载")
+            btn.setToolTip("复制到剪贴板（每行一个）：【入账中心 · 登记】粘贴登记即可全部入库，之后正常下载")
             btn.clicked.connect(
                 lambda _=False, ids=all_missing: self._copy_missing(ids))
             self.root_layout.insertWidget(
@@ -295,10 +319,12 @@ class DepCheckPage(QWidget):
             self._copy_btn = btn   # 清场时摘除
         if deps.undetermined:
             notes.append(
-                f"未判定 {len(deps.undetermined)} 条（响应里没有 children "
-                "键，接口行为异常）——这些条目的依赖本次没拿到，也绝不"
-                "冒充「无依赖」入账。重拉一次；持续出现把日志发给开发者。"
+                f"未判定 {len(deps.undetermined)} 条（Steam 说这些条目"
+                "有依赖，但清单没随响应给出，或数据不全）——保守起见"
+                "本次不入账、不冒充「无依赖」。重拉一次；持续出现把"
+                "日志发给开发者。"
                 + self._ids_text(deps.undetermined))
+
         if deps.skipped:
             notes.append(f"另有 {deps.skipped} 条远端失效/查询失败，"
                          "无从判依赖（见【异常处置】页桶④⑤）。")
@@ -378,7 +404,7 @@ class DepCheckPage(QWidget):
     def _copy_missing(self, ids: list[int]) -> None:
         QApplication.clipboard().setText("\n".join(str(i) for i in ids))
         self._log.ok(f"已复制 {len(ids)} 个缺失依赖编号"
-                     "（去【网址批量导入】粘贴添加）")
+                     "（到【入账中心 · 登记】粘贴登记）")
 
     def _on_row_menu(self, lw: QListWidget, pos) -> None:
         it = lw.itemAt(pos)
@@ -397,11 +423,11 @@ class DepCheckPage(QWidget):
                      self._log.info(f"已复制编号 {mid}")))
         menu.addAction(act_copy)
         menu.exec(lw.mapToGlobal(pos))
-
     def _open_url(self, mid: int) -> None:
         m = self._mods_by_id.get(mid)
-        url = ((m.url if m is not None else "") or "").strip() \
-            or constants.WORKSHOP_URL_TEMPLATE.format(mid)
+        # 网址现拼走唯一入口 workshop_url。此前直接 .format(mid) 填进
+        # constants 里那份 {mod_id} 命名占位模板——右键打开页面当场
+        # KeyError，即本次修复的根因
+        url = workshop_url(mid, m.url if m is not None else None)
         if not QDesktopServices.openUrl(QUrl(url)):
-            QMessageBox.warning(self, "打开页面",
-                                f"浏览器没有响应，请手动打开：\n{url}")
+            QMessageBox.warning(self, "打开页面", f"浏览器没有响应，请手动打开：\n{url}")

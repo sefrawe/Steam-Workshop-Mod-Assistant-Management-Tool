@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget, QInputDialog,
 )
 from gui.theme import font_px
+from core.urlParser import workshop_url
 
 from core import constants, netGate, steamPaths   # ★ 待核：netGate 若在 gui 包改这行
 from core.models import Game
@@ -350,7 +351,7 @@ class ExceptionPage(QWidget):
             "下载成功后到【入账中心】点【扫描游戏目录】确认入账；\n"
             "① 下载失败的话，右键行【打开工坊页面】，看作者有没有留"
             "续作/重传的链接，拿到新编号；\n"
-            "② 到【网址批量导入】把新 mod 添加进库；\n"
+            "② 到【入账中心 · 登记】把新 mod 添加进账本；\n"
             "③ 回本页右键旧行【软删除此记录】——记录保留（可到"
             "【mod 库】页右键「恢复」）、盘上文件不动（想清文件去"
             "【清理与删除】页）。\n"
@@ -803,8 +804,7 @@ class ExceptionPage(QWidget):
                 "result=9 条目 steamcmd 仍能下载成功，有的报 File "
                 "Not Found（真没了）。建议先右键行【跳到命令生成页】"
                 "试下载一次（成本极低）。下不回来再走三步：① 右键行"
-                "【打开工坊页面】找作者的续作/重传 → ② 到【网址批量"
-                "导入】添加新编号 → ③ 回本行右键【软删除此记录】"
+                "【打开工坊页面】找作者的续作/重传 → ② 到【入账中心" + "· 登记】添加新编号 → ③ 回本行右键【软删除此记录】"
                 "（记录保留可恢复，盘上文件不动）。「关联替换」（进阶）"
                 "只对有失效归档的行可用——菜单里该项是活的即有归档、"
                 "置灰即没有（悬停看原因）。表格可按分类筛选/分组/排序。\n"
@@ -1413,7 +1413,7 @@ class ExceptionPage(QWidget):
             act = QAction("软删除此记录…", menu)
             act.setToolTip(
                 "账本记为已删除（记录保留可恢复，盘上文件不动）。"
-                "三步主路径的最后一步：找续作 → 网址批量导入 → "
+                "三步主路径的最后一步：找续作 → 入账中心登记 →"
                 "删旧记录。建议先试一次重下（result=9 偶尔仍能"
                 "下载成功）再决定")
             act.triggered.connect(lambda: self._soft_delete_failed(mid))
@@ -1435,18 +1435,22 @@ class ExceptionPage(QWidget):
                 "这一行没有失效归档，暂不能关联替换——失效归档由"
                 "【更新检测】在确认条目失效（result=9）时建立，"
                 "本行目前还没有。\n"
-                "直接走三步主路径即可：找续作 → 网址批量导入 → "
+                "直接走三步主路径即可：找续作 → 入账中心登记 →"
                 "软删除旧记录")
             menu.addAction(act)
 
     def _open_workshop(self, mid: int) -> None:
+        # 网址走唯一入口 workshop_url：存了用存的、没存按编号现拼
+        # （失效条目也能开——作者可能留了续作说明）。此前引用的
+        # constants.WORKSHOP_URL_TEMPLATE 已删，再调用就是 AttributeError。
+        # 顺手修：原函数在 if 块后面有一条无条件 return，把"已请求
+        # 打开"的日志行变成永远到不了的死代码——现在改为只在
+        # 打开失败时提前返回，成功照常记日志
         m = self._mods_by_id.get(mid)
-        url = ((m.url if m is not None else "") or "").strip() \
-              or constants.WORKSHOP_URL_TEMPLATE.format(mid)
+        url = workshop_url(mid, m.url if m is not None else None)
         if not QDesktopServices.openUrl(QUrl(url)):
             QMessageBox.warning(
-                self, "打开页面",
-                f"浏览器没有响应，请手动打开：\n{url}")
+                self, "打开页面", f"浏览器没有响应，请手动打开：\n{url}")
             return
         self._log.info(f"已请求浏览器打开 mod {mid} 的工坊页面")
 
@@ -1547,7 +1551,7 @@ class ExceptionPage(QWidget):
         if mod is None:
             QMessageBox.warning(
                 self, "关联替换",
-                f"编号 {new_id} 不在账本中。\n请先【网址批量导入】"
+                f"编号 {new_id} 不在账本中。\n请先到【入账中心 · 登记】"
                 "或扫描入账，再回来替换。")
             return
         ret = QMessageBox.question(

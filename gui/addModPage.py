@@ -64,6 +64,9 @@ class AddModPage(QWidget):
     # 【开批下载】：把本批编号交给批量下载控制器——与【mod 库】页
     # 【下载选中项】同一份信号契约（app_id, ids），同一批发起方式
     download_requested = Signal(int, list)
+    # 【核验命令可行性…】：跳【快速命令查询】页并预填命令文本
+    # （MainWindow 落点 _goto_quick_cmd——文本只填不跑，防呆不省）
+    quick_command_requested = Signal(str)
 
     def __init__(self, repo, settings: AppSettings | None,
                  parent: QWidget | None = None, *,
@@ -122,7 +125,7 @@ class AddModPage(QWidget):
             "一致；下载交给批次控制器执行，入账由收尾确认清单背书——"
             "本地版本只认你的勾选，机器不替人确认。",
             "术语与关系：待下载 = 账上有号、还没下载；已下载 = 文件在"
-            "盘且你在确认清单里背过书。解析与【网址批量导入】同一份；"
+            "盘且你在确认清单里背过书。解析与【入账中心 · 登记】同一份；"
             "命令与【下载命令生成】同一份；下载与【mod 库 · 下载选中"
             "项】同一条链。",
         ):
@@ -454,18 +457,12 @@ class AddModPage(QWidget):
         self._log.ok(f"已入库 {n} 个新 mod，下载命令已生成（{len(ids)} 行）")
 
     def _on_verify_clicked(self) -> None:
-        """【核验命令可行性…】：把第③步生成的命令原文预填进
-        「快速命令查询」对话框，查询由用户亲手点——命令行里旧 AppID 以
-        重查结果为准，游戏与 mod 对不对得上、条目是否被下架一眼看全
-        （卡③文案里那句话的实体系）。命令框为空时按钮本就置灰（与
-        【复制命令】同生命周期）。就地 import：本页唯一用点。"""
-        from gui.quickCommandDialog import QuickCommandDialog
-        dlg = QuickCommandDialog(self._repo, self._settings, self,
-                                 log=self._log, game=self._game)
+        """【核验命令可行性…】：跳到独立成页的【快速命令查询】并预填
+        第③步生成的命令原文，查询由用户亲手点——命令行里旧 AppID 以
+        重查结果为准，游戏与 mod 对不对得上、条目是否被下架一眼看全。
+        文本只填不跑，防呆不省。"""
         text = self._cmd_view.toPlainText().strip()
-        if text:
-            dlg.set_input_text(text)  # 预填核验对象：只填不跑，防呆不省
-        dlg.exec()
+        self.quick_command_requested.emit(text)
 
     def _on_copy_clicked(self) -> None:
         text = self._cmd_view.toPlainText()

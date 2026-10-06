@@ -519,7 +519,7 @@ class ModListPage(QWidget):
         self._act_copy_ids = QAction("复制勾选编号", self._actions_menu)
         self._act_copy_ids.setToolTip(
             "把勾选 mod 的工坊编号逐行复制进剪贴板（每行一个）——"
-            "可直接贴进【网址批量导入】或其他工具")
+            "可直接贴进【入账中心 · 登记】或其他工具")
         self._act_copy_ids.triggered.connect(self._on_copy_ids_checked)
         # 下载选中项（M2 判决闭环轮回补）：信号 mod 库轮就留好了
         # （download_requested），落点页如今到位——点击有真实去处，
@@ -708,6 +708,9 @@ class ModListPage(QWidget):
             self._order_by = "time_updated DESC"
             kwargs["order_by"] = self._order_by
             rows = self._repo.list_mods(self._game.app_id, **kwargs)
+        # 先把当前清单里出现过的自定义颜色同步进筛选下拉（G 修复：
+        # 下拉只在建页时填了预设色，自定义色永远刷不出来）
+        self._sync_color_combo(rows)
 
         # ---- 页面内存过滤（顺序：颜色 → 搜索细分 → 高级筛选内存侧；
         # 它们与"共 N 个"/命中数看到的是同一最终口径）----
@@ -793,6 +796,33 @@ class ModListPage(QWidget):
                 if m.mod_id == self._selected_mod_id:
                     self._table.selectRow(i)
                     break
+    def _sync_color_combo(self, rows) -> None:
+        """把当前清单里出现过、预设色表没有的自定义 hex 追加进颜色
+        筛选下拉；已不在清单的自定义项移除。原选中项尽量保持。
+        blockSignals 防重建过程反手触发 _reload 死循环；无变化时不
+        折腾下拉，避免每次刷新都重建。"""
+        combo = self._color_combo
+        want = sorted({
+            code for m in rows
+            if (code := _color_name(m)) is not None
+               and code not in COLOR_CHOICES
+        })
+        have = [combo.itemData(i) for i in range(combo.count())
+                if isinstance(combo.itemData(i), str)
+                and combo.itemData(i).startswith("#")]
+        if have == want:
+            return
+        cur = combo.currentData()
+        combo.blockSignals(True)
+        for i in range(combo.count() - 1, -1, -1):
+            d = combo.itemData(i)
+            if isinstance(d, str) and d.startswith("#"):
+                combo.removeItem(i)
+        for code in want:
+            combo.addItem(code, code)
+        idx = combo.findData(cur)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.blockSignals(False)
 
     def _advanced_kwargs(self) -> dict:
         """对话框条件 → list_mods 关键字参数（SQL 侧）。全空 → 空 dict：
@@ -1470,7 +1500,7 @@ class ModListPage(QWidget):
             if r.missing:
                 self._log.info(
                     "未收录条目需先入库才能标记：可到「分步向导 → 加入新 "
-                    "mod」或「档案与工具 → 网址批量导入」粘贴同一份清单")
+                    "mod」或【入账中心 · 登记】粘贴同一份清单")
             self._reload()
 
     def _on_batch_note(self) -> None:

@@ -167,7 +167,15 @@ class ModListModel(QStandardItemModel):
     def set_rows(self, mods: list) -> None:
         """整表重建（页面 _reload 的落点）。勾选集合独立保存——被筛
         出去的勾选仍在集合里，筛回来勾选还在：用户勾的是 mod，不是行。"""
+        # 斑马纹交替色每轮整表重建时现查，不再只信构造时的快照：
+        # _alt 是"当时主题档位"的定格——切主题只更新 theme 层的
+        # 档位与 QSS，旧定格不会自己过期，那就是"重启才正常、点
+        # 刷新无效、亮暗双向都不跟"的根源。整表重建的入口恰好
+        # 覆盖全部恢复时机（切完主题回到本页时 showEvent 自动
+        # 重载、手动点刷新），一次现查两个方向都跟手
+        self._alt = _zebra_alt()
         self.setRowCount(0)
+
         self._row_by_id.clear()
         for mod in mods:
             self._append_row(mod)

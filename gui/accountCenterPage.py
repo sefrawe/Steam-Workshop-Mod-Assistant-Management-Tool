@@ -39,7 +39,7 @@ from core import constants, netGate
 from core import registerFlow as rf
 from core.formatters import fmt_size, relative_time
 from core.steamApiClient import SteamApiClient, SteamApiError
-from core.urlParser import WORKSHOP_URL_TEMPLATE, parse_lines
+from core.urlParser import parse_lines, workshop_url
 from types import SimpleNamespace
 
 from core import inventoryFlow
@@ -78,7 +78,10 @@ class _RegisterQueryWorker(QThread):
     （登记照常可进行，元数据留空等检测兜底）。creator 字段名未在
     客户端实文核过，防御取（取不到 = None，检测补全）。"""
 
-    done = Signal(dict, str)
+    done = Signal(object, str)  # object 而非 dict：dict 信号走 QVariantMap
+
+    # 转换、要求字符串键，int 键字典会被 Shiboken 悄悄换成空字典
+    # （batchDownloadController 同款实证）。object 直传引用，零转换
 
     def __init__(self, mod_ids: list[int], parent=None) -> None:
         super().__init__(parent)
@@ -102,6 +105,11 @@ class _RegisterQueryWorker(QThread):
                                      it.file_size, creator)
         except SteamApiError as exc:
             error = str(exc)
+        except Exception as exc:  # 防御兜底：意外异常也要变成看得见的
+            # 失败说明——否则 done 永不发出，登记按钮永远停在
+            # "正在批查补元数据…"（踩坑60 同哲学）
+            error = f"{type(exc).__name__}: {exc}"
+
         finally:
             netGate.release(constants.NET_GATE_REGISTER)
         self.done.emit(result, error)
@@ -123,6 +131,11 @@ class _ScanWorker(QThread):
         except (OSError, ValueError) as exc:
             self.done.emit(None, str(exc))
             return
+        except Exception as exc:  # 同上：盘点意外失败也要有回话，
+            # 别让"正在盘点…"卡死
+            self.done.emit(None, f"{type(exc).__name__}: {exc}")
+            return
+
         self.done.emit(report, "")
 
 class AccountCenterPage(QWidget):
@@ -492,6 +505,18 @@ class AccountCenterPage(QWidget):
         self._fold_state[idx] = on
         QSettings().setValue(self._SES_FOLD, ",".join(
             "1" if on else "0" for on in self._fold_state))
+    # ---------------- 工作线程收尾纪律（同 batchDownloadController） ----------------
+    def _cleanup_worker_on_finish(self, worker, attr: str) -> None:
+        """摘引用 → 置 None → wait 三步必须发生在 finished 信号里。
+        done 回调里置 None 是实证过的崩溃姿势（0xC0000409）：done 在
+        run() 返回前发出、排队先于 finished 处理，主线程清掉最后一个
+        引用时线程还没完全退场，QThread 对象带着线程一起被销毁。
+        按对象身份对账，绝不误伤背靠背启动的新线程。"""
+        def _cleanup():
+            if getattr(self, attr, None) is worker:
+                setattr(self, attr, None)
+            worker.wait()
+        worker.finished.connect(_cleanup)
 
     # ---------------- 刷新 ----------------
     def set_game(self, game) -> None:
@@ -705,7 +730,7 @@ class AccountCenterPage(QWidget):
                 self._log.info(f"已复制编号 {v.mod_id}")
         elif chosen == act_open:
             QDesktopServices.openUrl(
-                QUrl(WORKSHOP_URL_TEMPLATE.format(v.mod_id)))
+                QUrl(workshop_url(v.mod_id)))
 
     # ---------------- 判决史动作 ----------------
     def _on_history_menu(self, pos) -> None:
@@ -728,7 +753,7 @@ class AccountCenterPage(QWidget):
                 self._log.info(f"已复制编号 {v.mod_id}")
         elif chosen == act_open:
             QDesktopServices.openUrl(
-                QUrl(WORKSHOP_URL_TEMPLATE.format(v.mod_id)))
+                QUrl(workshop_url(v.mod_id)))
         elif act_revoke is not None and chosen == act_revoke:
             self._revoke(v.mod_id)
 
@@ -828,10 +853,12 @@ class AccountCenterPage(QWidget):
                if self._settings is not None else "")
         self._scan_worker = _ScanWorker(self._repo, self._game, cmd)
         self._scan_worker.done.connect(self._on_scan_done)
+        self._cleanup_worker_on_finish(self._scan_worker, "_scan_worker")
+
         self._scan_worker.start()
 
     def _on_scan_done(self, report, error: str) -> None:
-        self._scan_worker = None
+
         self._btn_scan.setEnabled(True)
         self._btn_scan.setText("扫描游戏目录")
         if self._log is not None:
@@ -862,7 +889,7 @@ class AccountCenterPage(QWidget):
                 self._log.info(f"已复制编号 {v.mod_id}")
         elif chosen == act_open:
             QDesktopServices.openUrl(
-                QUrl(WORKSHOP_URL_TEMPLATE.format(v.mod_id)))
+                QUrl(workshop_url(v.mod_id)))
         elif act_folder is not None and chosen == act_folder:
             # 候选可能不在账本（D39 同款）：喂只带 mod_id 的兜底对象
             open_mod_folder(self.window(), self._game,
@@ -954,10 +981,12 @@ class AccountCenterPage(QWidget):
                            "元数据…")
         self._query_worker = _RegisterQueryWorker(p.to_register)
         self._query_worker.done.connect(self._on_query_done)
+        self._cleanup_worker_on_finish(self._query_worker, "_query_worker")
+
         self._query_worker.start()
 
     def _on_query_done(self, result: dict, error: str) -> None:
-        self._query_worker = None
+
         if self._plan is None:
             return          # 切档案清场后迟到的回执：丢弃
         p = self._plan

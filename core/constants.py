@@ -71,8 +71,11 @@ COLOR_CHOICES = {
 # ============================================================
 # Steam API（跨层使用的部分；端点 URL 属 steamApiClient 模块私有，留原地）
 # ============================================================
-BATCH_SIZE = 100  # GetPublishedFileDetails 单批上限（官方；D37 实例）
-WORKSHOP_URL_TEMPLATE = "https://steamcommunity.com/sharedfiles/filedetails/?id={mod_id}"
+BATCH_SIZE = 100 # GetPublishedFileDetails 单批上限（官方；D37 实例）
+# 工坊网址模板已不在这里：全项目唯一一份在 core/urlParser.py，
+# 开工坊页一律调它的 workshop_url() 函数。此处原来那份 {mod_id}
+# 命名占位版与 urlParser 的 {} 位置占位版并存、风格还不一样，
+# 是"右键打开工坊页面 KeyError"闪退的根因，已删。
 
 # ============================================================
 # netGate 五入口（D37 实例：入口名收编，各页 acquire 只引常量不手写）
@@ -93,38 +96,50 @@ NET_GATE_REGISTER = "入账登记"   # 登记区批查（入账中心轮新增�
 # 每轮加页：常量追加到对应组末尾，编号顺延，不许中间插号（决策 13 精神）。
 # ============================================================
 # 欢迎页（启动默认页，不入组）
+# 欢迎页（启动默认页，不入组）
 PAGE_WELCOME = 0
+
 # 主循环组
 PAGE_MOD_LIST = 1
 PAGE_ACCOUNT_CENTER = 2
 PAGE_UPDATE_CHECK = 3
 PAGE_UPDATE_COMPARE = 4
+
 # 功能模块组
 PAGE_ADD_MOD = 5
 PAGE_DAILY_UPDATE = 6
 PAGE_FIRST_USE = 7
 PAGE_GAME_EXIT = 8
 PAGE_UNINSTALL = 9
+
 # 下载与备份组
+# （原 PAGE_BATCH_OPEN「批量下载」页已撤：与 mod 库页操作菜单
+#   完全重复；BatchOpenDialog 保留，入口只留 mod 库页那处）
 PAGE_COMMAND_GEN = 10
-PAGE_BATCH_OPEN = 11
-PAGE_BACKUP = 12
-PAGE_BACKUP_OVERVIEW = 13
+PAGE_BACKUP = 11
+PAGE_BACKUP_OVERVIEW = 12
+
 # 检测与异常组
-PAGE_TITLE_CHECK = 14
-PAGE_REMOTE_HEALTH = 15
-PAGE_DEP_CHECK = 16
-PAGE_EXCEPTION = 17
+PAGE_TITLE_CHECK = 13
+PAGE_REMOTE_HEALTH = 14
+PAGE_DEP_CHECK = 15
+PAGE_EXCEPTION = 16
+
 # 清理与账务组
-PAGE_VERIFY = 18
-PAGE_JUNCTION_CHECK = 19
-PAGE_CLEANUP = 20
-PAGE_PURGED = 21
+PAGE_VERIFY = 17
+PAGE_JUNCTION_CHECK = 18
+PAGE_CLEANUP = 19
+PAGE_PURGED = 20
+
 # 档案与工具组
-PAGE_IMPORT = 22
-PAGE_MIGRATION = 23
-PAGE_RESCUE = 24
-PAGE_SHARE_LIST = 25
-PAGE_STATS = 26
-PAGE_API_KEY = 27
-PAGE_SETTINGS = 28
+# （原 PAGE_IMPORT「网址批量导入」页已撤：登记功能并入账中心
+#   「登记」区，全项目指路文案统一改为入账中心）
+PAGE_MIGRATION = 21
+PAGE_RESCUE = 22
+PAGE_SHARE_LIST = 23
+PAGE_STATS = 24
+PAGE_API_KEY = 25
+PAGE_SETTINGS = 26
+# 下载与备份组（后补：快速命令查询独立成页。编号追加不重排——
+# 导航里的显示顺序由 MainWindow._NAV_SCHEMA 决定，与编号无关）
+PAGE_QUICK_CMD = 27

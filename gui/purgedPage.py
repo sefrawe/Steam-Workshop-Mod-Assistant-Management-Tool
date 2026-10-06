@@ -42,6 +42,7 @@ from core.backupManager import steamcmd_running
 from core.formatters import abs_time            # V2：formatters 住 core
 from gui.logBus import LogBus                   # V2：LogBus 独立成文件
 from gui.theme import font_px  # 字号单源（D25）
+from core.urlParser import workshop_url
 
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
@@ -530,7 +531,7 @@ class PurgedPage(QWidget):
         if it is None:
             return
         mid = it.data(Qt.ItemDataRole.UserRole)
-        url = constants.WORKSHOP_URL_TEMPLATE.format(mid)
+        url = workshop_url(mid)
         if QDesktopServices.openUrl(QUrl(url)):
             self._log.info(f"已在浏览器打开 mod {mid} 的创意工坊页面")
         else:

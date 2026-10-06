@@ -339,13 +339,12 @@ def classify_dependencies(entries: list[dict], lib_ids: set[int],
                           *, first_fetch: bool) -> DepFindings:
     """桶B 判定：账实对照 + 依赖变化。纯函数：不碰库不碰网，数据由
     页面注入。entries 条目形状 {"mod_id","result","title","children"}；
-    children 三态：list / None=键缺席（绝不冒充"无依赖"）。
+    children 三态：list / None=键缺席——键缺席时按 num_children 仲裁（0=无依赖；>0 或缺席=未判定）。。
     baseline = 拉取前账本旧边；first_fetch = 依赖表还空着（首拉只建
     基线，一切差异都不算"变化"）。
     判定口径：missing = result=1 且必需编号不在 lib_ids（依赖指向的
     编号即使在账本但 failed/deleted 也不报——桶③④已管，不重复报）；
-    changed = 非首拉且 set(旧边)≠set(新清单)；undetermined = children
-    键缺席；result≠1 的条目不判依赖，只计数。"""
+    changed = 非首拉且 set(旧边)≠set(新清单)；undetermined = 有依赖证据却拿不到清单；result≠1 的条目不判依赖，只计数。"""
     missing: dict[int, list[int]] = {}
     changed: list[tuple[int, list[int], list[int]]] = []
     undetermined: list[int] = []
@@ -360,8 +359,20 @@ def classify_dependencies(entries: list[dict], lib_ids: set[int],
             continue
         children = e.get("children")
         if children is None:
-            undetermined.append(mid)
-            continue
+            # children 键缺席的两层判读（2026-10-06 探针实测改判）：
+            # Steam 对"必需物品数为 0"的条目省略空清单不回键，但条目
+            # 自带的 num_children 元数据照发——它不随 includechildren
+            # 参数伸缩，等于 Steam 官方盖章"我有没有依赖"。
+            #   =0 → 无依赖，按空清单走正常判定与入账（下次拉取有
+            #        基线可比，不会永远停在"未判定"）；
+            #   >0（说有却没给清单）或字段也缺席 → 真异常，保守记
+            #        未判定，绝不冒充无依赖写库覆盖真实依赖边
+            if _to_int(e.get("num_children")) == 0:
+                children = []
+            else:
+                undetermined.append(mid)
+                continue
+
         fetched += 1
         new_set = set(children)
         lack = sorted(i for i in new_set if i not in lib_ids and i != mid)

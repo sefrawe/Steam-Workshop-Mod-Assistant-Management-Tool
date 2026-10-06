@@ -26,7 +26,7 @@ from core.models import Game
 from gui.logBus import LogBus
 from workflows import exceptionFlow
 from gui.theme import font_px  # 字号单源（D25）
-
+from core.urlParser import workshop_url
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
 _C_MUTED = "#8a8a8f"
@@ -189,12 +189,13 @@ class TitleCheckPage(QWidget):
         menu.exec(self._list.mapToGlobal(pos))
 
     def _open_url(self, mid: int) -> None:
+        # 网址走唯一入口 workshop_url（存了用存的、没存按编号现拼）。
+        # 此前引用的 constants.WORKSHOP_URL_TEMPLATE 已删，再调用
+        # 就是 AttributeError
         m = self._mods_by_id.get(mid)
-        url = ((m.url if m is not None else "") or "").strip() \
-            or constants.WORKSHOP_URL_TEMPLATE.format(mid)
+        url = workshop_url(mid, m.url if m is not None else None)
         if not QDesktopServices.openUrl(QUrl(url)):
-            QMessageBox.warning(self, "打开页面",
-                                f"浏览器没有响应，请手动打开：\n{url}")
+            QMessageBox.warning(self, "打开页面", f"浏览器没有响应，请手动打开：\n{url}")
 
     def _open_folder(self, mid: int) -> None:
         from gui.modFolderOpener import open_mod_folder   # 局部 import：仅此菜单用到

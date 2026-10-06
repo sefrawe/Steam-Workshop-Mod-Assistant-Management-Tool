@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QMenu, QMessageBox, QProgressBar, QPushButton, QScrollArea,
     QVBoxLayout, QWidget,
 )
+from core.urlParser import workshop_url
 
 from core import constants, netGate   # ★ 待核：netGate 若在 gui 包改这行
 from core.models import Game
@@ -325,14 +326,14 @@ class RemoteHealthPage(QWidget):
                      self._log.info(f"已复制编号 {mid}")))
         menu.addAction(act_copy)
         menu.exec(lw.mapToGlobal(pos))
-
     def _open_url(self, mid: int) -> None:
         m = self._mods_by_id.get(mid)
-        url = ((m.url if m is not None else "") or "").strip() \
-              or constants.WORKSHOP_URL_TEMPLATE.format(mid)
+        # 网址现拼走唯一入口 workshop_url。此前直接 .format(mid) 填进
+        # constants 里那份 {mod_id} 命名占位模板——右键打开页面当场
+        # KeyError，即本次修复的根因
+        url = workshop_url(mid, m.url if m is not None else None)
         if not QDesktopServices.openUrl(QUrl(url)):
-            QMessageBox.warning(self, "打开页面",
-                                f"浏览器没有响应，请手动打开：\n{url}")
+            QMessageBox.warning(self, "打开页面", f"浏览器没有响应，请手动打开：\n{url}")
 
     def _open_folder(self, mid: int) -> None:
         from gui.modFolderOpener import open_mod_folder

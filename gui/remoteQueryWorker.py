@@ -40,12 +40,17 @@ def workshop_item_to_entry(item) -> dict:
             "title": getattr(item, "title", None),
             "banned": getattr(item, "banned", None)}
 
-
 def keyed_item_to_entry(item) -> dict:
     """KeyedItem → keyed 接口引擎契约的纯数据条目。children 三态
-    （list / None=键缺席）原样保留。"""
+    （list / None=键缺席）原样保留；num_children 一并透传——
+    children 键缺席时判定与入账都靠它仲裁（=0 = Steam 官方盖章的
+    "没有必需物品"，口径见 exceptionFlow.classify_dependencies 与
+    依赖检测页入账循环的注释）。多出的键对不认识它的消费方无害
+    （普通 dict，多键被忽略）。"""
     return {"mod_id": item.mod_id, "result": item.result,
-            "title": item.title, "children": item.children}
+            "title": item.title, "children": item.children,
+            "num_children": item.num_children}
+
 
 
 class RemoteQueryWorker(QThread):
