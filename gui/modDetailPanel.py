@@ -39,7 +39,7 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from core.urlParser import WORKSHOP_URL_TEMPLATE  # 工坊链接模板单源（决策 61④）
+from core.urlParser import workshop_url
 
 # 未验证/旧账两档来源的灰色说明（一次性文案，留本模块——D37 准入）
 _SOURCE_NOTES = {
@@ -314,7 +314,7 @@ class ModDetailPanel(QWidget):
         空就还是 —（缩略图显示在候选池①）。"""
         u = (url or "").strip()
         if not u and mod_id is not None:
-            u = WORKSHOP_URL_TEMPLATE.format(mod_id)
+            u = workshop_url(mod_id)
         return f'<a href="{u}">{u}</a>' if u else "—"
     def _local_path_text(self, mod_id: int) -> str:
         """本地位置 = 下载目录\\编号（显示侧推导，不入库）。做成链接：

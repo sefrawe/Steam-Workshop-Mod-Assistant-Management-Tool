@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, field
 
 from core.models import Mod
-from core.urlParser import WORKSHOP_URL_TEMPLATE
+from core.urlParser import workshop_url
 
 
 @dataclass
@@ -118,7 +118,7 @@ def apply_intake(repo, plan: ClientIntakePlan) -> IntakeReport:
             repo.add_mod(Mod(
                 mod_id=item.mod_id,
                 game_id=plan.app_id,
-                url=WORKSHOP_URL_TEMPLATE.format(item.mod_id),
+                url=workshop_url(item.mod_id),
                 status="tracked",
                 first_tracked_at=now,
             ))

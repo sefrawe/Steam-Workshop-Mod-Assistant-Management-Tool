@@ -377,10 +377,12 @@ class ExceptionPage(QWidget):
 
     # ---------- 对外（MainWindow 调用）----------
     def set_game(self, game: Game | None) -> None:
-        self._game = game
         if self._deep_worker is not None:
             # 深检进行中：只更新标签，不动结果区——结果仍归属开始
-            # 深检时的档案（渲染按 rep.game_id 取数，不会串）
+            # 深检时的档案（渲染按 rep.game_id 取数，不会串）。
+            # self._game 同步跟上：深检收尾后，下一次检测才不会
+            # 拿旧档案当新档案跑（修24）。
+            self._game = game
             self._game_label.setText(
                 f"当前游戏：{game.name}（{game.app_id}）"
                 if game is not None else "当前游戏：（未选择）")

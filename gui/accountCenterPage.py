@@ -869,7 +869,8 @@ class AccountCenterPage(QWidget):
                     f"盘点完成（{report.mod_dir}）：盘上 {report.folders_found}"
                     f" 个 mod 文件夹，新候选 {len(report.candidates_new)} 条，"
                     f"清失效 {len(report.stale_removed)} 条，大小回填 "
-                    f"{report.sizes_backfilled} 条；{report.acf_note}")
+                    f"{report.sizes_backfilled} 条")
+
         self._reload_all()
 
     def _on_claims_menu(self, pos) -> None:

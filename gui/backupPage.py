@@ -76,7 +76,7 @@ from PySide6.QtWidgets import (
 
 from core.backupManager import BackupManager, steamcmd_running
 from core.models import Backup, Game
-from core.urlParser import WORKSHOP_URL_TEMPLATE
+from core.urlParser import workshop_url
 from gui.backupMoveDialog import BackupMoveDialog
 from gui.backupRelocateDialog import BackupRelocateDialog
 from gui.logBus import LogBus
@@ -912,8 +912,9 @@ class BackupPage(QWidget):
         mod = self._mods_by_id.get(b.mod_id)
         url = ((mod.url if mod is not None else "") or "").strip()
         if not url:
-            # 决策 61④：工坊页地址模板单源 workflows.intakeFlow
-            url = WORKSHOP_URL_TEMPLATE.format(b.mod_id)
+            # 决策 61④：工坊页地址单源 core.urlParser.workshop_url
+            url = workshop_url(b.mod_id)
+
         url_item = QTableWidgetItem("↗")
         url_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         url_item.setForeground(QBrush(QColor("#5aa9ff")))  # 蓝字提示可点

@@ -14,7 +14,7 @@ r"""gui/deletePage.py · 清理与删除功能模块的页面壳（V2 消费版�
    目录】盘点落待认领（盘面记了版本的带版本，没记的认成版本未知）；
    导入页登记网址的路保留（D30 合法路径：登记成「待下载」后再扫
    描，盘点同样把它摆成待认领）。
-3. exceptionFlow 模块不存在于 V2：多前端自查要点文案内联进本文件。
+3. 多前端自查要点文案单源 workflows.exceptionFlow.MULTIFRONTEND_NOTE（本页 import 消费）。
 4. import 路径：LogBus 独立成 gui/logBus；formatters 住 core；
    网址模板按 D37 一级单源走 core/constants。
 
@@ -51,6 +51,8 @@ from core.formatters import fmt_size, status_zh   # V2：formatters 住 core
 from gui.collapsibleSection import CollapsibleSection as _Section
 from gui.logBus import LogBus                     # V2：LogBus 独立成文件
 from workflows import deleteManageFlow as dmf
+from workflows.exceptionFlow import MULTIFRONTEND_NOTE as _MULTIFRONTEND_NOTE
+
 from gui.theme import font_px  # 字号单源（D25）
 from core.urlParser import workshop_url
 # 状态色（与日常更新页/备份页同一套语义）
@@ -59,22 +61,6 @@ _C_WARN = "#f5a623"    # 需要注意
 _C_INFO = "#d4d4d4"    # 进行中 / 中性
 _C_MUTED = "#8a8a8f"   # 说明文字 / 待命
 
-# 多前端自查要点（V2 内联：V1 从 workflows.exceptionFlow import 的
-# MULTIFRONTEND_NOTE 随模块退役，文案随页面走）。用途：孤儿目录卡
-# 片说明的悬浮提示——删孤儿之前提醒先检查别的前端，防"删完又被
-# 别的工具下回来"白忙一场。
-_MULTIFRONTEND_NOTE = (
-    "多前端自查要点（删除前建议过一眼）：\n"
-    "本工具只管自己的账本与下载清单；同一个游戏若还用过别的前端"
-    "（如 RimSort），它们的清单里可能仍登记着这些编号——那边再指挥 "
-    "steamcmd 下载时，目录会被原样下回来。\n"
-    "· RimSort：在其 mod 清单/库里搜该编号，确认已移除；\n"
-    "· Steam 客户端订阅：订阅项由 Steam 自己管理，不受本工具删除影响；\n"
-    "· 其他下载器或脚本：检查其清单文件是否仍包含这些编号。\n"
-    "彻底清账后，黑名单（已清账管理页）会拦住它们再次入账；要断掉 "
-    "steamcmd 反复装配的源头，到【已清账管理】页把条目从 steamcmd "
-    "的账本文件里移除。"
-)
 
 # ---- 列布局（备份页纪律：列号显式起名，填充代码不写魔法数字）----
 M_URL, M_ID, M_TITLE, M_BACKUPS, M_ACT = range(5)          # ② 账有盘无

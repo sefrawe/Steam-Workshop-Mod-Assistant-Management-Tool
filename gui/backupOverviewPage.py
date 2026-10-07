@@ -42,7 +42,7 @@ from core.modRepository import BackupOverviewRow
 from core.models import Game
 from gui.logBus import LogBus
 from core.formatters import abs_time, fmt_size, status_zh
-from core.urlParser import WORKSHOP_URL_TEMPLATE
+from core.urlParser import workshop_url
 from gui.theme import font_px  # 字号单源（D25）
 from core import steamPaths  # 档案未设备份目录时的推导兜底
 
@@ -412,8 +412,7 @@ class BackupOverviewPage(QWidget):
         url_item = QTableWidgetItem("↗")
         url_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         url_item.setForeground(QBrush(QColor("#5aa9ff")))  # 蓝字提示可点
-        url_item.setData(Qt.ItemDataRole.UserRole,
-                         WORKSHOP_URL_TEMPLATE.format(r.mod_id))
+        url_item.setData(Qt.ItemDataRole.UserRole, workshop_url(r.mod_id))
         url_item.setData(Qt.ItemDataRole.UserRole + 1, r.mod_id)
         url_item.setToolTip("点击在浏览器打开该 mod 的创意工坊页面")
         self._table.setItem(row, COL_URL, url_item)

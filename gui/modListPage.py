@@ -74,7 +74,7 @@ from core.appSettings import AppSettings
 from core.backupManager import steamcmd_running
 from core.constants import STATUS_DOWNLOADED, STATUS_TRACKED
 from core.formatters import abs_time
-from core.urlParser import WORKSHOP_URL_TEMPLATE  # 工坊链接模板单源（决策 61④）
+from core.urlParser import workshop_url
 
 from core.models import Game
 from gui.advancedSearchDialog import AdvancedSearchDialog
@@ -1106,10 +1106,9 @@ class ModListPage(QWidget):
     # ---------- 单条动作 ----------
     @staticmethod
     def _resolve_url(m) -> str:
-        """mod 的工坊网址：存了用存的；没存按 urlParser 模板现拼
-        （决策 61④ 模板单源）。"""
-        u = (getattr(m, "url", "") or "").strip()
-        return u if u else WORKSHOP_URL_TEMPLATE.format(m.mod_id)
+        """mod 的工坊网址：存了用存的；没存按编号现拼——唯一入口
+        core.urlParser.workshop_url（决策 61④ 单源）。"""
+        return workshop_url(m.mod_id, getattr(m, "url", "") or "")
 
     def _edit_note(self, m) -> None:
         text, ok = QInputDialog.getMultiLineText(
@@ -1456,16 +1455,10 @@ class ModListPage(QWidget):
                 "（复活彻底断根；原记账文件已自动备份在同目录）")
 
     def _steamcmd_root(self) -> Path | None:
-        """设置页的 steamcmd 程序路径 → steamcmd 根目录（页内自算，
-        兼容"填 exe 完整路径"与"填文件夹"两种口径）。"""
-        raw = str(self._settings.get("steamcmd_path") or "").strip()
-        raw = raw.strip('"').strip()
-        if not raw:
-            return None
-        p = Path(raw)
-        if p.suffix.lower() == ".exe":
-            p = p.parent
-        return p if p.is_dir() else None
+        """steamcmd 根目录：单源 core/steamPaths.steamcmd_root
+        （兼容"填 exe 完整路径"与"填文件夹"两种口径）。"""
+        return steamPaths.steamcmd_root(
+            self._settings.get("steamcmd_path") if self._settings else "")
 
     # ---------- 批量动作（其余） ----------
 
@@ -1812,7 +1805,7 @@ class ModListPage(QWidget):
         # 入账的条目没有存储 url 也一律能开，不再挂"未打开"警告
         for mid in ids:
             QDesktopServices.openUrl(
-                QUrl(WORKSHOP_URL_TEMPLATE.format(mid)))
+                QUrl(workshop_url(mid)))
         self._log.ok(f"已请求浏览器打开 {len(ids)} 个工坊页面")
 
     def _on_open_pages_paste(self) -> None:

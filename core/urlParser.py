@@ -53,8 +53,9 @@ def extract_mod_id(text: str) -> int | None:
     text = text.strip()
     if not text:
         return None
-    if text.isdigit():
+    if text.isascii() and text.isdigit():
         return int(text)
+
     if "steamcommunity.com" in text:
         m = _ID_PARAM.search(text)
         if m:

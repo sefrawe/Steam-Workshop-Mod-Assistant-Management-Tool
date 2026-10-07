@@ -31,7 +31,7 @@ PySide6-Addons 时自动降级为纯文字，其余功能不受影响。文字�
 """
 import time
 from collections import Counter
-
+from gui.modListModel import ModListModel
 try:
     # 可选件：缺 PySide6-Addons 只降级为纯文字，不拦启动
     from PySide6.QtCharts import (
@@ -53,18 +53,12 @@ from PySide6.QtWidgets import (
 from core.models import Game
 from core.formatters import fmt_size
 
-
 def _needs_update(m) -> bool:
-    """需更新判定（D2 显示侧，与 mod 库页「更新」列同尺）：已下载、
-    且远端 time_updated > confirmed_version。任一版本未知不算——
-    从没查过远端的条目不冒充"需更新"（命令分组那边的保守口径是
-    commandBuilder.group_mods 的事，两把尺职责不同，不许互改）。
-    V2 的 modListModel 无 _update_state 方法名（规则内联在画格代码
-    里），故此处镜像实现；下轮若动库页更新列判定须同步。"""
-    return (m.status == "downloaded"
-            and bool(m.confirmed_version)
-            and bool(m.time_updated)
-            and m.time_updated > m.confirmed_version)
+    """需更新判定（D2 显示侧）：单源 = modListModel._update_state
+    的「需更新」态——库里那份是唯一实现，这里只消费不复刻
+    （旧镜像实现的注释声称模型无同名方法，已失实，故收编）。"""
+    return ModListModel._update_state(m) == "需更新"
+
 
 
 class StatsPage(QWidget):

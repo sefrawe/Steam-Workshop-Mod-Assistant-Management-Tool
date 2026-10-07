@@ -148,6 +148,11 @@ class DepCheckPage(QWidget):
     # ---------- 对外 ----------
     def set_game(self, game: Game | None) -> None:
         if self._worker is not None:
+            # 拉取进行中：只更新标签，不动结果区——结果仍归属开始
+            # 拉取时的档案（基线/清单开工时已捕获，不串）。但
+            # self._game 必须同步跟上：否则本次拉取收尾后，下一次
+            # 动作会拿旧档案当新档案跑（修24）。
+            self._game = game
             self._game_label.setText(
                 f"当前游戏：{game.name}（{game.app_id}）"
                 if game is not None else "当前游戏：（未选择）")

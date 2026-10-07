@@ -137,7 +137,10 @@ class RemoteHealthPage(QWidget):
     # ---------- 对外 ----------
     def set_game(self, game: Game | None) -> None:
         if self._worker is not None:
-            # 检测进行中：只更新标签，不动结果区（归属开始时的档案）
+            # 检测进行中：只更新标签，不动结果区（归属开始时的档案）。
+            # self._game 必须同步跟上：检测收尾后，下一次检测才不会
+            # 拿旧档案当新档案跑（修24，与依赖检测/异常处置页同族）。
+            self._game = game
             self._game_label.setText(
                 f"当前游戏：{game.name}（{game.app_id}）"
                 if game is not None else "当前游戏：（未选择）")

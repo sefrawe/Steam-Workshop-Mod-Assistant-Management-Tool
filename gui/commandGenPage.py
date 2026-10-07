@@ -7,7 +7,7 @@ r"""gui/commandGenPage.py · 把当前游戏勾选的 mod 拼成 steamcmd 下载
 1) 游戏信息行：当前档案 + "重新载入" + "快速命令查询…"（若启用）；
 2) 用法提示行：三步说明 + "复制登录命令"按钮（内容来自设置页，
    原样复制）；
-3) 三组可折叠分区（需要更新 / 已收录 / 已最新）+ 页内筛选框，
+3) 三组可折叠分区（需要更新 / 待下载 / 已最新）+ 页内筛选框，
    分区标题常显"勾 x / 共 n"，收起也看得到这组勾了多少；
 4) 底部：只读预览框（实时显示将要复制的内容）+ 统计 +
    复制 / 另存按钮。
@@ -20,7 +20,7 @@ r"""gui/commandGenPage.py · 把当前游戏勾选的 mod 拼成 steamcmd 下载
 
 分组口径与 core/commandBuilder.group_mods 同一把尺（确认版本制）：
 - 需要更新 = 已下载且远端 time_updated > confirmed_version；
-- 已收录 = 没有确认版本的条目——未下载的正常排队，以及已下载
+- 待下载 = 没有确认版本的条目——未下载的正常排队，以及已下载
   但版本未知的（重下无害，正好补版本）；
 - 已最新 = 其余。
 
@@ -38,7 +38,7 @@ expand_changed(bool) 用法不变。
 
 【合同不变】set_game(game)（None 受理）；focus_ids(mod_ids)（右键
 跳转，取消全部只勾传入，含勾选的分区自动摊开）；勾选收集顺序
-（需要更新 → 已收录 → 已最新，组内按编号）；分组、拼命令全在
+（需要更新 → 待下载 → 已最新，组内按编号）；分组、拼命令全在
 core/commandBuilder.py（纯函数）；只读 ModRepository，GUI 层零 SQL；
 复制/另存向 operations_log 记完整命令原文 result="generated"；
 另存 txt 默认存系统"文档"目录——别把命令文件混进 content 目录
@@ -79,7 +79,7 @@ from gui.theme import font_px  # 字号单源（D25）
 
 _GROUP_ORDER = [
     ("needs_update", "需要更新"),
-    ("not_downloaded", "已收录"),
+    ("not_downloaded", "待下载"),
     ("up_to_date", "已最新"),
 ]
 
@@ -340,7 +340,7 @@ class CommandGenPage(QWidget):
         # 高度预算已计入 _section_height 的 +40
         if key == "not_downloaded":
             tip = QLabel(
-                "「已收录」= 已入库还没下载的正常排队，以及已下载但版本"
+                "「待下载」= 已入库还没下载的正常排队，以及已下载但版本"
                 "未知的条目（重下无害，正好补版本），不是异常。默认已"
                 "全部勾上——点右下角【复制命令】去 steamcmd 执行；下完"
                 "到【入账中心】点【扫描游戏目录】，盘上内容会出现在待"

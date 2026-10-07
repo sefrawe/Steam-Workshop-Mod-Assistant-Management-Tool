@@ -69,13 +69,13 @@ _BUCKETS = [
     ("盘上缺失（已下载）", "missing"),
     ("空目录（疑似中断）", "empty"),
     ("账本外（盘上有目录）", "claim"),
-    ("已收录·盘上有内容", "confirm"),
+    ("待下载·盘上有内容", "confirm"),
     ("软删除/失效·保留文件", "keep"),
 ]
 
 _GUIDE_PARAS = (
     "两把尺子先分清：本页核验看的是【磁盘】（含反向联接后的游戏真实"
-    "目录）；【扫描本地】读的是 steamcmd 自己的账本文件（acf）。所以"
+    "目录）；【扫描本地】读的是 steamcmd 自己的账本文件。所以"
     "核验能看见的条目，扫描本地未必认——两者对不上不是故障。",
 
     "各行含义：账说「已下载」但盘上缺失/为空 → 点【修复…】三选一；"
@@ -405,7 +405,7 @@ class VerifyPage(QWidget):
         if n_claim:
             parts.append(f"｜账本外 {n_claim}")
         if n_confirm:
-            parts.append(f"｜已收录待确认 {n_confirm}")
+            parts.append(f"｜待下载待确认 {n_confirm}")
         if n_keep:
             parts.append(f"｜软删/失效保留 {n_keep}")
         parts.append(f"｜非数字内容 {len(result.non_numeric)}")
@@ -683,10 +683,11 @@ class VerifyPage(QWidget):
         last_state = {"title": mod.title, "url": mod.url,
                       "time_updated": mod.time_updated,
                       "confirmed_version": mod.confirmed_version,
-                      "local_size": mod.local_size, "note": mod.note,
-                      "color_tag": mod.color_tag,
-                      "is_special": mod.is_special,
-                      "local_path": mod.local_path}
+                      "confirmed_source": mod.confirmed_source,
+                      "local_size": mod.local_size,
+                      "note": mod.note, "color_tag": mod.color_tag,
+                      "is_special": mod.is_special}
+
         try:
             self._repo.mark_deleted(mod_id, last_state)
         except ValueError as exc:

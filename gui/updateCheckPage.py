@@ -44,7 +44,7 @@ from core.formatters import fmt_size, relative_time
 from core.models import Game, Mod
 from core.steamApiClient import (
     SteamApiCancelled, SteamApiClient, SteamApiError, WorkshopItem)
-from core.urlParser import WORKSHOP_URL_TEMPLATE
+from core.urlParser import workshop_url
 from gui.consolePanel import LogBus
 from gui.theme import font_px  # 字号单源（D25）
 
@@ -768,7 +768,7 @@ class UpdateCheckPage(QWidget):
                     mod_id=mid,
                     game_id=game.app_id,
                     status="tracked",
-                    url=WORKSHOP_URL_TEMPLATE.format(mid),
+                    url=workshop_url(mid),
                     title=None,
                     creator=None,
                     file_size=None,

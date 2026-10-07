@@ -288,11 +288,21 @@ class BatchDownloadController(QWidget):
             return True
 
         return self._begin_download_phase(ids)
-
     def _has_login_cmd(self) -> bool:
-        raw = (str(self._settings.get("steamcmd_login_cmd") or "")
-               if self._settings is not None else "")
+        """本批是否自动登录（决策 91 综合判定；start_batch 的卡片
+        has_login 与 _launch_flow 的 login_cmd 共用这一个判定，两边
+        说法永远一致）：设置里存了登录命令**且** batch_auto_login
+        开关打开（该开关此前全项目零消费点——修34接线，兑现设置页
+        承诺）。开关关 = 每批只发车不登录，用户自己在终端里 login；
+        下载命令撞上未登录时流程照旧转 NEED_LOGIN 等待（决策 94）。
+        """
+        if self._settings is None:
+            return False
+        if self._settings.get_int("batch_auto_login", 1) == 0:
+            return False
+        raw = str(self._settings.get("steamcmd_login_cmd") or "")
         return bool(raw.strip())
+
 
     # ---------------- 阶段一：备份（决策 40） ----------------
     def _start_backup_phase(self, ids: list[int]) -> None:
@@ -537,7 +547,10 @@ class BatchDownloadController(QWidget):
         # claim 行，确认行与其他 kind 不动（repo 契约原样）
         self._repo.drop_stale_claims(game.app_id,
                                      [r["mod_id"] for r in rows])
-        pending = self._repo.pending_confirmations(game.app_id)
+        pending = [v for v in self._repo.pending_confirmations(game.app_id)
+                   if v.kind != "claim"]  # claim 候选归入账中心待认领区，
+        # 不进"下载批次收尾"清单（与入账中心①②分区口径一致）
+
         n_new = len(rows)
         self._log.ok(
             f"{n_new} 条已列入待确认清单（黑名单已剔除）——"
@@ -572,7 +585,8 @@ class BatchDownloadController(QWidget):
                 f"收尾自动盘点：盘上 {report.folders_found} 个 mod 文件夹，"
                 f"新候选 {len(report.candidates_new)} 条，"
                 f"清失效 {len(report.stale_removed)} 条，大小回填 "
-                f"{report.sizes_backfilled} 条；{report.acf_note}")
+                f"{report.sizes_backfilled} 条")
+
 
     # ---------------- 工作线程收尾纪律（0xC0000409 修复） ----------------
     def _cleanup_worker_on_finish(self, worker, attr: str) -> None:
