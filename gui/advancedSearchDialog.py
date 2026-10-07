@@ -42,7 +42,9 @@ from dataclasses import dataclass
 
 from core.appSettings import AppSettings
 from PySide6.QtCore import QDateTime, QTime, Qt, QTimer, Signal
+from gui.theme import font_px  # 字号单源（D25）
 from PySide6.QtWidgets import (
+
     QComboBox,
     QDateEdit,
     QDialog,
@@ -318,7 +320,7 @@ class AdvancedSearchDialog(QDialog):
             "清单来自当前列表里出现过的标签；重新打开本窗口时自动更新。",
             self)
         tag_hint.setWordWrap(True)
-        tag_hint.setStyleSheet("color: gray; font-size: 11px;")
+        tag_hint.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
         root.addWidget(tag_hint)
 
         # 结果反馈行：命中数由 mod 库页每次刷新后回填（本窗口不查库）
@@ -396,9 +398,10 @@ class AdvancedSearchDialog(QDialog):
         if not text:
             self._id_edit.setStyleSheet("")
             return None
-        if text.isdigit():
+        if text.isascii() and text.isdigit():
             self._id_edit.setStyleSheet("")
             return int(text)
+
         self._id_edit.setStyleSheet(_BAD_INPUT)
         return None
 

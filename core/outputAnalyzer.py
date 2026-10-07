@@ -42,8 +42,7 @@ M3 功能模块的地基：终端面板靠它标注"这行输出意味着什么"
 判定的边界：
 - 断线后的 "Retrying..." 行不单独判定——断线那一行已经把事说清，
   重试行只负责在原始输出里刷屏，分析器不必跟着嚷；
-- 账实口径不变（决策 23）：这里的"成功/失败"只服务于界面展示
-  与控制台日志，版本三件套的唯一来源仍是 acf（扫描本地），
+- 账实口径不变（决策 23）：账实口径（v2 判决制）：这里的"成功/失败/超时"是判决信号——收尾链据此落 verdict_log（pending），版本写入仍只走确认门（R17）；本模块本身绝不写库、绝不改 mod 状态。
   本模块绝不写库、绝不据此改 mod 状态。
 
 发送命令的节奏钥匙：
@@ -180,7 +179,15 @@ def describe(v: Verdict) -> str:
     if v.kind == KIND_NOT_LOGGED_ON:
         return "尚未登录：请先执行登录命令再下载"
     if v.kind == KIND_DISCONNECTED:
+        if v.code == 1:
+            # result 1 (OK) 出现在登录瞬间 = 旧会话被新登录挤掉的
+            # 正常提示，不是断线——照实说，免得用户虚惊
+            # （2026-10-06 批次日志实证：报这句的下一秒登录成功、
+            # 批次全程无碍）
+            return ("会话提示（result 1 OK）：旧登录会话被本次登录"
+                    "挤掉，无害，无需处理")
         return f"与 Steam 断开连接（result {v.code}：{v.note}），steamcmd 会自动重试"
+
     if v.kind == KIND_COMMAND_NOT_FOUND:
         return f"steamcmd 不认识这条命令：{v.note}"
     if v.kind == KIND_LOGIN_OK:

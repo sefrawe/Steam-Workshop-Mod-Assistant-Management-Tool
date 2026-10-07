@@ -169,19 +169,22 @@ class BatchDownloadFlow:
     # ---------------- 对外：开始 / 停止 / 继续 ----------------
     def start(self, login_cmd: str | None = None) -> bool:
         """开始批次。给了 login_cmd 就先登录，等登录成功再逐条下载。
-        返回是否成功启动（已在跑 / 列表为空 / 第一条命令就发不出去
-        → False；最后这种情况批次会以出错收尾，batch_done 事件照发，
+        返回是否成功启动（已在跑 / 列表为空 / 第一条命令就发不出去 →
+        False；最后这种情况批次会以出错收尾，batch_done 事件照发，
         GUI 靠事件显示失败原因，返回值只说明"没启动起来"）。
         """
         if self._state != ST_IDLE or not self._pending:
             return False
         self._login_cmd = (login_cmd or "").strip() or None
         if self._login_cmd:
-            # 登录决策 19：设置里的命令原样发送，不解析、不拼装
+            # 登录决策 19：设置里的命令原样发送，不解析、不拼装。
+            # R2：登录命令含密码，失败文案必须脱敏
             self._state = ST_LOGGING_IN
-            if not self._try_send(self._login_cmd):
+            if not self._try_send(
+                    self._login_cmd,
+                    fail_note="登录命令发送失败（steamcmd 没在运行？）"):
                 return False
-            self._emit("login_started", note=self._login_cmd)
+            self._emit("login_started", note="登录命令已按设置原样发送")
             return True
         return self._advance()
 
@@ -285,7 +288,6 @@ class BatchDownloadFlow:
             # 同款），控制器借此写"批次自动继续"日志
             self._emit("login_ok")
             self._advance()
-
     def _on_download_verdict(self, verdict) -> None:
         """下载条目的结论（RUNNING / STOPPING 状态）。"""
         kind = verdict.kind
@@ -302,6 +304,19 @@ class BatchDownloadFlow:
             self._emit("warn", note=verdict.note)
             return
         if kind == outputAnalyzer.KIND_NOT_LOGGED_ON:
+            if self._state == ST_STOPPING:
+                # 修9：停止中收到"未登录"绝不转 NEED_LOGIN——否则停止
+                # 意图被"未登录"劫持，批次卡在等登录、is_active 恒真
+                # = 僵尸批次（v2.45 实证 bug 的变体入口）。该条按失败
+                # 记账不悄悄消失，留在 STOPPING 等 on_idle 收尾
+                # （steamcmd 报错后必回提示符；进程真退了由 abort() 兜底）。
+                self._failed.append(ItemResult(
+                    self._current, ok=False, reason="未登录（批次停止中）",
+                    trigger=self._trigger_for(self._current)))
+                self._item_done(self._current, ok=False,
+                                reason="未登录（批次停止中）")
+                self._current = None
+                return
             # 未登录：当前条放回队首，暂停等登录（决策 94：终端里
             # 登录成功后批次自动继续，不需要再点「继续批次」）
             self._pending.insert(0, self._current)
@@ -313,13 +328,15 @@ class BatchDownloadFlow:
             return
         if kind == outputAnalyzer.KIND_DOWNLOAD_SUCCESS:
             self._ok.append(ItemResult(
-                verdict.mod_id, ok=True, size_bytes=verdict.size_bytes,
+                verdict.mod_id, ok=True,
+                size_bytes=verdict.size_bytes,
                 trigger=self._trigger_for(verdict.mod_id)))
             self._item_done(verdict.mod_id, ok=True, reason="")
             return
         if kind == outputAnalyzer.KIND_DOWNLOAD_FAILED:
             self._failed.append(ItemResult(
-                verdict.mod_id, ok=False, reason=verdict.reason or "未知",
+                verdict.mod_id, ok=False,
+                reason=verdict.reason or "未知",
                 trigger=self._trigger_for(verdict.mod_id)))
             self._item_done(verdict.mod_id, ok=False,
                             reason=verdict.reason or "未知")
@@ -331,6 +348,7 @@ class BatchDownloadFlow:
             self._item_done(verdict.mod_id, ok=False, reason="Timeout")
             return
         # 其余结论（登录完成等杂音）忽略
+
 
     def _item_done(self, mod_id: int, ok: bool, reason: str) -> None:
         """当前条出了最终结论：记账、广播、转"等空闲提示符"。"""
@@ -364,13 +382,15 @@ class BatchDownloadFlow:
         self._emit("item_started", index=index, mod_id=mod_id,
                    done=self._done_count())
         return True
-
-    def _try_send(self, text: str) -> bool:
-        """发命令；发不出去（steamcmd 没在跑等）→ 整批出错收尾。"""
+    def _try_send(self, text: str, *, fail_note: str | None = None) -> bool:
+        """发命令；发不出去（steamcmd 没在跑等）→ 整批出错收尾。
+        fail_note：发送失败时的对外文案（事件 note 与收尾 error 共用）。
+        下载命令原文无敏感内容，默认原样展示；登录命令含密码（R2），
+        start() 传脱敏文案——命令原文绝不进事件载荷、不进日志。"""
         if self._send(text):
             return True
-        self._emit("send_failed", note=text)
-        self._finish(stopped=False, error=f"命令发送失败：{text}")
+        self._emit("send_failed", note=fail_note or text)
+        self._finish(stopped=False, error=fail_note or f"命令发送失败：{text}")
         return False
 
     def _done_count(self) -> int:

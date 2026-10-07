@@ -38,16 +38,23 @@ from core.formatters import fmt_size, relative_time, status_zh
 from gui.theme import zebra_colors
 
 # ---- 列布局（单源：页面的列显隐、宽度记忆、详情联动都按这份编号）----
-COL_CHECK = 0   # 勾选（下载用；勾选集合供命令生成/批量下载消费）
-COL_COLOR = 1   # 颜色标记（整行淡染，此格显示色块）
-COL_ID = 2      # 编号
-COL_TITLE = 3   # 标题（特别关注加 ★ 前缀）
-COL_STATUS = 4  # 状态
-COL_LOCAL = 5   # 本地版本（确认时间 · 来源文字短词）
-COL_REMOTE = 6  # 远端版本（最近一次检测到的工坊更新时间）
-COL_SIZE = 7    # 大小（确认入账时回填的本地大小）
-COL_NOTE = 8    # 备注
-COLUMN_COUNT = 9
+# v2 初版 9 列是判决制瘦身的临时形态；本轮按拍板"全部恢复"补回 V1
+# 三列：更新（判定结果独立成列）、标签、关注。V2 保留"本地版本在前"
+# 的口径（先看你确认过的基准，再看远端）
+COL_CHECK = 0     # 勾选（下载用；勾选集合供命令生成/批量下载消费）
+COL_COLOR = 1     # 颜色标记（整行淡染，此格显示色块）
+COL_ID = 2        # 编号
+COL_TITLE = 3     # 标题（特别关注加 ★ 前缀）
+COL_STATUS = 4    # 状态
+COL_LOCAL = 5     # 本地版本（确认时间 · 来源文字短词）
+COL_REMOTE = 6    # 远端版本（最近一次检测到的工坊更新时间）
+COL_UPDATE = 7    # 更新（最新/需更新/未下载/版本未知/远端未知/已删除）
+COL_SIZE = 8      # 大小（确认入账时回填的本地大小）
+COL_TAGS = 9      # 标签（Steam API；空格分隔）
+COL_SPECIAL = 10  # 特别关注
+COL_NOTE = 11     # 备注
+COLUMN_COUNT = 12
+
 
 # 视图列 → 数据库排序键（必须是 repo.list_mods 的 order_by 白名单成员，
 # 一字不差）。★ 本地版本的排序键 = confirmed_version。
@@ -56,9 +63,13 @@ _SORT_MAP = {
     COL_TITLE: "title",
     COL_STATUS: "status",
     COL_LOCAL: "confirmed_version",
-    COL_REMOTE: "remote_timeupdated",
+    # 修复：原值 "remote_timeupdated" 不是 repo 白名单成员，点远端
+    # 排序必被 ValueError 拒、页面静默回退——白名单原生键是
+    # time_updated（ALLOWED_ORDERS 一字不差）
+    COL_REMOTE: "time_updated",
     COL_SIZE: "local_size",
 }
+
 
 # 状态 → 前景色（只有本模型在用，按 D37 准入规则留模块顶部不进
 # constants）。取中性色，深浅主题都看得清。
@@ -74,17 +85,33 @@ _DIM_FG = "#8a8a8a"          # 未验证/旧账 与"未知"统一灰
 # 口径不因新旧库差异漂移。页面（modListPage）同源 import 本函数。
 _HEX_TO_NAME = {v.lower(): k for k, v in COLOR_CHOICES.items()}
 
-
 def _color_name(mod) -> str | None:
-    """Mod 的颜色属性 → 色名（"红"…）；无标记 / 无法识别 → None。
-    兼容 color 与 color_tag 两种字段名（V1/V2 过渡期双读）。"""
+    """Mod 的颜色属性 → 显示代码：预设色名（"红"…）或 hex。
+    库存色名原样返回；旧账 hex 反查出色名；自定义颜色（任意合法
+    hex，D26 颜色扩容）以 QColor 规范形原样作为代码返回。
+    无标记 / 无法识别 → None。兼容 color 与 color_tag 双字段名。"""
     raw = getattr(mod, "color", None) or getattr(mod, "color_tag", None)
     if not raw:
         return None
     raw = str(raw).strip()
     if raw in COLOR_CHOICES:
         return raw
-    return _HEX_TO_NAME.get(raw.lower())
+    name = _HEX_TO_NAME.get(raw.lower())
+    if name is not None:
+        return name
+    c = QColor(raw)  # D26：任意合法 hex 也是合法代码（自定义颜色）
+    return c.name() if c.isValid() else None
+
+
+def _color_qcolor(mod) -> QColor | None:
+    """颜色代码（色名或 hex）→ QColor；无标记/非法 → None。
+    整行淡染与取色器初值共用——两处永远同源。"""
+    code = _color_name(mod)
+    if not code:
+        return None
+    c = QColor(COLOR_CHOICES.get(code, code))
+    return c if c.isValid() else None
+
 
 def _zebra_alt() -> QColor | None:
     """交替行底色：gui/theme.zebra_colors() 约定返回（基准色, 交替色）
@@ -114,8 +141,9 @@ class ModListModel(QStandardItemModel):
         super().__init__(parent)
         self.setColumnCount(COLUMN_COUNT)
         self.setHorizontalHeaderLabels(
-            ["勾", "", "编号", "标题", "状态",
-             "本地版本", "远端版本", "大小", "备注"])
+            ["勾", "颜色", "编号", "标题", "状态", "本地版本", "远端版本",
+             "更新", "大小", "标签", "关注", "备注"])
+
         self._checked: set[int] = set()       # 勾选的 mod 编号集合
         self._row_by_id: dict[int, int] = {}  # 编号 → 行号（原位刷新用）
         self._alt = _zebra_alt()
@@ -139,7 +167,15 @@ class ModListModel(QStandardItemModel):
     def set_rows(self, mods: list) -> None:
         """整表重建（页面 _reload 的落点）。勾选集合独立保存——被筛
         出去的勾选仍在集合里，筛回来勾选还在：用户勾的是 mod，不是行。"""
+        # 斑马纹交替色每轮整表重建时现查，不再只信构造时的快照：
+        # _alt 是"当时主题档位"的定格——切主题只更新 theme 层的
+        # 档位与 QSS，旧定格不会自己过期，那就是"重启才正常、点
+        # 刷新无效、亮暗双向都不跟"的根源。整表重建的入口恰好
+        # 覆盖全部恢复时机（切完主题回到本页时 showEvent 自动
+        # 重载、手动点刷新），一次现查两个方向都跟手
+        self._alt = _zebra_alt()
         self.setRowCount(0)
+
         self._row_by_id.clear()
         for mod in mods:
             self._append_row(mod)
@@ -186,7 +222,7 @@ class ModListModel(QStandardItemModel):
     def _build_items(self, mod, row: int) -> list[QStandardItem]:
         """一行的全部格子。列顺序必须与 COL_* 编号一致（列布局单源）。"""
         bg = self._row_background(mod, row)
-        items = [
+        return [
             self._mk_check_item(mod),
             self._mk_color_item(mod, bg),
             self._mk_id_item(mod, bg),
@@ -194,18 +230,17 @@ class ModListModel(QStandardItemModel):
             self._mk_status_item(mod, bg),
             self._mk_local_item(mod, bg),
             self._mk_remote_item(mod, bg),
+            self._mk_update_item(mod, bg),
             self._mk_size_item(mod, bg),
+            self._mk_tags_item(mod, bg),
+            self._mk_special_item(mod, bg),
             self._mk_note_item(mod, bg),
         ]
-        return items
-
     def _row_background(self, mod, row: int) -> QBrush | None:
-        """整行底色：颜色标记淡染优先；未标记的奇数行用交替色（斑马纹）。
-        返回 None = 保持默认（偶数行）。"""
-        name = _color_name(mod)
-
-        if name in COLOR_CHOICES:
-            c = QColor(COLOR_CHOICES[name])
+        """整行底色：颜色标记淡染优先（预设色名与自定义 hex 同待遇，
+        D26）；未标记的奇数行用交替色（斑马纹）。None = 默认。"""
+        c = _color_qcolor(mod)
+        if c is not None:
             c.setAlpha(46)  # 淡染：色相在、字还看得清，选中高亮不受影响
             return QBrush(c)
         if self._alt is not None and row % 2 == 1:
@@ -238,14 +273,18 @@ class ModListModel(QStandardItemModel):
         it.setToolTip("勾选后供「下载命令生成」「批量下载」使用；"
                       "筛选、排序后勾选保持不变")
         return it
-
     def _mk_color_item(self, mod, bg: QBrush | None) -> QStandardItem:
-        name = _color_name(mod)
-
-        it = self._plain("", bg)  # 底色 = 整行淡染，本格跟着行走即可
-        if name in COLOR_CHOICES:
-            it.setToolTip(f"颜色标记：{name}（右键可改/清除）")
+        """颜色列：格内只显示颜色代码（预设=色名，自定义=hex），
+        整行同色淡染照旧；无标记留空。表头有名字了，这格不用猜。"""
+        code = _color_name(mod)
+        if code:
+            it = self._plain(code, bg)
+            it.setToolTip(f"颜色标记：{code}（整行同色淡染；"
+                          "右键「颜色标记…」可改/可自定义/可清除）")
+        else:
+            it = self._plain("", bg)
         return it
+
 
     def _mk_id_item(self, mod, bg: QBrush | None) -> QStandardItem:
         it = self._plain(str(mod.mod_id), bg)
@@ -285,25 +324,60 @@ class ModListModel(QStandardItemModel):
                          fg=QColor(_DIM_FG) if dim else None)
         it.setToolTip(_SOURCE_TIPS.get(source, "本地版本的确认来源"))
         return it
-
     def _mk_remote_item(self, mod, bg: QBrush | None) -> QStandardItem:
-        rt = getattr(mod, "remote_timeupdated", None)
+        """远端版本格：只报时间。"要不要更新"的判定结果归「更新」列，
+        不再在这格红字加粗——两处强调看一处（V1 同款分工）。"""
+        rt = getattr(mod, "time_updated", None)  # 修复：字段实名 time_updated
         if not rt:
             return self._plain(
                 "—", bg,
                 tooltip="还没做过更新检测：远端版本要点【更新检测】"
                         "才写进账本")
-        if self._needs_update(mod):
-            it = self._plain(relative_time(rt), bg,
-                             fg=QColor(_NEED_UPDATE_FG))
+        return self._plain(
+            relative_time(rt), bg,
+            tooltip=f"远端最近更新：{relative_time(rt)}"
+                    f"（工坊更新时间，Unix {rt}）")
+
+    @staticmethod
+    def _update_state(m) -> str:
+        """「更新」列六态文字（V1 口径、判定字段换判决制）。
+        需更新 = D2 唯一公式：已下载 且 远端比确认版本新。"""
+        if m.status == "deleted":
+            return "已删除"
+        if m.version_unknown:
+            return "版本未知" if m.status == STATUS_DOWNLOADED else "未下载"
+        rt = getattr(m, "time_updated", None)
+        if rt is None:
+            return "远端未知"
+        return "需更新" if rt > m.confirmed_version else "最新"
+
+    def _mk_update_item(self, mod, bg: QBrush | None) -> QStandardItem:
+        state = self._update_state(mod)
+        if state == "需更新":
+            it = self._plain(state, bg, fg=QColor(_NEED_UPDATE_FG))
             f = QFont()
             f.setBold(True)
             it.setFont(f)
             it.setToolTip("远端有更新：工坊更新时间比你确认过的"
                           "本地版本新")
         else:
-            it = self._plain(relative_time(rt), bg,
-                             tooltip=f"远端最近更新：{relative_time(rt)}")
+            dim = state in ("版本未知", "远端未知", "已删除")
+            it = self._plain(state, bg, fg=QColor(_DIM_FG) if dim else None)
+            if state == "远端未知":
+                it.setToolTip("已下载但还没检测过远端：点【更新检测】")
+        return it
+
+    def _mk_tags_item(self, mod, bg: QBrush | None) -> QStandardItem:
+        tags = getattr(mod, "tags", None) or []
+        text = " ".join(tags)
+        return self._plain(text, bg, tooltip=text or "无标签"
+                                                     "（更新检测会从 Steam API 补全）")
+
+    def _mk_special_item(self, mod, bg: QBrush | None) -> QStandardItem:
+        on = bool(getattr(mod, "is_special", False))
+        it = self._plain("★" if on else "", bg)
+        it.setToolTip("特别关注：" + ("是（更新检测会记提醒）" if on
+                                     else "否（右键可切换）"))
         return it
 
     def _mk_size_item(self, mod, bg: QBrush | None) -> QStandardItem:
@@ -326,7 +400,8 @@ class ModListModel(QStandardItemModel):
         if mod.status != STATUS_DOWNLOADED:
             return False
         cv = getattr(mod, "confirmed_version", None)
-        rt = getattr(mod, "remote_timeupdated", None)
+        rt = getattr(mod, "time_updated", None)  # 修复：字段实名 time_updated
+
         return bool(cv and rt and rt > cv)
 
     def _on_item_changed(self, item: QStandardItem) -> None:

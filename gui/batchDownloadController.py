@@ -52,7 +52,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from core import constants, netGate
-from core.urlParser import WORKSHOP_URL_TEMPLATE
+
 
 from core.backupManager import BackupManager, steamcmd_running
 from core.batchDownloadFlow import BatchDownloadFlow, resolve_written
@@ -60,6 +60,7 @@ from core.modRepository import ModRepository
 from core.steamApiClient import SteamApiClient, SteamApiError
 from gui.logBus import LogBus
 from gui.modFolderOpener import open_mod_folder
+from core.urlParser import workshop_url
 # 备份引擎的保留策略参数在 _BackupPhaseWorker 构造时从设置页现读：
 # backup_keep_per_mod / backup_total_quota_gb 两键（core/appSettings.DEFAULTS）。
 
@@ -83,8 +84,12 @@ class _BackupPhaseWorker(QThread):
       备份失败意味着环境有问题，覆盖旧版本风险太大，宁可不下。
     """
 
-    item_done = Signal(int, bool, str)   # mod_id, 是否继续下载, 说明
-    phase_done = Signal(int, int)        # (备份成功数, 剔除数)
+    # object 而非 int：第一参装的是 mod_id（工坊编号，常态超 int32 上限，
+    # 踩坑 79 实证 2753176859 emit 即 Overflow、被截成 -1541790437，
+    # 工作线程炸死整批中断）。object 直传 Python 对象零转换，emit 点
+    # 与接收槽一律不用动
+    item_done = Signal(object, bool, str)  # mod_id, 是否继续下载, 说明
+    phase_done = Signal(int, int)  # (备份成功数, 剔除数)——计数器，int 合法
 
     def __init__(self, repo: ModRepository, game, mod_ids: list[int],
                  settings, parent=None) -> None:
@@ -111,7 +116,6 @@ class _BackupPhaseWorker(QThread):
         mgr = BackupManager(self._repo, keep_per_mod=self._keep,
                             quota_bytes=self._quota,
                             steamcmd_path=self._steamcmd_path)
-
         from pathlib import Path
         ok_n = 0
         dropped = 0
@@ -140,12 +144,17 @@ class _QueryWorker(QThread):
     批查是收尾的助攻，不值得为它卡住批次）。
     """
 
-    done = Signal(dict, str)   # (result 字典, 错误说明——无错为空串)
+    done = Signal(object, str)  # (result 字典, 错误说明)。object 而非 dict：
+
+    # dict 信号会被 Qt 当作 C++ QVariantMap 转换——要求字符串键，本结果
+    # 是 int 键 + tuple 值，转换失败（Shiboken "Cannot copy-convert"）
+    # 且参数被悄悄换成空字典，批查结果在传输中凭空丢失（实证：核对
+    # 明明成功，收到的却全空）。object 直接携带 Python 对象引用，
+    # 零转换零丢失（同文件 _InventoryWorker 的既有先例）
 
     def __init__(self, mod_ids: list[int], parent=None) -> None:
         super().__init__(parent)
         self._ids = list(dict.fromkeys(int(i) for i in mod_ids))
-
     def run(self) -> None:
         result: dict[int, tuple] = {}
         error = ""
@@ -161,13 +170,16 @@ class _QueryWorker(QThread):
                     key = it.mod_id if it.mod_id is not None else -1
                     result[key] = (None, None, None)
                 else:
-                    result[it.mod_id] = (it.time_updated, it.title,
-                                         it.file_size)
+                    result[it.mod_id] = (it.time_updated, it.title, it.file_size)
         except SteamApiError as exc:
-            error = str(exc)   # 整批失败：result 保持空 → 全按失败走
+            error = str(exc)  # 整批失败：result 保持空 → 全按失败走
+        except Exception as exc:  # 防御兜底：任何意外都要变成看得见的
+            # 错误说明，绝不无声卡死批次（踩坑60 同哲学）
+            error = f"{type(exc).__name__}: {exc}"
         finally:
             netGate.release(_GATE_OWNER)
         self.done.emit(result, error)
+
 class _InventoryWorker(QThread):
     """⑮ 批次收尾自动盘点线程：scan_game 只读盘面 + 落候选提案 +
     回填大小。放线程防大库目录步行卡住确认弹窗；写库走 repo 事务
@@ -208,6 +220,14 @@ class BatchDownloadController(QWidget):
         # 接线住控制器：ConsolePanel 只画界面不认识 flow（解耦约定）
         console.step_list.stop_requested.connect(self._on_card_stop)
         console.step_list.resume_requested.connect(self._on_card_resume)
+        # 终端结论与空闲提示符 → 批次流程的两条输入线（修复点）：
+        # 状态机推进全靠这两路——没接的话，批次发完登录命令就永远
+        # 停在"等登录结论"（实证：登录成功日志出了、下载命令一条
+        # 不发）。接在控制器转发层而不是直连 flow：flow 按批新建，
+        # 转发方法按"当前 flow"分发，连接一次终身有效，不用开批/收尾
+        # 反复接线拆线
+        self._terminal.verdict_emitted.connect(self._on_terminal_verdict)
+        self._terminal.idle_prompt_seen.connect(self._on_terminal_idle)
 
         self._flow: BatchDownloadFlow | None = None
         self._game = None                # 开批时锁定的档案（切界面不影响）
@@ -268,11 +288,21 @@ class BatchDownloadController(QWidget):
             return True
 
         return self._begin_download_phase(ids)
-
     def _has_login_cmd(self) -> bool:
-        raw = (str(self._settings.get("steamcmd_login_cmd") or "")
-               if self._settings is not None else "")
+        """本批是否自动登录（决策 91 综合判定；start_batch 的卡片
+        has_login 与 _launch_flow 的 login_cmd 共用这一个判定，两边
+        说法永远一致）：设置里存了登录命令**且** batch_auto_login
+        开关打开（该开关此前全项目零消费点——修34接线，兑现设置页
+        承诺）。开关关 = 每批只发车不登录，用户自己在终端里 login；
+        下载命令撞上未登录时流程照旧转 NEED_LOGIN 等待（决策 94）。
+        """
+        if self._settings is None:
+            return False
+        if self._settings.get_int("batch_auto_login", 1) == 0:
+            return False
+        raw = str(self._settings.get("steamcmd_login_cmd") or "")
         return bool(raw.strip())
+
 
     # ---------------- 阶段一：备份（决策 40） ----------------
     def _start_backup_phase(self, ids: list[int]) -> None:
@@ -285,9 +315,11 @@ class BatchDownloadController(QWidget):
         self._log.info(f"备份阶段：先备份 {len(ids)} 条的现有旧版本…")
         self._backup_worker = _BackupPhaseWorker(
             self._repo, self._game, ids, self._settings)
+        self._cleanup_worker_on_finish(self._backup_worker, "_backup_worker")
         self._backup_worker.item_done.connect(self._on_backup_item)
         self._backup_worker.phase_done.connect(self._on_backup_done)
         self._backup_worker.start()
+
     def _on_backup_item(self, mod_id: int, keep: bool, note: str) -> None:
         if keep:
             self._log.info(f"mod {mod_id}：{note}")
@@ -296,19 +328,17 @@ class BatchDownloadController(QWidget):
             # 到达顺序没有保证，收尾时只读这个集合最稳
             self._dropped_ids.add(mod_id)
             self._log.error(f"mod {mod_id} 已从本批剔除：{note.splitlines()[0]}")
-
     def _on_backup_done(self, ok_n: int, dropped: int) -> None:
-        self._backup_worker = None
         # 幸存者 = 备份清单 − 剔除集合（集合在 _on_backup_item 边收边记，
         # 两个信号的先后顺序不影响这里的结果）
-        survivors = [m for m in self._pending_ids
-                     if m not in self._dropped_ids]
+        survivors = [m for m in self._pending_ids if m not in self._dropped_ids]
         if not survivors:
             self._log.error("备份阶段后没有可下载的条目，批次结束")
             self._step_list.handle_event(
                 {"type": "batch_done", "summary": {
-                    "total": len(self._pending_ids), "ok": [],
-                    "failed": [], "timeout": [], "stopped": False,
+                    "total": len(self._pending_ids),
+                    "ok": [], "failed": [], "timeout": [],
+                    "stopped": False,
                     "error": "全部条目备份失败被剔除"}})
             return
         if dropped:
@@ -317,6 +347,7 @@ class BatchDownloadController(QWidget):
         else:
             self._log.ok(f"备份完成：{ok_n} 条旧版本已保护，开始下载")
         self._begin_download_phase(survivors)
+
 
 
     # ---------------- 阶段二：补采触发值（D3） ----------------
@@ -328,15 +359,13 @@ class BatchDownloadController(QWidget):
             self._log.info(f"正在核对 {len(missing)} 条的远端版本"
                            "（作为本批的版本凭证）…")
             self._query_worker = _QueryWorker(missing)
+            self._cleanup_worker_on_finish(self._query_worker, "_query_worker")
             self._query_worker.done.connect(
                 lambda result, err: self._on_prefetch_done(ids, result, err))
             self._query_worker.start()
             return True
         return self._launch_flow(ids)
-
-    def _on_prefetch_done(self, ids: list[int], result: dict,
-                          error: str) -> None:
-        self._query_worker = None
+    def _on_prefetch_done(self, ids: list[int], result: dict, error: str) -> None:
         if error:
             # 补采失败照发车（D3②）：全部按无凭证处理，收尾写版本未知
             self._log.warn(f"远端版本核对失败（{error}）："
@@ -345,7 +374,7 @@ class BatchDownloadController(QWidget):
             got = 0
             for mid, (tu, _t, _s) in result.items():
                 if mid in ids and tu is not None:
-                    self._triggers[mid] = tu   # 只补表里没有的键
+                    self._triggers[mid] = tu  # 只补表里没有的键
                     got += 1
             self._log.info(f"版本凭证就绪：{got}/{len(ids)} 条"
                            "（查不到的条目照常下载）")
@@ -372,8 +401,26 @@ class BatchDownloadController(QWidget):
         return True
 
     # ---------------- 流程事件 → 卡片 / 终端信号 ----------------
+    def _on_terminal_verdict(self, verdict, *_) -> None:
+        """终端结论 → 当前批次流程。没有批次在跑时忽略（终端页自己的
+        结论标注与这里无关）。*_ 宽容签名：信号带几个参数都接得住，
+        转发只传结论本体。"""
+        if self._flow is not None:
+            self._flow.on_verdict(verdict)
+
+    def _on_terminal_idle(self, *_) -> None:
+        """终端空闲提示符 → 当前批次流程（发下一条命令的节奏钥匙）。"""
+        if self._flow is not None:
+            self._flow.on_idle()
+
     def _on_flow_event(self, ev: dict) -> None:
         self._step_list.handle_event(ev)
+        if ev.get("type") == "item_started":
+            # 发车日志：命令发出的时刻要可见——否则 steamcmd 侧的
+            # 断线重试、大文件慢下都会被误读成"程序卡住了"
+            self._log.info(f"发车：mod {ev.get('mod_id')}"
+                           f"（第 {(ev.get('index') or 0) + 1} 条）")
+
         if ev.get("type") == "need_login":
             self._log.warn(str(ev.get("note") or "需要手动登录"))
         elif ev.get("type") == "batch_done":
@@ -463,13 +510,17 @@ class BatchDownloadController(QWidget):
         #    供 resolve_written 判 verified / 降级 / 版本未知
         self._log.info(f"正在核对 {len(net_ok)} 条成功条目的远端版本…")
         self._query_worker = _QueryWorker([r.mod_id for r in net_ok])
+        self._cleanup_worker_on_finish(self._query_worker, "_query_worker")
         self._query_worker.done.connect(
             lambda result, err: self._on_final_query(
                 game, net_ok, result, err))
+        self._query_worker.start()  # 建≠跑：不 start 线程永远不执行，
+        # done 永不发射——批次就停在"正在核对…"（两场冒烟实证）
+
 
     def _on_final_query(self, game, net_ok: list, result: dict,
                         error: str) -> None:
-        self._query_worker = None
+
         if error:
             # 批查失败不拦入账（D4c）：全部按查询失败走，触发值照写
             self._log.warn(f"远端版本核对失败（{error}）：成功条目将按"
@@ -496,7 +547,10 @@ class BatchDownloadController(QWidget):
         # claim 行，确认行与其他 kind 不动（repo 契约原样）
         self._repo.drop_stale_claims(game.app_id,
                                      [r["mod_id"] for r in rows])
-        pending = self._repo.pending_confirmations(game.app_id)
+        pending = [v for v in self._repo.pending_confirmations(game.app_id)
+                   if v.kind != "claim"]  # claim 候选归入账中心待认领区，
+        # 不进"下载批次收尾"清单（与入账中心①②分区口径一致）
+
         n_new = len(rows)
         self._log.ok(
             f"{n_new} 条已列入待确认清单（黑名单已剔除）——"
@@ -513,6 +567,8 @@ class BatchDownloadController(QWidget):
             else:
                 cmd = str(self._settings.get("steamcmd_path") or "")
                 self._scan_worker = _InventoryWorker(self._repo, game, cmd)
+                self._cleanup_worker_on_finish(self._scan_worker, "_scan_worker")
+
                 self._scan_worker.done.connect(self._on_auto_inventory_done)
                 self._scan_worker.start()
         if pending:
@@ -520,7 +576,7 @@ class BatchDownloadController(QWidget):
     def _on_auto_inventory_done(self, report, error: str) -> None:
         """⑮ 收尾自动盘点回执：只进运行日志不弹窗——批次主结果
         （确认清单）已在用户眼前，盘点是顺手的卫生工作。"""
-        self._scan_worker = None
+
         if error:
             self._log.warn(f"收尾自动盘点失败（不影响批次结果）：{error}")
             return
@@ -529,7 +585,24 @@ class BatchDownloadController(QWidget):
                 f"收尾自动盘点：盘上 {report.folders_found} 个 mod 文件夹，"
                 f"新候选 {len(report.candidates_new)} 条，"
                 f"清失效 {len(report.stale_removed)} 条，大小回填 "
-                f"{report.sizes_backfilled} 条；{report.acf_note}")
+                f"{report.sizes_backfilled} 条")
+
+
+    # ---------------- 工作线程收尾纪律（0xC0000409 修复） ----------------
+    def _cleanup_worker_on_finish(self, worker, attr: str) -> None:
+        """线程收尾三步（摘引用 → 置 None → wait）必须发生在 finished
+        信号里。此前把置 None 写在 done 回调里：done 在 run() 返回前
+        发出、排队比 finished 先处理，主线程处理 done 时线程还没完全
+        退场，最后一个引用一丢线程对象即被销毁 → 0xC0000409 闪退
+        （实证：勾 4 条点批量下载，崩在"正在核对远端版本"之后）。
+        按对象身份对账：收尾链上查询线程可能背靠背，self.<attr> 若已
+        换成新线程，只清仍然登记在册的那个，绝不误伤新线程。"""
+        def _cleanup():
+            if getattr(self, attr, None) is worker:
+                setattr(self, attr, None)
+            worker.wait()  # finished 之后线程必已收尾，wait 瞬时返回
+        worker.finished.connect(_cleanup)
+
 
     # ---------------- 卡片行右键 / 重试（ids_action 实现） ----------------
     def on_ids_action(self, action: str, mod_ids: list[int]) -> None:
@@ -540,8 +613,8 @@ class BatchDownloadController(QWidget):
             self._log.info(f"已复制 {len(mod_ids)} 个编号到剪贴板")
         elif action == "open_pages":
             for mid in mod_ids:
-                QDesktopServices.openUrl(QUrl(WORKSHOP_URL_TEMPLATE
-                                              .format(mid)))
+                QDesktopServices.openUrl(QUrl(workshop_url(mid)))
+
 
         elif action == "open_folders":
             game = self._game or self._current_game_fallback()

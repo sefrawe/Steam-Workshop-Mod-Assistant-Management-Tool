@@ -119,7 +119,7 @@ class Backup:
     backup_path: str
     size_bytes: int
     version_timeupdated: int           # 取确认值（D14）
-    manifest: str | None = None        # 可空，备份时从 acf 盘面回填
+    manifest: str | None = None       #v2 保留列但无来源（acf 退场），登记一律 NULL
     note: str | None = None
     pinned: bool = False
     created_at: int | None = None

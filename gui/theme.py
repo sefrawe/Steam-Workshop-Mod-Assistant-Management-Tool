@@ -113,3 +113,80 @@ def system_prefers_dark() -> bool:
             return value == 0
     except Exception:
         return False
+# —— 界面字号缩放（D25）——
+# 两把尺同源：apply_font_scale 管全局字体（没写样式的控件吃它），
+# font_px 管样式表里写死的 px（QSS 优先级高，setFont 拉不动，
+# 必须逐处现算）。值都以启动时读取为准——改设置后重启生效。
+_SCALE_CACHE: float | None = None
+
+
+def _font_scale() -> float:
+    """读「界面字号缩放」百分比 → 倍率。缺键/非法/范围外一律 1.0
+    （范围 0.5~2.0，与设置页建议 80~200 同一口径）。读一次就缓存：
+    全局字体与样式表字号必须同一把尺，中途改文件也不许两套值。"""
+    global _SCALE_CACHE
+    if _SCALE_CACHE is None:
+        from core.appSettings import AppSettings
+        raw = str(AppSettings().get("ui_font_scale") or "").strip()
+        try:
+            v = float(raw) / 100.0
+        except ValueError:
+            v = 1.0
+        _SCALE_CACHE = v if 0.5 <= v <= 2.0 else 1.0
+    return _SCALE_CACHE
+
+
+def apply_font_scale(app) -> None:
+    """全局字号缩放：main.py 在主窗口构造之前调用（布局度量随全局
+    字体走）。只影响没写样式表的控件——菜单/树/表格/按钮/大多数
+    正文；样式表写死 font-size 的标签由 font_px() 接管。"""
+    scale = _font_scale()
+    if scale == 1.0:
+        return
+    f = app.font()
+    f.setPointSizeF(f.pointSizeF() * scale)
+    app.setFont(f)
+
+
+def font_px(base: int) -> int:
+    """样式表字号换算：页面里写死的 font-size 一律用它现算，例：
+    setStyleSheet(f"font-size: {font_px(18)}px; ...")
+    页面构造发生在启动时，值与全局字体同刻同源。"""
+    return max(1, round(base * _font_scale()))
+
+# —— 运行日志按级别着色（consolePanel 消费）——
+# 与斑马纹同一哲学（踩坑 51）：颜色事实源收在本模块、按当前生效主题
+# 档位显式给色。深色套 = consolePanel 旧硬编码值（历史行为不变）；
+# 亮色套按白底对比度校准——info #d4d4d4 与 warn #f5a623 在白底几乎
+# 不可见（实测报障），各加深到可读档。
+_LOG_COLORS: dict[str, dict[str, str]] = {
+    "dark": {
+        "info": "#d4d4d4",   # 普通信息
+        "ok": "#46a758",     # 成功结论
+        "warn": "#f5a623",   # 警告
+        "error": "#e5484d",  # 错误
+        "ts": "#888888",     # 行首时间戳
+    },
+    "light": {
+        "info": "#555555",   # 深灰：白底清晰可读
+        "ok": "#2e7d32",     # 绿加深一档
+        "warn": "#b45309",   # 橙转赭，白底可读
+        "error": "#d13438",  # 红加深一档
+        "ts": "#767676",     # 时间戳中性灰
+    },
+}
+
+def log_colors() -> dict[str, str]:
+    """运行日志着色（键 = LogBus 四级别名 + "ts"）。QSS 未生效
+    （库缺席/应用失败）按深色套 = 历史默认行为；auto 档判定与
+    zebra_colors 同源（styleHints().colorScheme()）。"""
+    mode = _ACTIVE_MODE
+    if mode == "auto":
+        try:
+            from PySide6.QtCore import Qt
+            from PySide6.QtGui import QGuiApplication
+            scheme = QGuiApplication.styleHints().colorScheme()
+            mode = "dark" if scheme == Qt.ColorScheme.Dark else "light"
+        except Exception:
+            mode = "dark"
+    return _LOG_COLORS.get(mode or "dark", _LOG_COLORS["dark"])

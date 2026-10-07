@@ -42,7 +42,7 @@ def group_mods(mods):
     仅 downloaded）：
     - 本地没有确认版本（confirmed_version 空 = 未下载，或已下载但
       版本未知）→ "not_downloaded"（键保持英文，命令生成页组标题
-      显示"已收录"，与 mod 库页状态词同源）。版本未知的已下载条目
+      显示"待下载"，与 mod 库页状态词同源）。版本未知的已下载条目
       也落这组：没有版本锚就谈不上"落后"，勾选重下无害，且正是
       补版本的正当手段之一（右键设定本地版本也可以）
     - 远端比确认版本新（time_updated > confirmed_version）

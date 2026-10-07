@@ -120,7 +120,7 @@ def verify(
     numeric: dict[int, str] = {}   # 编号 → 目录名（保留原名，防前导零错位）
     non_numeric: list[str] = []
     for entry in root.iterdir():
-        if entry.is_dir() and entry.name.isdigit():
+        if entry.is_dir() and entry.name.isascii() and entry.name.isdigit():
             numeric[int(entry.name)] = entry.name
         else:
             # 非数字目录，以及 content 下不该出现的散文件——都进非数字桶
@@ -230,7 +230,7 @@ def verify_junctions(
     present: dict[int, Path] = {}   # 数字名条目 → 路径（保留原名防前导零）
     non_numeric: list[str] = []
     for entry in root.iterdir():
-        if entry.name.isdigit():
+        if entry.name.isascii() and entry.name.isdigit():
             present[int(entry.name)] = entry
         else:
             non_numeric.append(entry.name)

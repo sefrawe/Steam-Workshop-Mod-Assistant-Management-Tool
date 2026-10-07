@@ -42,7 +42,9 @@ from core.modRepository import BackupOverviewRow
 from core.models import Game
 from gui.logBus import LogBus
 from core.formatters import abs_time, fmt_size, status_zh
-from core.urlParser import WORKSHOP_URL_TEMPLATE
+from core.urlParser import workshop_url
+from gui.theme import font_px  # 字号单源（D25）
+from core import steamPaths  # 档案未设备份目录时的推导兜底
 
 # 与设置页核对过的真键名（与 backupPage 相同三件；改键名两处一起动）
 _KEY_KEEP_PER_MOD = "backup_keep_per_mod"
@@ -164,7 +166,7 @@ class BackupOverviewPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
         title = QLabel("备份总览", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         tip = QLabel(
@@ -410,8 +412,7 @@ class BackupOverviewPage(QWidget):
         url_item = QTableWidgetItem("↗")
         url_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         url_item.setForeground(QBrush(QColor("#5aa9ff")))  # 蓝字提示可点
-        url_item.setData(Qt.ItemDataRole.UserRole,
-                         WORKSHOP_URL_TEMPLATE.format(r.mod_id))
+        url_item.setData(Qt.ItemDataRole.UserRole, workshop_url(r.mod_id))
         url_item.setData(Qt.ItemDataRole.UserRole + 1, r.mod_id)
         url_item.setToolTip("点击在浏览器打开该 mod 的创意工坊页面")
         self._table.setItem(row, COL_URL, url_item)
@@ -712,10 +713,20 @@ class BackupOverviewPage(QWidget):
         g = self._games.get(rec.game_id)
         bdir_text = (g.backup_dir or "").strip() if g else ""
         if not bdir_text:
-            QMessageBox.information(
-                self, "打开所在文件夹",
-                f"{rec.game_name} 未设置备份目录。")
-            return
+            # 档案未设备份目录：按 steamcmd 位置推导兜底（只打开不写档案，
+            # 与备份页同一口径），推导不出再如实说明
+            derived = (steamPaths.backup_root_default(
+                self._settings.get("steamcmd_path"), rec.game_id)
+                       if g is not None else None)
+            if not derived:
+                QMessageBox.information(
+                    self, "打开所在文件夹",
+                    f"{rec.game_name} 未设置备份目录，且推导不出备份位置"
+                    "（steamcmd 未配置）。\n"
+                    "可在该档案的【编辑档案】里把备份目录填上。")
+                return
+            bdir_text = derived
+
         target = Path(bdir_text) / rec.backup_path
         folder = target if target.is_dir() else Path(bdir_text)
         if not folder.exists():

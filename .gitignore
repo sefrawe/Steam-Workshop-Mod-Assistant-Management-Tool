@@ -36,3 +36,5 @@ logs/
 /tools/probe_children.py
 /tools/probe_children_output.json
 
+/tools/one_shot_font_scale.py
+/pytest.ini

@@ -42,7 +42,18 @@ from gui.verifyPage import VerifyPage
 from gui.junctionCheckPage import JunctionCheckPage
 from gui.deletePage import DeletePage
 from gui.purgedPage import PurgedPage
-
+from gui.titleCheckPage import TitleCheckPage
+from gui.remoteHealthPage import RemoteHealthPage
+from gui.depCheckPage import DepCheckPage
+from gui.exceptionPage import ExceptionPage
+from gui.browserPickDialog import BrowserPickDialog
+from gui.dailyUpdatePage import DailyUpdatePage
+from gui.migrationPage import MigrationPage
+from gui.rescuePage import RescuePage
+from gui.uninstallPage import UninstallPage
+from gui.addModPage import AddModPage
+from gui.gameExitPage import GameExitPage
+from gui.quickCommandPage import QuickCommandPage
 from gui.welcomePage import PROJECT_URL, WelcomePage
 from PySide6.QtCore import QSettings, Qt, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
@@ -59,6 +70,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,QFileDialog,
 )
+from gui.browserTabPage import BrowserTabPage
+from gui.browserPickDialog import BrowserPickDialog
+
 
 from core import appPaths
 from core import constants
@@ -73,9 +87,10 @@ from gui.updateComparePage import UpdateComparePage
 from gui.commandGenPage import CommandGenPage
 from gui.statsPage import StatsPage
 from gui.settingsPage import SettingsPage
-from gui.importPage import ImportPage
+
 from gui.shareListPage import ShareListPage
 from gui.apiKeyPage import ApiKeyPage
+from gui.firstUsePage import FirstUsePage
 
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根单源（源码=项目根\data）
 _NAV_WIDTH = 210
@@ -98,24 +113,26 @@ _PAGE_TITLES: dict[int, str] = {
     constants.PAGE_GAME_EXIT: "游戏退场",
     constants.PAGE_UNINSTALL: "卸载与清理",
     constants.PAGE_COMMAND_GEN: "下载命令生成",
-    constants.PAGE_BATCH_OPEN: "批量下载",  # ※
+
     constants.PAGE_BACKUP: "备份与恢复",
     constants.PAGE_BACKUP_OVERVIEW: "备份总览",
-    constants.PAGE_TITLE_CHECK: "标题检测",  # ※
-    constants.PAGE_REMOTE_HEALTH: "远端健康",  # ※
-    constants.PAGE_DEP_CHECK: "依赖检测",  # ※
-    constants.PAGE_EXCEPTION: "异常处理",  # ※
+    constants.PAGE_TITLE_CHECK: "标题检测",
+    constants.PAGE_REMOTE_HEALTH: "远端健康",
+    constants.PAGE_DEP_CHECK: "依赖检测",
+    constants.PAGE_EXCEPTION: "异常处置",
     constants.PAGE_VERIFY: "账实核验",
-    constants.PAGE_JUNCTION_CHECK: "联接检测",  # ※
+    constants.PAGE_JUNCTION_CHECK: "联接检测",
     constants.PAGE_CLEANUP: "清理与删除",
     constants.PAGE_PURGED: "已清账管理",
-    constants.PAGE_IMPORT: "网址批量导入",
+
     constants.PAGE_MIGRATION: "换机迁移",
     constants.PAGE_RESCUE: "恢复旧版本",
     constants.PAGE_SHARE_LIST: "分享清单",
     constants.PAGE_STATS: "统计",
     constants.PAGE_API_KEY: "Steam API 密钥",
     constants.PAGE_SETTINGS: "设置",
+    constants.PAGE_QUICK_CMD: "快速命令查询",
+    constants.PAGE_BROWSER_TABS: "从浏览器取网址"
 }
 
 
@@ -134,21 +151,24 @@ _PAGE_TITLES: dict[int, str] = {
 # ============================================================
 _NAV_SCHEMA: list[tuple[str, int | list[int]]] = [
     ("欢迎", constants.PAGE_WELCOME),
-    ("工作台", [constants.PAGE_MOD_LIST, constants.PAGE_ACCOUNT_CENTER,
-                constants.PAGE_UPDATE_CHECK, constants.PAGE_UPDATE_COMPARE]),
-    ("下载与备份", [constants.PAGE_COMMAND_GEN, constants.PAGE_BATCH_OPEN,
+    # 分步向导升到第二位：新用户开荒路径（首次使用 → 加入 mod →
+    # 日常更新）是最高频的引导需求，不该沉底
+    ("分步向导", [constants.PAGE_FIRST_USE, constants.PAGE_ADD_MOD,
+                  constants.PAGE_DAILY_UPDATE, constants.PAGE_GAME_EXIT,
+                  constants.PAGE_MIGRATION, constants.PAGE_RESCUE,
+                  constants.PAGE_UNINSTALL]),
+    ("工作台", [constants.PAGE_MOD_LIST, constants.PAGE_ACCOUNT_CENTER, constants.PAGE_UPDATE_CHECK,
+                constants.PAGE_UPDATE_COMPARE, constants.PAGE_BROWSER_TABS]),
+
+    ("下载与备份", [constants.PAGE_COMMAND_GEN, constants.PAGE_QUICK_CMD,
                     constants.PAGE_BACKUP, constants.PAGE_BACKUP_OVERVIEW]),
+
     ("检测与异常", [constants.PAGE_TITLE_CHECK, constants.PAGE_REMOTE_HEALTH,
                     constants.PAGE_DEP_CHECK, constants.PAGE_EXCEPTION]),
     ("清理与账务", [constants.PAGE_VERIFY, constants.PAGE_JUNCTION_CHECK,
                     constants.PAGE_CLEANUP, constants.PAGE_PURGED]),
-    ("档案与工具", [constants.PAGE_IMPORT, constants.PAGE_SHARE_LIST,
-                    constants.PAGE_STATS, constants.PAGE_API_KEY,
-                    constants.PAGE_SETTINGS]),
-    ("分步向导", [constants.PAGE_ADD_MOD, constants.PAGE_DAILY_UPDATE,
-                  constants.PAGE_FIRST_USE, constants.PAGE_GAME_EXIT,
-                  constants.PAGE_UNINSTALL, constants.PAGE_MIGRATION,
-                  constants.PAGE_RESCUE]),
+    ("档案与工具", [constants.PAGE_SHARE_LIST, constants.PAGE_STATS,
+                    constants.PAGE_API_KEY, constants.PAGE_SETTINGS]),
 ]
 
 # 导航组改名对照（一次性迁移，只读不写）：折叠记忆按组名存盘，
@@ -164,7 +184,7 @@ def _check_nav() -> None:
     """建树前的结构自检（显式爆炸，别让漏登记流到运行期才发现）：
     ① 树里每个编号都认识（在 _PAGE_TITLES 里）；
     ② 没有重复登记；
-    ③ constants 的 29 页全部入树、无遗漏。"""
+    ③ constants 的 28 页全部入树、无遗漏。"""
     seen: list[int] = []
     for _name, spec in _NAV_SCHEMA:
         if isinstance(spec, int):
@@ -295,6 +315,8 @@ class MainWindow(QMainWindow):
                                       settings=self._settings,
                                       log=self._log)
         self._switcher.current_game_changed.connect(self._on_game_changed)
+        self._switcher.overview_requested.connect(self._on_switcher_overview)
+
         side_layout.addWidget(self._switcher)
 
         # 左下：导航树——按 _NAV_SCHEMA 生成，条目挂 constants.PAGE_*
@@ -358,6 +380,11 @@ class MainWindow(QMainWindow):
         # 触发它的菜单项——先接线，落点就绪，谁发谁到）
         if hasattr(modlib, "backup_requested"):
             modlib.backup_requested.connect(self._on_backup_requested)
+        # mod 库页右键「获取下载命令…」→ 命令生成页并聚焦（核验页/
+        # 异常页同一落点：跳页 + focus_ids，缺聚焦能力时只跳页）
+        if hasattr(modlib, "command_gen_requested"):
+            modlib.command_gen_requested.connect(self._on_verify_command_gen)
+
 
 
         # 启动默认落「欢迎」页（setCurrentItem 会触发 currentItemChanged，
@@ -412,6 +439,8 @@ class MainWindow(QMainWindow):
                 trigger_versions=triggers)
             if ok:
                 self._console.show_batch_tab()  # 受理即切到批次页看进度
+                self._forward_daily_updates(app_id, len(updated_ids), True)
+
             # start_batch False 时拒绝原因已进运行日志
             return
         # ——人工路：弹更新确认清单（备份轮点亮：⑳「备份并下载」
@@ -434,6 +463,8 @@ class MainWindow(QMainWindow):
         # 触发值暂存到清单关闭为止：分批执行时每批都带全量，
         # 控制器按本批编号取用（多余键无害）
         self._pending_triggers = dict(triggers)
+        self._forward_daily_updates(app_id, len(mods), False)
+
         dlg = UpdateSelectDialog(mods, app_id, parent=self)
         dlg.execute_requested.connect(self._on_update_execute_requested)
         dlg.finished.connect(self._on_update_dialog_finished)
@@ -442,6 +473,14 @@ class MainWindow(QMainWindow):
         self._log.info(
             f"检测到 {len(mods)} 个 mod 有新版本——更新确认清单已打开"
             "（勾选条目、选动作、点【执行选中】）")
+    def _forward_daily_updates(self, app_id: int, n: int, auto: bool) -> None:
+        """把「确有新版本」的结论同步给日常更新模块页的②卡。只在
+        两条路真正走得通时调用（见 _on_updates_found 里的两处调用点）；
+        hasattr 守卫：页面分支回退占位器时静默跳过。"""
+        daily = self._pages.get(constants.PAGE_DAILY_UPDATE)
+        forward = getattr(daily, "on_updates_found", None)
+        if callable(forward):
+            forward(app_id, n, auto)
 
     def _on_update_execute_requested(self, app_id: int, action: str,
                                      mod_ids: list[int]) -> None:
@@ -514,8 +553,13 @@ class MainWindow(QMainWindow):
             return UpdateComparePage(self._repo, parent=self._stack,
                                      log=self._log)
         if pid == constants.PAGE_COMMAND_GEN:
-            return CommandGenPage(self._repo, self._settings,
+            page = CommandGenPage(self._repo, self._settings,
                                   parent=self._stack, log=self._log)
+            # 「快速命令查询…」按钮 → 跳独立页（同组相邻，衔接自然）
+            page.quick_command_requested.connect(
+                lambda: self._goto_quick_cmd())
+            return page
+
         if pid == constants.PAGE_STATS:
             return StatsPage(self._repo, parent=self._stack)
         if pid == constants.PAGE_SETTINGS:
@@ -526,24 +570,28 @@ class MainWindow(QMainWindow):
             page.command_gen_requested.connect(self._on_verify_command_gen)
             return page
         if pid == constants.PAGE_JUNCTION_CHECK:
-            return JunctionCheckPage(self._repo, self._settings,
-                                     parent=self._stack, log=self._log)
+            page = JunctionCheckPage(self._repo, self._settings, parent=self._stack, log=self._log)
+            # 联接检测写完档案后，档案切换器手里的档案信息还停在写库前
+            # ——不同步的话，"编辑档案"等从它取值的窗口会一直显示旧值，
+            # 直到重启。这里接住通知，让切换器悄悄重读一次（不发全页
+            # 广播：广播会清空检测页刚出的绿勾结论，体验反而变差）。
+            page.game_dir_written.connect(
+                lambda _app_id: self._switcher.reload(broadcast=False))
+            return page
+
         if pid == constants.PAGE_CLEANUP:
             page = DeletePage(self._repo, self._settings,
                               parent=self._stack, log=self._log)
             page.goto_account_center_requested.connect(
                 lambda: self._goto_page(constants.PAGE_ACCOUNT_CENTER))
-            page.goto_import_requested.connect(
-                lambda: self._goto_page(constants.PAGE_IMPORT))
+
+
             page.ledger_changed.connect(self._on_cleanup_ledger_changed)
             return page
         if pid == constants.PAGE_PURGED:
             return PurgedPage(self._repo, parent=self._stack,
                               log=self._log, settings=self._settings)
-        if pid == constants.PAGE_IMPORT:
-            page = ImportPage(self._repo, parent=self._stack, log=self._log)
-            page.imported.connect(self._on_import_page_imported)
-            return page
+
         if pid == constants.PAGE_SHARE_LIST:
             page = ShareListPage(self._repo, self._settings,
                                  parent=self._stack, log=self._log)
@@ -555,6 +603,123 @@ class MainWindow(QMainWindow):
         if pid == constants.PAGE_API_KEY:
             return ApiKeyPage(self._settings, parent=self._stack,
                               log=self._log)
+        if pid == constants.PAGE_TITLE_CHECK:
+            return TitleCheckPage(self._repo, self._settings,
+                                  parent=self._stack, log=self._log)
+        if pid == constants.PAGE_REMOTE_HEALTH:
+            return RemoteHealthPage(self._repo, self._settings,
+                                    parent=self._stack, log=self._log)
+        if pid == constants.PAGE_DEP_CHECK:
+            return DepCheckPage(self._repo, self._settings,
+                                parent=self._stack, log=self._log)
+        if pid == constants.PAGE_EXCEPTION:
+            page = ExceptionPage(self._repo, self._settings,
+                                 parent=self._stack, log=self._log)
+            # 与核验页同一个跳命令页落点（切页 + 只勾这些）
+            page.command_gen_requested.connect(self._on_verify_command_gen)
+            return page
+
+        if pid == constants.PAGE_DAILY_UPDATE:
+            # 日常更新页装配：检测页的三条信号直连进来（本页是第二块
+            # 表盘，不复制检测逻辑）；开始检测按钮转主窗口落点。
+            # 检测页编号(3)小于本页(6)，循环装到本页时它必已在 _pages
+            page = DailyUpdatePage(self._repo, self._settings,
+                                   parent=self._stack, log=self._log)
+            check_page = self._pages.get(constants.PAGE_UPDATE_CHECK)
+            if hasattr(check_page, "progress_changed"):
+                check_page.progress_changed.connect(page.on_check_progress)
+            if hasattr(check_page, "check_interrupted"):
+                check_page.check_interrupted.connect(page.on_check_interrupted)
+            if hasattr(check_page, "checks_finished"):
+                check_page.checks_finished.connect(page.on_check_done)
+            page.check_requested.connect(self._on_daily_check_requested)
+            return page
+        if pid == constants.PAGE_MIGRATION:
+            # 换机迁移页：七个转调信号逐一落位——①②转既有导出/导入，
+            # ③⑥a 跳页，④⑥b 转档案切换器的对话框，⑦转入账中心盘点
+            page = MigrationPage(self._repo, self._settings,
+                                 parent=self._stack, log=self._log)
+            page.export_requested.connect(self._export_ledger)
+            page.import_requested.connect(self._import_ledger)
+            page.open_settings_requested.connect(
+                lambda: self._goto_page(constants.PAGE_SETTINGS))
+            page.open_edit_requested.connect(self._switcher.open_edit)
+            # 与「游戏」菜单的连接指引同一落点：联接检测页接管
+            page.open_link_requested.connect(
+                lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
+            page.open_relocate_requested.connect(self._switcher.open_relocate)
+            page.rescan_requested.connect(self._on_module_rescan_requested)
+            return page
+        if pid == constants.PAGE_RESCUE:
+            # 恢复旧版本页：②跳备份页；③转接入账中心盘点认领
+            page = RescuePage(self._repo, self._settings,
+                              parent=self._stack, log=self._log)
+            page.go_backup_requested.connect(
+                lambda: self._goto_page(constants.PAGE_BACKUP))
+            page.rescan_requested.connect(self._on_module_rescan_requested)
+            return page
+        if pid == constants.PAGE_UNINSTALL:
+            # 卸载与清理页：三卡页内自理（盘点/会话/注册表都是只读），
+            # 开软件目录转主窗口既有落点（与文件菜单同一入口）
+            page = UninstallPage(self._repo, self._settings,
+                                 parent=self._stack, log=self._log)
+            page.open_software_dir_requested.connect(self._open_software_dir)
+            return page
+        if pid == constants.PAGE_ADD_MOD:
+            # 加入新 mod 页：开批下载转批次控制器（与 mod 库页
+            # 【下载选中项】同一落点）；解析/入库/命令/盘点全在
+            # 页内调引擎，主窗口只接这一条跨页信号
+            page = AddModPage(self._repo, self._settings,
+                              parent=self._stack, log=self._log)
+            page.download_requested.connect(self._on_download_requested)
+            page.quick_command_requested.connect(self._goto_quick_cmd)
+            page.open_browser_picker.connect(self._on_open_browser_picker)
+
+            return page
+        if pid == constants.PAGE_GAME_EXIT:
+            # 游戏退场页：四个转调信号落位——①两条导出、②备份总览
+            # 按档案过滤跳页（删除对话框同一落点）、⑤删除档案对话框
+            # （「游戏」菜单同一份）。refresh/shutdown 由既有钩子
+            # 循环自动发现，零接线
+            page = GameExitPage(self._repo, self._settings,
+                                parent=self._stack, log=self._log)
+            page.share_out_requested.connect(self._export_sharepack)
+            page.ledger_export_requested.connect(self._export_ledger)
+            page.overview_requested.connect(self._on_switcher_overview)
+            page.delete_archive_requested.connect(self._switcher.open_delete)
+            return page
+        if pid == constants.PAGE_FIRST_USE:
+            # 首次使用向导：三个转调信号落位——设置页跳转、建档对话框
+            # （与左上角「＋添加」同一份）、联接检测页（V2 落点：原连接
+            # 指引对话框退役，与「游戏」菜单连接指引同一跳页落点）。
+            # refresh 由进页钩子自动发现，零额外接线
+            page = FirstUsePage(self._repo, self._settings,
+                                parent=self._stack, log=self._log)
+            page.settings_requested.connect(
+                lambda: self._goto_page(constants.PAGE_SETTINGS))
+            page.add_game_requested.connect(self._switcher.add_game_dialog)
+            page.link_guide_requested.connect(
+                lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
+            # ⑤ 步三跳（录入已有 mod 文件链）：认领 / 设基准 / 首轮检测
+            page.goto_account_center.connect(
+                lambda: self._goto_page(constants.PAGE_ACCOUNT_CENTER))
+            page.goto_mod_list.connect(
+                lambda: self._goto_page(constants.PAGE_MOD_LIST))
+            page.goto_daily_update.connect(
+                lambda: self._goto_page(constants.PAGE_DAILY_UPDATE))
+            return page
+
+        if pid == constants.PAGE_BROWSER_TABS:
+            page = BrowserTabPage(parent=self._stack, log=self._log)
+            # 独立页【送到「加入新 mod」】：清单交模块②自动填入并
+            # 解析预览，随即跳页（模块②的页内选择器入口按 V2 原计划
+            # "采集器迁入后恢复"，见改善项池，本轮不接）
+            page.handoff_to_addmod.connect(self._on_browser_handoff)
+            return page
+
+        if pid == constants.PAGE_QUICK_CMD:
+            return QuickCommandPage(self._repo, self._settings,
+                                    parent=self._stack, log=self._log)
 
         return PlaceholderPage(_PAGE_TITLES[pid], pid)
 
@@ -625,13 +790,37 @@ class MainWindow(QMainWindow):
             "位置推导并可预览")
         act_add_game.triggered.connect(self._switcher.add_game_dialog)
         m_game.addAction(act_add_game)
-        act_link_guide = QAction("连接指引…", self)
-        act_link_guide.setToolTip(
-            "打开「联接检测」页：判定游戏 mod 目录与下载目录的联接状态，"
-            "按步骤接通（原连接指引对话框的页面版，能力一致）")
-        act_link_guide.triggered.connect(
-            lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
-        m_game.addAction(act_link_guide)
+        # act_link_guide = QAction("连接指引…", self)
+        # act_link_guide.setToolTip(
+        #     "打开「联接检测」页：判定游戏 mod 目录与下载目录的联接状态，"
+        #     "按步骤接通（原连接指引对话框的页面版，能力一致）")
+        # act_link_guide.triggered.connect(
+        #     lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
+        # m_game.addAction(act_link_guide)
+        act_edit_game = QAction("编辑档案…", self)
+        act_edit_game.setToolTip(
+            "编辑当前游戏档案（如显示名称）——保存成功后下拉框与"
+            "各页同步更新")
+        act_edit_game.triggered.connect(self._switcher.open_edit)
+        m_game.addAction(act_edit_game)
+        self._act_game_edit = act_edit_game
+
+        act_relocate = QAction("备份目录重定位…", self)
+        act_relocate.setToolTip(
+            "备份文件夹被搬动/改名后，把当前档案的备份目录指针指回"
+            "文件真正所在的位置——先预演命中率，确认后才写库"
+            "（只改档案的备份目录一个字段，逐条备份记录零改动）")
+        act_relocate.triggered.connect(self._switcher.open_relocate)
+        m_game.addAction(act_relocate)
+        self._act_game_relocate = act_relocate
+
+        act_del_game = QAction("删除档案…", self)
+        act_del_game.setToolTip(
+            "删除当前游戏档案：先盘点名下账目，确认后自动做数据库"
+            "快照兜底、一个事务清账；磁盘备份目录按勾选处理（默认保留）")
+        act_del_game.triggered.connect(self._switcher.open_delete)
+        m_game.addAction(act_del_game)
+        self._act_game_delete = act_del_game
 
         # —— 顶级动作「高级筛选(&S)」：不挂菜单、点字即开（拍板记录：
         # 主打随时搜索——人在任何页都能拉开就查）。Alt+S 或
@@ -750,6 +939,74 @@ class MainWindow(QMainWindow):
         opener = getattr(page, "open_advanced_search", None)
         if callable(opener):
             opener()
+    def _on_daily_check_requested(self) -> None:
+        """日常更新页【开始检测】的落点：转调更新检测页的后台检测
+        （不跳页——检测页的三条信号已直连日常页，过程两页同见）。
+        start_check 返回非空串 = 未受理（拒绝原因），返回空串 = 已
+        受理——让日常页进度条先进忙态。hasattr 守卫：检测页分支万一
+        回退占位器，只日志说一声，不炸。"""
+        page = self._pages.get(constants.PAGE_UPDATE_CHECK)
+        fn = getattr(page, "start_check", None)
+        if not callable(fn):
+            self._log.warn("更新检测页尚未就绪，无法开始检测")
+            return
+        reason = fn()
+        if reason:
+            self._log.warn(f"更新检测未开始：{reason}")
+            return
+        daily = self._pages.get(constants.PAGE_DAILY_UPDATE)
+        started = getattr(daily, "on_check_started", None)
+        if callable(started):
+            started()
+
+    def _on_module_rescan_requested(self) -> None:
+        """模块页「盘点确认」（换机迁移⑦、恢复旧版本③）的落点：
+        判决制下本地状态的对账唯一正门是入账中心的【扫描游戏目录】
+        ——跳转过去并代点一次。页面缺该入口（理论不可达）时降级为
+        只跳页，绝不炸。"""
+        page = self._pages.get(constants.PAGE_ACCOUNT_CENTER)
+        fn = getattr(page, "start_inventory_scan", None)
+        self._goto_page(constants.PAGE_ACCOUNT_CENTER)
+        if callable(fn):
+            fn()
+        else:
+            self._log.info("请在本页点【扫描游戏目录】完成盘点确认")
+    def _on_browser_handoff(self, urls: list) -> None:
+        """独立页【送到「加入新 mod」】：清单交模块②的
+        receive_external_lines（自动填入并解析预览），随即跳页。"""
+        page = self._pages.get(constants.PAGE_ADD_MOD)
+        receiver = getattr(page, "receive_external_lines", None)
+        if not callable(receiver):
+            self._log.warn("加入新 mod 页未就绪，网址未送出——可在"
+                           "原页复制网址后到【入账中心 · 登记】")
+            return
+        receiver(urls)
+        self._goto_page(constants.PAGE_ADD_MOD)
+
+    def _on_open_browser_picker(self) -> None:
+        """模块②【从浏览器取标签页…】的落点：弹页内选择器（内嵌
+        同一个 BrowserTabPage，零复制）。勾选送回 = receive_external_
+        lines 自动填入并解析预览，对话框即关——人本来就在模块②，
+        全程无跳页（独立页的跳页方案与之并存，两条入口同一份代码）。"""
+        page = self._pages.get(constants.PAGE_ADD_MOD)
+        receiver = getattr(page, "receive_external_lines", None)
+        if not callable(receiver):
+            self._log.warn("加入新 mod 页未就绪，浏览器选择器未打开")
+            return
+        dlg = BrowserPickDialog(self, log=self._log)
+        dlg.lines_picked.connect(receiver)
+        dlg.exec()
+
+    def _goto_quick_cmd(self, text: str = "") -> None:
+        """跳到【快速命令查询】页，可选预填输入框（命令生成页按钮、
+        加入新 mod 页【核验命令可行性…】的统一落点）。文本只填不跑
+        ——查询仍由用户亲手点（与对话框时代的防呆一致）。"""
+        self._goto_page(constants.PAGE_QUICK_CMD)
+        page = self._pages.get(constants.PAGE_QUICK_CMD)
+        setter = getattr(page, "set_input_text", None)
+        if callable(setter) and text:
+            setter(text)
+
     def _on_verify_command_gen(self, mod_ids: list[int]) -> None:
         """核验页修复三选「重新下载」：跳命令生成页并聚焦勾选。
         命令生成页没有 focus_ids 能力时只跳页不聚焦，绝不炸。"""
@@ -769,6 +1026,15 @@ class MainWindow(QMainWindow):
         setter = getattr(page, "set_game", None)
         if callable(setter):
             setter(self._current_game)
+    def _on_switcher_overview(self, app_id: int) -> None:
+        """删除对话框「先去备份总览看看」的落点：先按档案设过滤再
+        跳页——进页 refresh 钩子按新过滤刷新；总览页没有
+        set_filter_game 时只跳页（hasattr 自适应，与广播循环同哲学）。"""
+        page = self._pages.get(constants.PAGE_BACKUP_OVERVIEW)
+        setter = getattr(page, "set_filter_game", None)
+        if callable(setter):
+            setter(app_id)
+        self._goto_page(constants.PAGE_BACKUP_OVERVIEW)
 
     def _toggle_detail(self, visible: bool) -> None:
         """视图菜单「详情面板」开关落点：面板是 mod 库页 splitter 的
@@ -806,6 +1072,10 @@ class MainWindow(QMainWindow):
 
         self._act_open_download.setEnabled(
             game is not None and bool(game.download_dir))
+        self._act_game_edit.setEnabled(game is not None)
+        self._act_game_relocate.setEnabled(game is not None)
+        self._act_game_delete.setEnabled(game is not None)
+
         # 收尾确认清单跟着档案走：切档案即关（非模态三件套之二）。
         # 待确认队列按档案过滤，新档案的清单由下一次批次收尾再弹
         if self._confirm_dialog is not None:
@@ -828,18 +1098,11 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self, title, str(appPaths.data_dir()), "JSON 文件 (*.json)")
         return path or None
-
     def _refresh_switcher_after_import(self) -> None:
-        """账本/分享包导入后的档案下拉刷新：reload 是档案切换器的方法，
-        该轮尚未搬迁——hasattr 守卫，没有就手动重广播一次当前选择，
-        让各页把内存里的旧账重读成导入后的新账（并提示下拉要重启才全）。"""
-        reload_sw = getattr(self._switcher, "reload", None)
-        if callable(reload_sw):
-            reload_sw()
-            return
-        self._on_game_changed(self._switcher.current_game())
-        self._log.info("提示：左上角档案下拉要重启后才显示新导入的档案"
-                       "（档案切换器的 reload 尚未搬迁）")
+        """账本/分享包导入后的档案下拉刷新：档案切换器重读 games 表
+        （当前选择尽量保持；当前档案没了就落到剩余第一项并广播，
+        各页自动重读导入后的新账）。"""
+        self._switcher.reload()
 
     def _export_ledger(self) -> None:
         """文件 → 导出完整账本…：8 张表全量 → JSON。先在内存构建
@@ -953,16 +1216,6 @@ class MainWindow(QMainWindow):
             "点【扫描游戏目录】摆成待认领、确认补版本）"
             + ("；在左上角下拉切换到该游戏查看" if elsewhere else ""),
             8000)
-
-    def _on_import_page_imported(self, count: int) -> None:
-        """导入页 imported(int) 的落点：跳 mod 库页并强制重读（V1
-        _on_imported 同款），状态栏报数。"""
-        self._goto_page(constants.PAGE_MOD_LIST)
-        page = self._pages.get(constants.PAGE_MOD_LIST)
-        setter = getattr(page, "set_game", None)
-        if callable(setter):
-            setter(self._current_game)
-        self.statusBar().showMessage(f"已导入 {count} 个 mod", 5000)
 
 
     def _open_download_dir(self) -> None:

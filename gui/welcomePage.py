@@ -9,8 +9,8 @@ gui/welcomePage.py · 启动默认页：项目门面 + 说明书。
 1. 全文不出现 acf——那是 steamcmd 自己的内部记账文件，本工具的
    本地版本判定已经不用它，用户也不需要知道它存在。下载成败一律
    说"终端输出"；盘上有、账上没有的东西一律说"入账中心的待认领"。
-2. 本地版本只准描述成"你确认过的版本"：写进账本只有两条路——
-   批次收尾的确认清单勾选、mod 库页右键「设定本地版本」。
+2. 本地版本只准描述成"你确认过的版本"：写进账本只有人点头的三条路——批次收尾的确认清单勾选、【入账中心】待认领区认领、mod 库页右键「设定本地版本」——
+   
    任何句子都不许暗示有自动流程会替用户写本地版本。
 """
 
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import appPaths
+from gui.theme import font_px  # 字号单源（D25）
 
 # ---- 本文件的两个"身份证"常量 ----
 # 项目主页地址唯一定义点：主窗口「关于」对话框 import 这一份用。
@@ -106,7 +107,7 @@ class WelcomePage(QWidget):
         text.setSpacing(2)
 
         title = QLabel("Steam 创意工坊 Mod 辅助管理工具", head)
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(20)}px; font-weight: 600;")
         text.addWidget(title)
 
         # 版本号读全局（main.py setApplicationVersion 设定，当前 2.0.0）。
@@ -114,7 +115,7 @@ class WelcomePage(QWidget):
         ver = QApplication.applicationVersion()
         if ver:
             ver_label = QLabel(f"版本 {ver}", head)
-            ver_label.setStyleSheet("font-size: 12px;")
+            ver_label.setStyleSheet(f"font-size: {font_px(12)}px;")
             text.addWidget(ver_label)
 
         slogan = QLabel(
@@ -166,16 +167,18 @@ class WelcomePage(QWidget):
             " ② 终端里请使用英文命令，避免输入中文；",
             " ③ 与这台 steamcmd 共用的其他前端（如 RimSort）下载的 mod "
             "不会自动入账：它们会出现在【入账中心】的「待认领」区"
-            "（批次结束会自动盘点，平时也可以随时点「盘点本地」），你"
+            "（批次结束会自动盘点，平时也可以随时点「扫描游戏目录」），你"
             "看过、点头之后才算数。",
         ])
 
         self._section("两本账（版本时间从哪来）", [
             "远端版本 —— 来自 Steam 官方接口的「最新更新时间」，只有点过"
             "【更新检测】才会写进账本；",
-            "本地版本 —— 你亲手确认过的版本：批次收尾的确认清单里勾选，"
-            "或在 mod 库页右键「设定本地版本」。除这两条路，账本里的本地"
-            "版本不会被任何自动流程改写——机器不替你做主。",
+            "本地版本 —— 你亲手确认过的版本：批次收尾的确认清单里勾选、"
+            "【入账中心】待认领区认领、或 mod 库页右键「设定本地版本」。"
+            "除这三条路，账本里的本地版本不会被任何自动流程改写——机器"
+            "不替你做主。",
+
             "「需更新」= 远端更新时间比本地确认版本新。刚登记还没下载的"
             "条目不参与比较；刚下载还没确认的条目本地版本显示「未知」——"
             "去【入账中心】确认一下就好。",
@@ -270,7 +273,7 @@ class WelcomePage(QWidget):
             "中间四组按名字找：下载与备份（下载命令生成、批量下载、"
             "备份与恢复、备份总览）、检测与异常（标题检测、远端健康、"
             "依赖检测、异常处理）、清理与账务（账实核验、联接检测、"
-            "清理与删除、已清账管理）、档案与工具（网址批量导入、"
+            "清理与删除、已清账管理）、档案与工具（"
             "分享清单、统计、Steam API 密钥、设置）。",
             "最底一组「分步向导」：收的是复杂功能的实操，全程跟着"
             "步骤卡走——加入新 mod、日常更新、首次使用、游戏退场、"
@@ -301,8 +304,8 @@ class WelcomePage(QWidget):
             "版本未知 下载过但没拿到可靠版本号的条目。能正常确认入账，"
             "但在确认出版本之前，不能给它做备份。",
             "连接 一条 Windows 目录联接（junction），把 steamcmd 的下载"
-            "目录接到游戏读取 mod 的目录——下载完游戏就能看到。详见"
-            "「游戏」菜单 → 连接指引。",
+            "目录接到游戏读取 mod 的目录——下载完游戏就能看到。详见左侧导航「清理与账务」组的「联接检测」页。"
+            
             "备份 更新 mod 之前，先把硬盘上的旧版本完整复制一份存起来；"
             "万一新版本有问题，随时恢复回旧版。备份名带它当时确认的版本"
             "号。在「备份与恢复」页管理，可设置保留份数与总容量上限。",
@@ -334,12 +337,12 @@ class WelcomePage(QWidget):
         ])
 
         self._section("第一次用？走「首次使用」向导", [
-            "左侧导航 → 分别向导 → 首次使用：四张步骤卡，可跳步、可重入，"
+            "左侧导航 → 分步向导 → 首次使用：四张步骤卡，可跳步、可重入，"
             "缺哪步走哪步，重复做不会有副作用：",
             " ① 定位 steamcmd —— 「设置」页填 steamcmd 程序路径（Valve "
             "官方下载，放进纯英文路径的空文件夹）；",
             " ② 建立游戏档案 —— 填游戏 AppID 即建档，下载目录自动推导；",
-            " ③ 接通游戏读取目录 —— 连接指引生成 junction 命令，复制到 "
+            " ③ 接通游戏读取目录 —— 「联接检测」页判定连接状态、给出 junction 命令，复制到 "
             "cmd 里执行；",
             " ④ 纳入客户端已有的 mod —— 早就用 Steam 客户端订阅了一堆 "
             "mod？指认客户端库目录，向导读取订阅记录对表入账（只补缺、"
@@ -386,7 +389,7 @@ class WelcomePage(QWidget):
         靠这里拉开层级）。空字符串行会塌成 0 高，所以空行一律传
         一个空格 " "。"""
         head = QLabel(title, self)
-        head.setStyleSheet("font-size: 15px; font-weight: 600;")
+        head.setStyleSheet(f"font-size: {font_px(15)}px; font-weight: 600;")
         head.setContentsMargins(0, 12, 0, 2)
         self._body.addWidget(head)
         for text in lines:

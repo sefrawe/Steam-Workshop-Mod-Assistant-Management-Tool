@@ -14,8 +14,7 @@ PyQt6 / PySide6 混装会在运行期崩溃——本文件因此不留任何 PyQ
 注入函数——本文件不 import steamPaths，推导逻辑留在 core，对话框只
 显示结果。落账走契约 add_game(app_id, name, download_dir, …)，其中
 download_dir 必填：由 derive_dir 现场推导；推导不出（steamcmd 未配置）
-就存空串——steamcmd 配好后首次扫描会经 steamPaths.refresh_download_dir
-自动回填，建档不被卡住。
+就存空串——steamcmd 配好后之后到【编辑档案】补上（打开时会自动选中"改为推导值"，点保存即落），建档不被卡住。
 
 查名结果的三档语义（实测约定，调用方必须区分对待，绝不混同）：
 - name=str：查到了；
@@ -74,13 +73,19 @@ class GameAddDialog(QDialog):
     created_app_id：落账成功时记录新档案的 AppID，供调用方（切换器）
     在对话框关闭后选中新档案；用户取消时保持 None。"""
 
-    def __init__(self, repo: ModRepository, api: SteamApiClient,
-                 derive_dir: Callable[[int], str | None],
-                 parent=None) -> None:
+    def __init__(self, repo: ModRepository, api: SteamApiClient, derive_dir: Callable[[int], str | None], parent=None,
+                 *, derive_backup_dir: Callable[[int], str | None] | None = None) -> None:
         super().__init__(parent)
         self._repo = repo
         self._api = api
         self._derive_dir = derive_dir
+        # 备份目录推导注入（可选）。做成可选的原因：老接线不传它也照常
+        # 工作（缺省 None = 建档不预填，维持旧行为，绝不炸）。
+        # 传入后，steamcmd 已配置时建档当场把备份目录一并落库——档案
+        # 从出生起目录三件套齐全，不再出现"备份页有记录却解析不了
+        # 位置"的空指针档案。
+        self._derive_backup_dir = derive_backup_dir
+
         self._thread: _NameQueryThread | None = None
         self._app_free = False  # 最近一次查重的结论：该 AppID 无档案
         self.created_app_id: int | None = None  # 落账成功时记录
@@ -123,16 +128,21 @@ class GameAddDialog(QDialog):
         # 目录文本可选中复制，用户能直接拿去核对
         self._lbl_dir.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
-
+        # 备份目录预览：建档前就能看到备份将来会存到哪。
+        # 没注入推导函数时整行留空不占视觉（界面与旧版一致）
+        self._lbl_bk = QLabel("")
+        self._lbl_bk.setWordWrap(True)
+        self._lbl_bk.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
         self._lbl_hint = QLabel("请输入 AppID（纯数字）")
         self._lbl_hint.setWordWrap(True)
-
         lay = QVBoxLayout(self)
         lay.addLayout(row1)
         lay.addLayout(row2)
         lay.addWidget(QLabel("下载目录（按 steamcmd 位置自动推导，无需手填；"
                              "之后 steamcmd 挪位，扫描时会自动跟着更新）："))
         lay.addWidget(self._lbl_dir)
+        lay.addWidget(self._lbl_bk)
         lay.addWidget(self._lbl_hint)
         lay.addWidget(self._buttons)
 
@@ -146,13 +156,14 @@ class GameAddDialog(QDialog):
 
     def _on_appid_changed(self, text: str) -> None:
         # QIntValidator 只拦非数字；"0" 这类仍要转成数值判
-        app_id = int(text) if text.isdigit() else 0
+        app_id = int(text) if (text.isascii() and text.isdigit()) else 0
         if app_id <= 0:
             self._app_free = False
             self._lbl_hint.setText("请输入 AppID（纯数字）")
             self._edit_name.setEnabled(False)
             self._btn_lookup.setEnabled(False)
             self._lbl_dir.setText("—")
+            self._lbl_bk.setText("")
             self._sync_ok()
             return
         # 查重：已有档案就直说，不让用户走完流程才发现撞车
@@ -164,6 +175,7 @@ class GameAddDialog(QDialog):
                 f"该 AppID 已有档案：{exists.name}，无需创建")
             self._edit_name.setEnabled(False)
             self._btn_lookup.setEnabled(False)
+            self._lbl_bk.setText("")
             self._sync_ok()
             return
         self._app_free = True
@@ -172,22 +184,36 @@ class GameAddDialog(QDialog):
         self._lbl_hint.setText("就绪。名字可自动查，也可手动输入")
         self._refresh_dir_preview(app_id)
         self._sync_ok()
-
     def _refresh_dir_preview(self, app_id: int) -> None:
         # 推导不出（steamcmd 未配置）≠ 出错：如实说明、不拦建档，
-        # steamcmd 配好后首次扫描会自动回填（refresh_download_dir）
+        # 空值档案之后到【编辑档案】点保存补上推导值
         try:
             path = self._derive_dir(app_id)
         except Exception as exc:
             self._lbl_dir.setText(f"（推导失败：{exc}）")
             self._lbl_dir.setToolTip("")
-            return
+            path = None
         if path:
             self._lbl_dir.setText(path)
             self._lbl_dir.setToolTip(path)
         else:
             self._lbl_dir.setText("（暂无法推导：设置页还没配 steamcmd 程序）")
             self._lbl_dir.setToolTip("")
+        # 备份目录预览（与下载目录同一次 AppID 变动一起刷新）：
+        # 有注入才显示；推导不出就明说，不拦建档。
+        # 早退分支也必须刷到它——否则换 AppID 会残留上一条的旧值
+        if self._derive_backup_dir is None:
+            self._lbl_bk.setText("")
+            return
+        try:
+            bk = self._derive_backup_dir(app_id)
+        except Exception as exc:
+            self._lbl_bk.setText(f"备份目录（推导失败：{exc}）")
+            return
+        if bk:
+            self._lbl_bk.setText(f"备份目录（建档时一并写入）：{bk}")
+        else:
+            self._lbl_bk.setText("备份目录：暂无法推导（设置页还没配 steamcmd）")
 
     def _sync_ok(self) -> None:
         """可建档 = AppID 有效且无档案 + 名字已备好，两者同时成立。"""
@@ -200,7 +226,7 @@ class GameAddDialog(QDialog):
         if self._thread is not None and self._thread.isRunning():
             return  # 上一发还在路上（按钮此时应为灰，双保险）
         text = self._edit_appid.text().strip()
-        if not text.isdigit():
+        if not (text.isascii() and text.isdigit()):
             return
         self._thread = _NameQueryThread(self._api, int(text), self)
         self._thread.done.connect(self._on_name_done)
@@ -247,11 +273,19 @@ class GameAddDialog(QDialog):
         app_id = int(self._edit_appid.text().strip())
         name = self._edit_name.text().strip()
         # 契约：add_game(app_id, name, download_dir, …) —— download_dir
-        # 必填。推导不出就存空串：账先立起来，steamcmd 配好后首次扫描
+        # 必填。推导不出就存空串：账先立起来，空值档案之后到【编辑档案】点保存补上推导值
         # 自动回填
         download_dir = self._derive_dir(app_id) or ""
+        # 备份目录：接线注入了推导函数且推导得出 → 建档当场预填落库。
+        # 推导不出（steamcmd 未配置）→ 存 NULL 与旧行为一致，之后在
+        # 【编辑档案】用「改为推导值」按钮补上。
+        backup_dir = None
+        if self._derive_backup_dir is not None:
+            backup_dir = self._derive_backup_dir(app_id) or None
         try:
-            self._repo.add_game(app_id, name, download_dir)
+            self._repo.add_game(app_id, name, download_dir,
+                                backup_dir=backup_dir)
+
         except Exception as exc:
             # 极小概率的竞态（查重通过后同号被建）或其他账本层拒绝：
             # 显示原因、对话框不关，用户可改完再试——错误显式爆炸，

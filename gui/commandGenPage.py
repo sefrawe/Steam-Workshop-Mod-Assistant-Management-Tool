@@ -7,7 +7,7 @@ r"""gui/commandGenPage.py · 把当前游戏勾选的 mod 拼成 steamcmd 下载
 1) 游戏信息行：当前档案 + "重新载入" + "快速命令查询…"（若启用）；
 2) 用法提示行：三步说明 + "复制登录命令"按钮（内容来自设置页，
    原样复制）；
-3) 三组可折叠分区（需要更新 / 已收录 / 已最新）+ 页内筛选框，
+3) 三组可折叠分区（需要更新 / 待下载 / 已最新）+ 页内筛选框，
    分区标题常显"勾 x / 共 n"，收起也看得到这组勾了多少；
 4) 底部：只读预览框（实时显示将要复制的内容）+ 统计 +
    复制 / 另存按钮。
@@ -20,7 +20,7 @@ r"""gui/commandGenPage.py · 把当前游戏勾选的 mod 拼成 steamcmd 下载
 
 分组口径与 core/commandBuilder.group_mods 同一把尺（确认版本制）：
 - 需要更新 = 已下载且远端 time_updated > confirmed_version；
-- 已收录 = 没有确认版本的条目——未下载的正常排队，以及已下载
+- 待下载 = 没有确认版本的条目——未下载的正常排队，以及已下载
   但版本未知的（重下无害，正好补版本）；
 - 已最新 = 其余。
 
@@ -38,7 +38,7 @@ expand_changed(bool) 用法不变。
 
 【合同不变】set_game(game)（None 受理）；focus_ids(mod_ids)（右键
 跳转，取消全部只勾传入，含勾选的分区自动摊开）；勾选收集顺序
-（需要更新 → 已收录 → 已最新，组内按编号）；分组、拼命令全在
+（需要更新 → 待下载 → 已最新，组内按编号）；分组、拼命令全在
 core/commandBuilder.py（纯函数）；只读 ModRepository，GUI 层零 SQL；
 复制/另存向 operations_log 记完整命令原文 result="generated"；
 另存 txt 默认存系统"文档"目录——别把命令文件混进 content 目录
@@ -50,7 +50,8 @@ core/commandBuilder.py（纯函数）；只读 ModRepository，GUI 层零 SQL；
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths, QUrl
+from PySide6.QtCore import QStandardPaths, Qt, QUrl, Signal
+
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -70,6 +71,7 @@ from PySide6.QtWidgets import (
 from core.commandBuilder import build_copy_text, group_mods
 from gui.collapsibleSection import CollapsibleSection
 from gui.logBus import LogBus
+from gui.theme import font_px  # 字号单源（D25）
 
 # 组键 not_downloaded 与 core/commandBuilder.group_mods 的返回键一致，别改；
 # 界面标题"已收录"与 mod 库页状态词同源。语义 = 没有确认版本的
@@ -77,7 +79,7 @@ from gui.logBus import LogBus
 
 _GROUP_ORDER = [
     ("needs_update", "需要更新"),
-    ("not_downloaded", "已收录"),
+    ("not_downloaded", "待下载"),
     ("up_to_date", "已最新"),
 ]
 
@@ -106,6 +108,8 @@ _USAGE_TEXT = (
 
 class CommandGenPage(QWidget):
     """命令生成页：选 mod → 预览 → 复制 / 另存。"""
+    # 【快速命令查询…】按钮 → 跳独立页（导航：下载与备份组，紧挨本页）
+    quick_command_requested = Signal()
 
     def __init__(self, repo, settings, parent=None, *, log=None):
         super().__init__(parent)
@@ -145,6 +149,11 @@ class CommandGenPage(QWidget):
         page_scroll.setWidget(page_body)
         outer.addWidget(page_scroll, 1)
         root = QVBoxLayout(page_body)
+        # 页标题：本页此前直接以游戏信息行开头，是任务清单
+        # 「部分页面缺少标题」的主体；补齐与其他页一致的页首标题
+        title = QLabel("下载命令生成", self)
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
+        root.addWidget(title)
 
         # 第 1 块：游戏信息 + 重新载入
         top = QHBoxLayout()
@@ -166,17 +175,30 @@ class CommandGenPage(QWidget):
 
         root.addLayout(top)
 
-        # 第 2 块：用法提示 + 复制登录命令
-        hint = QHBoxLayout()
+        # 第 2 块：用法提示（可折叠）+ 复制登录命令
+        # 任务清单「提示不能折叠」的落地：提示装进共享件分区，默认
+        # 展开（新手第一次就能看到），老手点箭头收起省一截高度。
+        # 文本包一层内滚区：窗口窄到折行变多时出滚动条、分区高度
+        # 恒定——照共享件契约"收起/展开占同样空间，内容多时控件
+        # 内部滚动"。折叠状态刻意不记 QSettings：提示总共三行，
+        # 为它引一条记忆链路不值当，要记再议
         lbl_usage = QLabel(_USAGE_TEXT)
         lbl_usage.setWordWrap(True)
+        lbl_usage.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
+        usage_scroll = QScrollArea(self)
+        usage_scroll.setWidgetResizable(True)
+        usage_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        usage_scroll.setWidget(lbl_usage)
+        self._usage_sec = CollapsibleSection("使用方法（点击收起 / 展开）", self)
+        self._usage_sec.set_content(usage_scroll, 48)  # ≈三行 12px 文本
+        hint = QHBoxLayout()
+        hint.addWidget(self._usage_sec, 1)
         self._btn_login = QPushButton("复制登录命令")
         self._btn_login.setToolTip(
             "复制设置页里填的 steamcmd 登录命令；"
             "还没填的话去设置页 → steamcmd 登录命令")
         self._btn_login.clicked.connect(self._on_copy_login)
-        hint.addWidget(lbl_usage, 1)
-        hint.addWidget(self._btn_login)
+        hint.addWidget(self._btn_login, 0, Qt.AlignTop)  # 与分区标题行齐平
         root.addLayout(hint)
 
         # 第 2.5 块：页内筛选框——三组清单共用一个过滤词
@@ -318,7 +340,7 @@ class CommandGenPage(QWidget):
         # 高度预算已计入 _section_height 的 +40
         if key == "not_downloaded":
             tip = QLabel(
-                "「已收录」= 已入库还没下载的正常排队，以及已下载但版本"
+                "「待下载」= 已入库还没下载的正常排队，以及已下载但版本"
                 "未知的条目（重下无害，正好补版本），不是异常。默认已"
                 "全部勾上——点右下角【复制命令】去 steamcmd 执行；下完"
                 "到【入账中心】点【扫描游戏目录】，盘上内容会出现在待"
@@ -326,7 +348,7 @@ class CommandGenPage(QWidget):
                 content)
 
             tip.setWordWrap(True)  # 踩坑⑨
-            tip.setStyleSheet("color: gray; font-size:12px;")
+            tip.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
             cv.addWidget(tip)
 
         if not rows:
@@ -524,14 +546,9 @@ class CommandGenPage(QWidget):
     # ---------------- 三个动作 ----------------
 
     def _on_quick_query(self) -> None:
-        """【快速命令查询…】（决策 105）：弹对话框生成任意工坊条目的
-        下载命令。与账本无关，对话框自带联网查询；本页勾选清单不受
-        影响。就地 import：本页唯一用点。"""
-        from gui.quickCommandDialog import QuickCommandDialog
-        dlg = QuickCommandDialog(self._repo, self._settings, self,
-                                 log=self._log, game=self._game)
-
-        dlg.exec()
+        """【快速命令查询…】：跳到独立成页的【快速命令查询】（与
+        账本无关；本页勾选清单不受影响）。"""
+        self.quick_command_requested.emit()
 
     def _on_copy_login(self):
         """复制设置页里的登录命令，原样进剪贴板（我们不解析、不拼装内容）。"""

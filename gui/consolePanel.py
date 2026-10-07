@@ -28,15 +28,12 @@ from PySide6.QtWidgets import (
 from gui.logBus import LogBus  # noqa: F401
 from gui.terminalDock import TerminalDock
 from gui.stepCardList import StepCardList
+from gui.theme import log_colors  # 日志四级色 + 时间戳色（主题单源）
 
-# 运行日志按级别着色（键 = LogBus 四个方法约定的级别名，那头改名
-# 这里要跟；颜色只管界面显示，与日志文件的级别名各管各的）
-_LEVEL_COLORS = {
-    "info": "#d4d4d4",   # 普通信息
-    "ok": "#46a758",     # 成功结论
-    "warn": "#f5a623",   # 警告
-    "error": "#e5484d",  # 错误
-}
+# 运行日志按级别着色：色表单源在 gui/theme.log_colors()——深浅主题
+# 各一套，亮色档按白底对比度校准（旧硬编码 #d4d4d4 在亮色白底几乎
+# 不可见）。键 = LogBus 四个方法约定的级别名，那头改名这里要跟；
+# 颜色只管界面显示，与日志文件的级别名各管各的
 
 # "有新消息时弹出控制台"的设置键名。项目约定：设置值一律按字符串存，
 # 读的时候和 "0" 比较判断开没开。开关的唯一入口在设置页——日志页里
@@ -137,23 +134,14 @@ class ConsolePanel(QWidget):
 
     def _append_line(self, level: str, text: str) -> None:
         ts = time.strftime("%H:%M:%S")
-        color = _LEVEL_COLORS.get(level, _LEVEL_COLORS["info"])
+        colors = log_colors()
+        color = colors.get(level, colors["info"])
+        ts_color = colors["ts"]
         # 消息里的 <>& 必须转义，防止内容被当成 HTML 吃掉
         safe = html.escape(text)
         self._log_view.appendHtml(
-            f'<span style="color:#888">{ts}</span> '
+            f'<span style="color:{ts_color}">{ts}</span> '
             f'<span style="color:{color}">{safe}</span>')
-
-        # 控制台整个被关掉（本控件不可见）→ 弹出并跳到运行日志页。
-        # 只发信号不动停靠窗——停靠窗是 MainWindow 建的，谁建谁管
-        if self._auto_show_enabled() and not self.isVisible():
-            self._tabs.setCurrentIndex(0)
-            self.show_requested.emit()
-
-        # 当前不在"运行日志"标签页 → 挂红点提醒有新消息
-        if self._tabs.currentIndex() != 0 and not self._log_dirty:
-            self._log_dirty = True
-            self._tabs.setTabText(0, "● 运行日志")
 
     def _on_tab_changed(self, index: int) -> None:
         """切到"运行日志"即视为已读：摘掉红点。"""

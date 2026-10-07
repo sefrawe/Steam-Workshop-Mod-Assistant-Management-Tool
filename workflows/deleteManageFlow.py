@@ -158,7 +158,7 @@ def _measure_content_dir(download_dir: str | None) -> dict[int, int]:
     if not base.is_dir():
         return out
     for entry in base.iterdir():
-        if entry.is_dir() and entry.name.isdigit():
+        if entry.is_dir() and entry.name.isascii() and entry.name.isdigit():
             out[int(entry.name)] = _dir_size(entry)
     return out
 

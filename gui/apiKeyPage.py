@@ -63,7 +63,10 @@ class _ProbeWorker(QThread):
     结束后随对象销毁——不落任何缓存。
     证书注入（truststore）由 steamApiClient 模块 import 时统一做过，
     线程里不用再注入一遍。"""
-    done = Signal(dict)   # {"ok": bool, "children": list[str], "msg": str}
+    done = Signal(object)  # {"ok": bool, "children": list[str], "msg": str}
+
+    # 键恰好都是字符串所以此前侥幸能用；object 写法拔掉这颗
+    # "将来谁加个 int 键就炸"的隐形雷
 
     def __init__(self, key: str, mod_id: str, parent=None) -> None:
         super().__init__(parent)
@@ -265,7 +268,7 @@ class ApiKeyPage(QWidget):
             if ret != QMessageBox.StandardButton.Yes:
                 return
         target = self._probe_input.text().strip() or _DEFAULT_PROBE_ID
-        if not target.isdigit():
+        if not (target.isascii() and target.isdigit()):
             QMessageBox.information(
                 self, "验证编号", "验证编号应是纯数字的工坊编号。")
             return

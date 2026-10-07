@@ -91,8 +91,9 @@ def main() -> int:
     from gui.sessionStore import startup as session_startup
     session_startup()
 
-    from gui.theme import apply_theme  # 失败自动降级，见 theme.py 注释
+    from gui.theme import apply_theme, apply_font_scale
     apply_theme(app)
+    apply_font_scale(app)  # D25 界面字号缩放：必须在主窗口构造之前
 
     from gui.MainWindow import MainWindow
     win = MainWindow()

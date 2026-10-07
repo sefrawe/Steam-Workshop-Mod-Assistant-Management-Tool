@@ -104,6 +104,9 @@ def registry_key_display() -> str:
     v2 搬迁注记：workflows/ 尚未搬迁，改函数内延迟导入——本函数的
     唯一消费方（卸载页）同样未搬迁，启动链路永不触发；卸载轮落地后
     改回顶部导入或保持现状都正确。"""
+    """
+    sessionStore.py——registry_key_display 的 docstring 说“workflows/ 尚未搬迁……改函数内延迟导入”，workflows 早已搬迁完毕。改法（二选一）：顶部加 from workflows.uninstallFlow import registry_key_path 并让函数体直接 return registry_key_path(QCoreApplication.organizationName(), QCoreApplication.applicationName())；或只把那段 docstring 删掉。推荐前者（延迟导入的理由已消失）。
+    """
     from workflows.uninstallFlow import registry_key_path
     return registry_key_path(QCoreApplication.organizationName(),
                              QCoreApplication.applicationName())

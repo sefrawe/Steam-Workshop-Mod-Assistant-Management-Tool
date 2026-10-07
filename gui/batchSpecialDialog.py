@@ -211,7 +211,7 @@ def _render_report(r: SpecialReport) -> str:
         lines.append(f"· 未收录：{len(r.missing)} 条——"
                      + "、".join(map(str, r.missing)))
         lines.append("  （未收录的先入库才能标记：可到「分布向导 → 加入新 mod」"
-                     "或「档案与工具 → 网址批量导入」粘贴同一份清单）")
+                     "或【入账中心 · 登记】粘贴同一份清单）")
     if r.invalid_lines:
         lines.append(f"· 无法识别的行 {len(r.invalid_lines)} 条（原样列出，不代纠正）：")
         lines += [f"  {line}" for line in r.invalid_lines]

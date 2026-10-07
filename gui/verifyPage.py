@@ -50,11 +50,13 @@ from core import modVerifier, steamPaths
 from core.appSettings import AppSettings
 from core.commandBuilder import build_validate_copy_text
 from core.models import Game
-from core.constants import WORKSHOP_URL_TEMPLATE
+from core.urlParser import workshop_url
+
 from core.formatters import status_zh          # V2：formatters 住 core
 from gui.logBus import LogBus                  # V2：LogBus 独立成文件
 from gui.modFolderOpener import open_mod_folder
 from gui.collapsibleSection import CollapsibleSection as _Section
+from gui.theme import font_px  # 字号单源（D25）
 
 # 表格 6 列：勾选列（"选"）已随收录/确认退役
 _COLUMNS = ["编号", "标题", "账本状态", "盘上情况", "建议", "操作"]
@@ -67,13 +69,13 @@ _BUCKETS = [
     ("盘上缺失（已下载）", "missing"),
     ("空目录（疑似中断）", "empty"),
     ("账本外（盘上有目录）", "claim"),
-    ("已收录·盘上有内容", "confirm"),
+    ("待下载·盘上有内容", "confirm"),
     ("软删除/失效·保留文件", "keep"),
 ]
 
 _GUIDE_PARAS = (
     "两把尺子先分清：本页核验看的是【磁盘】（含反向联接后的游戏真实"
-    "目录）；【扫描本地】读的是 steamcmd 自己的账本文件（acf）。所以"
+    "目录）；【扫描本地】读的是 steamcmd 自己的账本文件。所以"
     "核验能看见的条目，扫描本地未必认——两者对不上不是故障。",
 
     "各行含义：账说「已下载」但盘上缺失/为空 → 点【修复…】三选一；"
@@ -134,7 +136,7 @@ class VerifyPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("账实核验", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         self._game_label = QLabel(self)
@@ -264,7 +266,7 @@ class VerifyPage(QWidget):
         for text in _GUIDE_PARAS:
             lbl = QLabel(text, body)
             lbl.setWordWrap(True)
-            lbl.setStyleSheet("color: #8a8a8f; font-size:12px;")
+            lbl.setStyleSheet(f"color: #8a8a8f; font-size: {font_px(12)}px;")
             bv.addWidget(lbl)
         bv.addStretch(1)
         wrap = QScrollArea(self)
@@ -403,7 +405,7 @@ class VerifyPage(QWidget):
         if n_claim:
             parts.append(f"｜账本外 {n_claim}")
         if n_confirm:
-            parts.append(f"｜已收录待确认 {n_confirm}")
+            parts.append(f"｜待下载待确认 {n_confirm}")
         if n_keep:
             parts.append(f"｜软删/失效保留 {n_keep}")
         parts.append(f"｜非数字内容 {len(result.non_numeric)}")
@@ -585,7 +587,7 @@ class VerifyPage(QWidget):
             QApplication.clipboard().setText(str(mid))
             self._log.ok(f"已复制编号 {mid}")
         elif chosen is act_url:
-            QDesktopServices.openUrl(QUrl(WORKSHOP_URL_TEMPLATE.format(mid)))
+            QDesktopServices.openUrl(QUrl(workshop_url(mid)))
         elif act_dir is not None and chosen is act_dir:
             # 账本外行没有 Mod 对象：打开器只摸 mod_id/local_path 两字段，
             # SimpleNamespace 喂最小事实（local_path=None → 自动走
@@ -681,10 +683,11 @@ class VerifyPage(QWidget):
         last_state = {"title": mod.title, "url": mod.url,
                       "time_updated": mod.time_updated,
                       "confirmed_version": mod.confirmed_version,
-                      "local_size": mod.local_size, "note": mod.note,
-                      "color_tag": mod.color_tag,
-                      "is_special": mod.is_special,
-                      "local_path": mod.local_path}
+                      "confirmed_source": mod.confirmed_source,
+                      "local_size": mod.local_size,
+                      "note": mod.note, "color_tag": mod.color_tag,
+                      "is_special": mod.is_special}
+
         try:
             self._repo.mark_deleted(mod_id, last_state)
         except ValueError as exc:

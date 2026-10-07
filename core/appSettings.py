@@ -65,7 +65,14 @@ DEFAULTS: dict[str, str] = {
     "mod_col_tags": "1",
     "mod_col_special": "1",
     "mod_col_note": "1",
+    # ↓ 以下两键补齐键集（决策 12：设置页 _FIELDS 的键必须全在此有默认值）。
+    # mod_col_color 缺失：get() 兜底 ""，行为侥幸正确，但口径破了；
+    # ui_font_scale 缺失：settingsPage._reset 对 number 类取 DEFAULTS[key]，
+    # 点【恢复默认】直接 KeyError——本轮 grep 实锤，必须补。
+    "mod_col_color": "1",                    # 列显示：颜色列（默认显示）
+    "ui_font_scale": "100",                  # 界面字号缩放百分比，100=默认（重启生效）
     # 批量下载自动登录开关（决策 91）：设置页 _FIELDS 里同名键的默认值。
+
     # "1" = 批次开始前自动发送设置页里的登录命令（维持原行为；
     # 旧配置文件没这个键时，load() 从 DEFAULTS 起底合并，自动落到这里）；
     # "0" = 不预发登录命令——换账号场景：先在终端手动 login 另一账号，

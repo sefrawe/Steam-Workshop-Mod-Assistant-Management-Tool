@@ -76,12 +76,13 @@ from PySide6.QtWidgets import (
 
 from core.backupManager import BackupManager, steamcmd_running
 from core.models import Backup, Game
-from core.urlParser import WORKSHOP_URL_TEMPLATE
+from core.urlParser import workshop_url
 from gui.backupMoveDialog import BackupMoveDialog
 from gui.backupRelocateDialog import BackupRelocateDialog
 from gui.logBus import LogBus
-from gui.theme import system_prefers_dark
+from gui.theme import system_prefers_dark, font_px
 from core.formatters import abs_time, fmt_size, status_zh
+from core import steamPaths  # 档案未设备份目录时按 steamcmd 位置推导兜底
 
 # ---- 与设置页核对过的真键名（settingsPage.py）。注意配额在设置页
 # 以 GB 计（人好填），引擎以字节计（好比较），换算只在 _make_manager 做 ----
@@ -309,7 +310,7 @@ class BackupPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("备份管理", self)
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         # steamcmd 运行横幅：默认藏起，_reload 时检测后决定显示
@@ -863,7 +864,14 @@ class BackupPage(QWidget):
             state = ("盘上存在" if bdir.is_dir()
                      else "盘上不存在（位置指认有误？可用【重定位备份目录】修正）")
         else:
-            state = "未设置（首次备份时按 steamcmd 位置推导并写入档案）"
+            # 未设置时把推导值亮出来：一眼看到"备份会去哪 / 文件该在哪"，
+            # 也方便把老档案补上（编辑档案 →【改为推导值】）
+            derived = steamPaths.backup_root_default(
+                self._settings.get("steamcmd_path"), self._game.app_id)
+            state = ("未设置（首次备份时按 steamcmd 位置推导并写入档案；"
+                     + (f"推导值 = {derived}" if derived
+                        else "steamcmd 未配置，暂推导不出") + "）")
+
         self._game_label.setText(
             f"当前游戏：{self._game.name}（{self._game.app_id}）｜"
             f"备份目录：{bdir_text or '—'}（{state}）")
@@ -904,8 +912,9 @@ class BackupPage(QWidget):
         mod = self._mods_by_id.get(b.mod_id)
         url = ((mod.url if mod is not None else "") or "").strip()
         if not url:
-            # 决策 61④：工坊页地址模板单源 workflows.intakeFlow
-            url = WORKSHOP_URL_TEMPLATE.format(b.mod_id)
+            # 决策 61④：工坊页地址单源 core.urlParser.workshop_url
+            url = workshop_url(b.mod_id)
+
         url_item = QTableWidgetItem("↗")
         url_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         url_item.setForeground(QBrush(QColor("#5aa9ff")))  # 蓝字提示可点
@@ -1246,7 +1255,6 @@ class BackupPage(QWidget):
         self._stop_running_btn.setEnabled(False)
 
     # ---------- 打开所在文件夹（单份）----------
-
     def _open_selected_folder(self) -> None:
         recs = self._checked()
         if self._busy or len(recs) != 1 or self._game is None:
@@ -1254,18 +1262,36 @@ class BackupPage(QWidget):
         rec = recs[0]
         bdir_text = (self._game.backup_dir or "").strip()
         if not bdir_text:
-            QMessageBox.information(
-                self, "打开所在文件夹",
-                "当前档案还没有备份目录，无法定位这份备份。")
-            return
+            # 档案没存备份目录（老档案/迁移来的档案常见）：不再直接说
+            # "无法定位"——先按 steamcmd 当前位置推导一次，推导得出就
+            # 用它打开。注意：只用于本次打开，绝不写档案——写档案是
+            # 账面改动，只走【编辑档案】的「改为推导值」显式通道
+            # （延续"备份目录指针不静默自愈"的边界：填空≠改指针，
+            # 但读路径允许推导兜底）。
+            derived = steamPaths.backup_root_default(
+                self._settings.get("steamcmd_path"), self._game.app_id)
+            if derived:
+                bdir_text = derived
+                self._log.info(
+                    f"档案未设置备份目录，已按 steamcmd 位置推导打开：{derived}"
+                    "（想固定下来：编辑档案 → 备份目录 →【改为推导值】→ 保存）")
+            else:
+                QMessageBox.information(
+                    self, "打开所在文件夹",
+                    "当前档案还没有备份目录，且设置页未配置 steamcmd 程序，"
+                    "推导不出备份位置。\n"
+                    "请把备份文件夹的实际位置填进档案：编辑档案 → 备份目录。")
+                return
         target = Path(bdir_text) / rec.backup_path
         if not target.is_dir():
             QMessageBox.warning(
                 self, "打开所在文件夹",
                 f"盘上找不到这份备份：\n{target}\n\n"
-                "可用【重定位备份目录】指认新位置。")
+                "可用【重定位备份目录】指认新位置；若文件确实在盘上，"
+                "把实际位置填进档案（编辑档案 → 备份目录）即可全部对上。")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+
 
     # ---------- 数据库备份 / 打开目录 ----------
 
