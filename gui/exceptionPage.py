@@ -377,12 +377,18 @@ class ExceptionPage(QWidget):
 
     # ---------- 对外（MainWindow 调用）----------
     def set_game(self, game: Game | None) -> None:
+        # self._game 必须无条件先赋值——它是本页一切检测的出发点。
+        # 修24 曾把这条赋值挪进"深检进行中"分支（本意：深检中切档案
+        # 变量也要跟上），普通路径于是丢了赋值：深检没在跑→不进分支
+        # →self._game 永远停在 None；而它是 None 又永远开不了深检→
+        # 永远进不了分支。死锁闭环，重启无效。页面"当前游戏"标签在
+        # 普通路径照常更新，页面看着有档案、变量里永远没有。现恢复
+        # 无条件赋值；修24 的本意保留——深检中切档案，变量照样跟上，
+        # 只是结果区不动。
+        self._game = game
         if self._deep_worker is not None:
             # 深检进行中：只更新标签，不动结果区——结果仍归属开始
-            # 深检时的档案（渲染按 rep.game_id 取数，不会串）。
-            # self._game 同步跟上：深检收尾后，下一次检测才不会
-            # 拿旧档案当新档案跑（修24）。
-            self._game = game
+            # 深检时的档案（渲染按 rep.game_id 取数，不会串）
             self._game_label.setText(
                 f"当前游戏：{game.name}（{game.app_id}）"
                 if game is not None else "当前游戏：（未选择）")
@@ -414,8 +420,26 @@ class ExceptionPage(QWidget):
             self._deep_worker = None
 
     # ---------- 本地快检 ----------
+    def _reap_dead_worker(self) -> None:
+        """僵尸引用收割：深检线程引用还在、线程本体其实已结束
+        （finished 信号万一没送达的场景）——摘引用、归还闸、恢复
+        按钮，别让一次没收尾的深检把两个检测按钮永远锁死。"""
+        w = self._deep_worker
+        if w is not None and w.isFinished():
+            self._deep_worker = None
+            try:
+                netGate.release(constants.NET_GATE_DEEP_CHECK)
+            except Exception as exc:  # 归还异常不拦检测
+                self._log.warn(f"深检闸归还异常（已忽略）：{exc}")
+            self._set_deep_running(False)
+
     def _start_detect(self) -> None:
-        if self._game is None or self._deep_worker is not None:
+        self._reap_dead_worker()
+        if self._game is None:
+            self._log.warn("本地快检未开始：还没有选择游戏档案")
+            return
+        if self._deep_worker is not None:
+            self._log.warn("本地快检未开始：联网深度检测进行中")
             return
         game = self._latest_game()
         if game is None:
@@ -423,14 +447,12 @@ class ExceptionPage(QWidget):
         self._run_local(game)
 
     def _run_local(self, game: Game) -> exceptionFlow.LocalReport | None:
-        """跑本地快检并渲染。V2 引擎不再依赖 steamcmd 配置、不再抛
-        acf 损坏（解析退役）——失败路径只剩理论上的账本异常。"""
+        """跑本地快检并渲染。V2 引擎不再依赖 steamcmd 配置、不再抛 acf 损坏（解析退役）——失败路径只剩理论上的账本异常。"""
         try:
             report = exceptionFlow.detect_local(self._repo, game)
         except Exception as exc:  # noqa: BLE001 —— 显式报告，不静默吞
             self._log.error(f"检测中断：{exc}")
-            QMessageBox.critical(self, "检测中断",
-                                 f"检测没有完成：\n{exc}")
+            QMessageBox.critical(self, "检测中断", f"检测没有完成：\n{exc}")
             return None
         self._last_local = report
         self._render(report, remote=self._last_remote)
@@ -446,16 +468,19 @@ class ExceptionPage(QWidget):
             self._settings.get("steamcmd_path"),
             self._game.app_id)
         if changed:
-            self._repo.update_game(self._game.app_id,
-                                   download_dir=effective)
+            self._repo.update_game(self._game.app_id, download_dir=effective)
             self._game = self._repo.get_game(self._game.app_id)
             self._log.info(
                 f"下载目录已按当前 steamcmd 位置重新推导：{effective}")
         return self._game
 
-    # ---------- 联网深度检测 ----------
     def _start_deep(self) -> None:
-        if self._game is None or self._deep_worker is not None:
+        self._reap_dead_worker()
+        if self._game is None:
+            self._log.warn("深度检测未开始：还没有选择游戏档案")
+            return
+        if self._deep_worker is not None:
+            self._log.warn("深度检测未开始：上一场深检引用未收尾")
             return
         game = self._latest_game()
         if game is None:

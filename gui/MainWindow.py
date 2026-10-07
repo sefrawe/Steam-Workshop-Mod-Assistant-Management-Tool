@@ -1052,7 +1052,6 @@ class MainWindow(QMainWindow):
         判断，这里只管"怎么弹"。"""
         self._dock_console.show()
         self._dock_console.raise_()
-
     def _on_game_changed(self, game: Game | None) -> None:
         self._current_game = game
         if game is None:
@@ -1061,17 +1060,37 @@ class MainWindow(QMainWindow):
             self._status_game.setText(
                 f"当前游戏：{game.name}（{game.app_id}）")
 
-        # set_game 广播循环：占位器没有 set_game，hasattr 自动跳过；
+        # set_game 广播循环：占位器没有 set_game，getattr 自动跳过；
         # 页面搬迁后自动纳入广播，本循环零改动（V1 同款结构）。
-        # mod 库轮起，切档案 = mod 库整表重载 + 详情清空（页面内自理）
-        for page in self._pages.values():
-            if hasattr(page, "set_game"):
-                page.set_game(game)
+        # 逐页 try/except（本轮加固）：此前任何一页的 set_game 抛
+        # 异常都会当场打断循环——排在它后面的页面从此收不到档案
+        # 广播，self._game 停留在构造时的 None，而按钮是构造时默认
+        # 可点的，于是出现"能点检测、却报还没有选择档案"的错位；
+        # 槽里的异常 PySide 只打到黑窗、不进界面日志，表面一片安静。
+        # 现在单页失败只记日志、不再连坐其他页，坏的是哪页点名道姓。
+        notified = 0
+        failed: list[str] = []
+        for pid, page in self._pages.items():
+            setter = getattr(page, "set_game", None)
+            if not callable(setter):
+                continue  # 占位器等没有 set_game 的页面
+            try:
+                setter(game)
+                notified += 1
+            except Exception as exc:
+                name = _PAGE_TITLES.get(pid, f"页面 {pid}")
+                failed.append(name)
+                self._log.error(
+                    f"档案广播：{name} 页接收失败（本页可能与当前档案"
+                    f"不同步，其余页面不受影响）：{exc}")
+        if failed:
+            self._log.warn(
+                f"档案广播完成：{notified} 页成功、{len(failed)} 页失败"
+                f"（{'、'.join(failed)}）")
 
         # 无档案时目录入口没有操作对象；添加档案不在其列——空库也能加
         # （更新确认清单"切档案自动关"随更新检测轮回补）
         self._act_share_out.setEnabled(game is not None)  # 分享包按当前档案导出
-
         self._act_open_download.setEnabled(
             game is not None and bool(game.download_dir))
         self._act_game_edit.setEnabled(game is not None)
@@ -1083,6 +1102,7 @@ class MainWindow(QMainWindow):
         if self._confirm_dialog is not None:
             self._confirm_dialog.close()
             self._confirm_dialog = None
+
         # 更新确认清单同款处理（非模态三件套之二）：批次归属 = 清单
         # 打开那一刻的档案，档案能切但归属不能跟着变——干脆关掉重开
         if self._update_dialog is not None:

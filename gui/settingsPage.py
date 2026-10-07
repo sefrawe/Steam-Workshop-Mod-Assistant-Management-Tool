@@ -534,3 +534,23 @@ class SettingsPage(QWidget):
             cb.setChecked(True)
         self._saved_label.setText("已恢复默认值，点【保存】写入文件")
         self._saved_label.setStyleSheet("color: gray;")
+    def _browse(self, edit: QLineEdit, is_file: bool) -> None:
+        """路径字段的浏览按钮：文件项选 exe，目录项选文件夹。
+        默认定位到现填路径所在位置；选完 setText 走 textChanged，
+        校验状态行由 _refresh_states 自动跟进，无需手动刷新。"""
+        start = ""
+        cur = edit.text().strip()
+        if cur:
+            p = Path(cur)
+            d = p.parent if (is_file and p.is_file()) else p
+            if d.exists():
+                start = str(d)
+        if is_file:
+            path, _flt = QFileDialog.getOpenFileName(
+                self, "选择程序", start,
+                "可执行程序 (*.exe);;所有文件 (*.*)")
+        else:
+            path = QFileDialog.getExistingDirectory(self, "选择文件夹", start)
+        if path:
+            edit.setText(path)
+

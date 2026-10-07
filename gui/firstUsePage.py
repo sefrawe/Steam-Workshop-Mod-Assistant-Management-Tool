@@ -215,6 +215,27 @@ class FirstUsePage(QWidget):
         row3.addWidget(self._btn_link)
         row3.addStretch(1)
         box3.addLayout(row3)
+        # ③ 连接卡：状态 + 跳联接检测页 + 重新检查（联接检测页写库
+        # 后本页不广播不自动知道——切回本页有进页钩子兜底，按钮再
+        # 给个手动对账口，从检测页回来点一下即亮绿）
+        self._d3, box3 = self._make_card("step3", "③ 接通游戏读取目录")
+        row3 = QHBoxLayout()
+        self._btn_link = QPushButton("打开联接检测页…")
+        self._btn_link.setToolTip("跳到「联接检测」页（与「游戏」菜单的"
+                                  "连接指引同一落点）：判定游戏读取目录"
+                                  "与下载目录的联接状态，按步骤接通；"
+                                  "检测通过会自动记录")
+        self._btn_link.clicked.connect(self.link_guide_requested.emit)
+        row3.addWidget(self._btn_link)
+        self._btn_recheck3 = QPushButton("重新检查")
+        self._btn_recheck3.setToolTip(
+            "从联接检测页检测通过回来后点它：重读档案最新状态，"
+            "第③步就会亮绿。切回本页时其实也会自动刷新，"
+            "按钮是手动兜底")
+        self._btn_recheck3.clicked.connect(self._on_recheck)
+        row3.addWidget(self._btn_recheck3)
+        row3.addStretch(1)
+        box3.addLayout(row3)
 
         # ④ 纳入卡：本页唯一的新功能
         self._d4, box4 = self._make_card("step4", "④ 纳入客户端已有的 mod")
@@ -347,6 +368,16 @@ class FirstUsePage(QWidget):
         self._log.info("已重新检查首次使用向导各步状态")
 
     def _refresh_all(self) -> None:
+        """刷新四张卡。开头先从账本重读当前档案：联接检测页检测
+        通过会把 game_mod_dir 写进库，但主窗口只让档案切换器静默
+        重读、刻意不广播（广播会把检测页刚出的绿勾清掉）——本页
+        手里的档案对象还停在写库前，不重读的话第③步会一直显示
+        "未确认"，直到重启。进页钩子与【重新检查】按钮都经过
+        这里，一处对齐两处生效。"""
+        if self._game is not None:
+            latest = self._repo.get_game(self._game.app_id)
+            if latest is not None:
+                self._game = latest
         self._refresh_step1()
         self._refresh_step2()
         self._refresh_step3()
