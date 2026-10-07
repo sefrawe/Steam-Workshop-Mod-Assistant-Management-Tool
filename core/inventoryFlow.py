@@ -32,7 +32,7 @@ from pathlib import Path
 
 from core import acfParser
 
-_INT_DIR = re.compile(r"^\d+$")
+_INT_DIR = re.compile(r"^[0-9]+$")
 
 
 @dataclass

@@ -398,9 +398,10 @@ class AdvancedSearchDialog(QDialog):
         if not text:
             self._id_edit.setStyleSheet("")
             return None
-        if text.isdigit():
+        if text.isascii() and text.isdigit():
             self._id_edit.setStyleSheet("")
             return int(text)
+
         self._id_edit.setStyleSheet(_BAD_INPUT)
         return None
 

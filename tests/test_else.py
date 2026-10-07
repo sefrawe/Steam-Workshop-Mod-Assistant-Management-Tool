@@ -158,3 +158,58 @@ def test_scan_skips_mods_with_pending_success(tmp_path):
     assert r.candidates_dup == 1
     assert {v.kind for v in repo.pending_confirmations(_APP)} == {"success"}
     assert repo.get_mod(777).local_size == 10   # 大小回填照常干活
+# tests/test_batchDownloadFlow_stop_login.py
+"""修9 回归：STOPPING 中收到"未登录"必须按失败记账并正常收尾，
+绝不转 NEED_LOGIN 复活批次（v2.45 僵尸批次的变体入口）。"""
+from types import SimpleNamespace
+
+from core import outputAnalyzer
+from core.batchDownloadFlow import (
+    ST_DONE, ST_NEED_LOGIN, ST_RUNNING, ST_STOPPING, BatchDownloadFlow,
+)
+
+
+def _verdict(kind, **kw):
+    """outputAnalyzer 结论的鸭子替身（状态机只读属性）。"""
+    base = dict(code=None, note=None, mod_id=None,
+                size_bytes=None, reason=None)
+    base.update(kw)
+    return SimpleNamespace(kind=kind, **base)
+
+
+def _flow(events, mod_ids=(111,)):
+    return BatchDownloadFlow(
+        app_id=294100, mod_ids=list(mod_ids),
+        send_command=lambda text: True,
+        on_event=events.append,
+        trigger_versions={111: 500},
+    )
+
+
+def test_stop_then_not_logged_on_records_failure_and_finishes():
+    events: list = []
+    flow = _flow(events)
+    assert flow.start() is True           # 无登录命令 → 直接 RUNNING
+    assert flow.state == ST_RUNNING
+    flow.stop()                           # RUNNING → STOPPING
+    assert flow.state == ST_STOPPING
+    flow.on_verdict(_verdict(outputAnalyzer.KIND_NOT_LOGGED_ON))
+    flow.on_idle()                        # 提示符出现 → 收尾
+    assert flow.state == ST_DONE          # 僵尸红线：不得停在哪半途
+    summary = next(e for e in events
+                   if e["type"] == "batch_done")["summary"]
+    assert [r.mod_id for r in summary["failed"]] == [111]
+    assert "未登录" in summary["failed"][0].reason
+    assert not any(e["type"] == "need_login" for e in events)
+    assert summary["stopped"] is True
+
+
+def test_running_not_logged_on_still_pauses_for_login():
+    """原路径不回归：RUNNING 中未登录照旧转 NEED_LOGIN、条目回队首。"""
+    events: list = []
+    flow = _flow(events)
+    flow.start()
+    flow.on_verdict(_verdict(outputAnalyzer.KIND_NOT_LOGGED_ON))
+    assert flow.state == ST_NEED_LOGIN
+    assert flow.pending_count == 1        # 条目回队首，没丢
+    assert any(e["type"] == "need_login" for e in events)

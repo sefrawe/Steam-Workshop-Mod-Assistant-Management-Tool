@@ -92,7 +92,9 @@ class ConfirmListDialog(QDialog):
     def _load(self, verdicts: list) -> None:
         """按传入的待确认判决行重建表格（确认成功后重调 = 刷新）。"""
         rows = [v for v in verdicts
-                if self._game is None or v.game_id == self._game.app_id]
+                if (self._game is None or v.game_id == self._game.app_id)
+                and v.kind != "claim"]  # claim 归待认领区，防御性再滤一道
+
         self._table.setRowCount(len(rows))
         for i, v in enumerate(rows):
             # 勾选框

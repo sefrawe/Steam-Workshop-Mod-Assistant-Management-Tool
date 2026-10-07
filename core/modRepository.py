@@ -26,7 +26,7 @@ ALLOWED_ORDERS: frozenset[str] = frozenset({
     "time_updated DESC", "time_updated ASC",
     "title ASC", "title DESC",
     "local_size DESC",
-    "local_size DESC",
+
     "local_size ASC",
 
     "confirmed_version DESC", "confirmed_version ASC",
@@ -95,7 +95,7 @@ class ModRepository(ABC):
     # update_game / delete_game / game_deletion_summary /
     # delete_game_deep / list_backups_overview），docstring 见旧版。
     # v2 差异：delete_game_deep 的清理范围 += verdict_log 与 translations
-    # （C 级提案③：彻底清档 = 账全清，C 级提案③：彻底清档 = 账全清；translations 随 mods CASCADE 自动）。
+    # C 级提案③：彻底清档 = 账全清；translations 随 mods CASCADE 自动）。
     @abstractmethod
     def add_game(self, app_id: int, name: str, download_dir: str,
                  game_mod_dir: str | None = None,

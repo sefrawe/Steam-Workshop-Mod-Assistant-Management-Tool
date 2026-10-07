@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.models import Mod
-from core.urlParser import WORKSHOP_URL_TEMPLATE, ParseReport
+from core.urlParser import ParseReport, workshop_url
 
 
 @dataclass
@@ -132,7 +132,7 @@ def apply_register(repo, plan: RegisterPlan,
                 mod_id=mid,
                 game_id=plan.app_id,
                 status="tracked",
-                url=WORKSHOP_URL_TEMPLATE.format(mid),
+                url=workshop_url(mid),
                 title=meta.title if meta else None,
                 creator=meta.creator if meta else None,
                 file_size=meta.file_size if meta else None,

@@ -511,17 +511,17 @@ class TerminalDock(QWidget):
             reader.wait(2000)
 
     # ---------------- 输入框 ----------------
-
     def _on_send_input(self) -> None:
-        """用户在输入框敲的命令：与批量下载同走 send_command 一条路。
-        当前版本：多行逐行直发（每行独立走 send_command，中途
-        steamcmd 退出时自然停在当前行；全部发出成功才清空输入框）。
-
-        【批次轮回补点】届时在本方法里恢复"下载命令自动转批次"分流：
-        用 core.urlParser.parse_lines 识别 workshop_download_item 行
-        与工坊编号，命中的整批经 download_batch_requested 信号交主
-        窗口裁决（batch_handoff_receipt 回话后改写输入框，见下方
-        留存的握手方法）；识别不了的行与未命中内容维持逐行直发。
+        """用户在输入框敲的命令：下载命令/编号行转「下载批次」编排，
+        其余行维持逐行直发（每行独立走 send_command，中途 steamcmd
+        退出时自然停在当前行；全部发出成功才清空输入框）。
+        分流规则（与 _handoff_to_batch 的裁决链咬合）：
+        - 一行能被 urlParser 认出 mod 编号（工坊网址 / 纯编号 /
+          workshop_download_item 命令）→ 收进转批次清单；
+        - 其余（login、quit 等）→ 原样直发 steamcmd；
+        - 两类都有时先发普通行、再发转批次请求——受理回执清空
+          输入框（普通行已发出，清空正确）；被拒则输入框原样保留
+          （原因进运行日志，核对后重发）。
         """
         if not self._is_running():
             # 先拦在门外只提醒一次：send_command 每行都会自查，
@@ -532,10 +532,20 @@ class TerminalDock(QWidget):
         lines = [ln for ln in lines if ln]  # 空行与纯空白行跳过
         if not lines:
             return
+        dl_lines, plain_lines = [], []
         for ln in lines:
+            rep = parse_lines([ln])
+            if rep.mod_ids and not rep.invalid:
+                dl_lines.append(ln)
+            else:
+                plain_lines.append(ln)
+        for ln in plain_lines:
             if not self.send_command(ln):
                 return  # 失败原因已记日志；保留输入框原文，不误清
-        self._input.clear()
+        if dl_lines:
+            self._handoff_to_batch(parse_lines(dl_lines))
+        elif plain_lines:
+            self._input.clear()
 
     def _handoff_to_batch(self, report) -> None:
         """【批次轮回补时启用】下载命令行 → 请求转「下载批次」。

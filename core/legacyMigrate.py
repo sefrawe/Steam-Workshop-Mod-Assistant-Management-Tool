@@ -411,6 +411,12 @@ def migrate_old_ledger(old_db_path: str | Path,
                     f"备份登记 {r['id']}（{r['backup_path']}）所属的 "
                     f"mod 不存在，已跳过")
                 continue
+            if r.get("version_timeupdated") is None:
+                # 新 schema version_timeupdated NOT NULL；硬灌会炸整体回滚。
+                # 诚实跳过（盘上目录不动，账上不收），与 mod 缺失同款处理。
+                warnings.append(
+                    f"备份登记 {r['id']}（{r['backup_path']}）没有版本号，已跳过")
+                continue
             backup_ids.add(r["id"])
             backup_rows.append({**r, "pinned": bool(r["pinned"])})
         report.backups = len(backup_rows)

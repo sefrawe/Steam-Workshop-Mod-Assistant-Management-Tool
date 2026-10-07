@@ -156,7 +156,7 @@ class GameAddDialog(QDialog):
 
     def _on_appid_changed(self, text: str) -> None:
         # QIntValidator 只拦非数字；"0" 这类仍要转成数值判
-        app_id = int(text) if text.isdigit() else 0
+        app_id = int(text) if (text.isascii() and text.isdigit()) else 0
         if app_id <= 0:
             self._app_free = False
             self._lbl_hint.setText("请输入 AppID（纯数字）")
@@ -226,7 +226,7 @@ class GameAddDialog(QDialog):
         if self._thread is not None and self._thread.isRunning():
             return  # 上一发还在路上（按钮此时应为灰，双保险）
         text = self._edit_appid.text().strip()
-        if not text.isdigit():
+        if not (text.isascii() and text.isdigit()):
             return
         self._thread = _NameQueryThread(self._api, int(text), self)
         self._thread.done.connect(self._on_name_done)

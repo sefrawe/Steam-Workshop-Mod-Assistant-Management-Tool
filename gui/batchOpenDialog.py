@@ -32,10 +32,8 @@ from PySide6.QtWidgets import (
 )
 
 from core.modRepository import ModRepository
-from core.urlParser import parse_lines
+from core.urlParser import parse_lines, workshop_url
 from gui.logBus import LogBus
-
-from core.urlParser import WORKSHOP_URL_TEMPLATE
 
 @dataclass
 class OpenPagesReport:
@@ -49,7 +47,7 @@ class OpenPagesReport:
 
     def urls(self) -> list[str]:
         """按解析顺序生成待开页面地址（模板单源）。"""
-        return [WORKSHOP_URL_TEMPLATE.format(mid) for mid in self.parsed_ids]
+        return [workshop_url(mid) for mid in self.parsed_ids]
 
 
 def classify_open_targets(repo: ModRepository, text: str) -> OpenPagesReport:

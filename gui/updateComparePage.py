@@ -102,7 +102,7 @@ _GUIDE_PARAS = (
     "「落后」怎么看：落后 = 远端最新版本比本地确认版本新了几天"
     "（0 天显示“最新”）；“—” = 版本未知（还没下载确认过、或还没跑过"
     "【更新检测】）。本地确认版本只认三扇正门：批次收尾确认、入账"
-    "中心认领、右键手动设定——盘面 acf 的值不自动进账。",
+    "中心认领、右键手动设定——盘面上的值不自动进账。",
 
     "想找“某天更新了哪些”：卡片标题上写着两个日期——「远端」= 作者"
     "发布现在这版的日子，「本地」= 确认版本的日子。排序下拉选"
@@ -224,7 +224,7 @@ class UpdateComparePage(QWidget):
 
         self._status_combo = QComboBox(bar)
         for label, data in (("全部状态", None), ("已下载", "downloaded"),
-                            ("已收录", "tracked"), ("已失败", "failed")):
+                            ("待下载", "tracked"), ("已失败", "failed")):
             self._status_combo.addItem(label, data)
         self._status_combo.setToolTip("只看某个状态的 mod（两个视图都生效）")
 

@@ -44,7 +44,7 @@ from typing import Iterable
 
 from core.commandBuilder import build_copy_text
 from core.models import Mod
-from core.urlParser import WORKSHOP_URL_TEMPLATE, parse_lines
+from core.urlParser import parse_lines, workshop_url
 
 
 @dataclass
@@ -134,7 +134,7 @@ def register_mods(repo, app_id: int, mod_ids: Iterable[int]) -> int:
             repo.add_mod(Mod(
                 mod_id=mid,
                 game_id=app_id,
-                url=WORKSHOP_URL_TEMPLATE.format(mid),
+                url=workshop_url(mid),
                 status="tracked",
                 first_tracked_at=now,
             ))

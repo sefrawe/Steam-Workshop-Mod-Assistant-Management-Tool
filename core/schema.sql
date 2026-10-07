@@ -82,7 +82,7 @@ CREATE INDEX idx_snapshots_mod ON mod_snapshots(mod_id, snapshot_at);
 
 -- ------------------------------------------------------------
 -- verdict_log 判决史 + 确认队列，一张表双角色（§二）：
---   pending = confirmed_at IS NULL 的 success/claim 行 → 确认队列（重启不丢）
+-- pending = confirmed_at IS NULL 的 success/claim/manual 行 → 确认队列（重启不丢）
 --   确认 = 填 confirmed_at + 写 mods.confirmed_version（confirm_items 正门）
 --   修剪（D23）：非确认行按 mod 保留最近 verdict_keep 条或 90 天；
 --   确认行随 mod 生命周期保留——它是当前 confirmed_version 的票据
@@ -130,7 +130,7 @@ CREATE TABLE backups (
                          backup_path TEXT NOT NULL UNIQUE,
                          size_bytes INTEGER NOT NULL,
                          version_timeupdated INTEGER NOT NULL,   -- 取确认值（D14）；NULL 版本由守卫拒绝
-                         manifest TEXT,                          -- 可空，备份时从 acf 盘面回填（D14）
+                         manifest TEXT,                          -- v2 保留列但无来源（acf 退场），登记一律 NULL
                          created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
                          pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0,1)),
                          note TEXT

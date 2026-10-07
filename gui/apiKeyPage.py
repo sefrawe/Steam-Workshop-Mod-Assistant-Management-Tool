@@ -268,7 +268,7 @@ class ApiKeyPage(QWidget):
             if ret != QMessageBox.StandardButton.Yes:
                 return
         target = self._probe_input.text().strip() or _DEFAULT_PROBE_ID
-        if not target.isdigit():
+        if not (target.isascii() and target.isdigit()):
             QMessageBox.information(
                 self, "验证编号", "验证编号应是纯数字的工坊编号。")
             return
