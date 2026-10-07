@@ -73,9 +73,11 @@ from PySide6.QtWidgets import (
 from gui.browserTabPage import BrowserTabPage
 from gui.browserPickDialog import BrowserPickDialog
 
-
 from core import appPaths
 from core import constants
+from core import steamPaths
+from core.backupManager import steamcmd_running
+
 from core.appSettings import AppSettings
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
@@ -1336,6 +1338,10 @@ class MainWindow(QMainWindow):
             if callable(shutdown):
                 shutdown()
 
+        # 退出前断根扫尾（决策 114）：steamcmd 已在上面收停、账本还没
+        # 关——正是补断根刀的安全窗口。详见 _acf_sweep_at_exit。
+        self._acf_sweep_at_exit()
+
         self._save_panel_state()
         self._repo.close()
         super().closeEvent(event)
@@ -1428,6 +1434,64 @@ class MainWindow(QMainWindow):
         # 错位；空库存空串，恢复侧按"没有"处理
         game = self._current_game
         q.setValue(_SES_LAST_GAME, game.app_id if game is not None else "")
+    def _acf_sweep_at_exit(self) -> None:
+        """退出前断根扫尾（决策 114）：把黑名单登记的全部编号从
+        steamcmd 的账本文件里移除。
+
+        为什么扫整个黑名单而不是记"欠账清单"：断根被跳过的情形
+        （清账那一刻 steamcmd 在跑，mod 库页只留指路日志）不落任何
+        登记也无从补记；而黑名单的语义本就是"这些编号永不再来"，
+        steamcmd 账本里留着它们的登记只会反复触发校验装配占盘。
+        每次退出扫一遍 = 黑名单与 steamcmd 账本最终一致，不再依赖
+        用户记得去【已清账管理】页手动执行；条目早已不在账本 = 引擎
+        原样返回，零副作用。
+
+        安全边界（与已清账页手动移除同款，引擎单源
+        core/steamPaths.remove_items_from_acf）：写前自动备份
+        （.bak_时间戳）、解析失败绝不落笔、文件级问题只记日志不
+        阻断其余档案。steamcmd 仍在跑（强杀未及退场等极端情况）→
+        整体跳过，下次退出再补。任何意外绝不阻断退出。"""
+        try:
+            if steamcmd_running():
+                self._log.warn("steamcmd 尚未完全退出：本次跳过账本"
+                               "断根扫尾（下次退出时补）")
+                return
+            root = steamPaths.steamcmd_root(
+                self._settings.get("steamcmd_path") or "")
+            if root is None:
+                return  # 没配 steamcmd：无事可做，静默
+            recs = self._repo.list_purged()
+            if not recs:
+                return
+            by_game: dict[int, list[int]] = {}
+            for r in recs:
+                by_game.setdefault(r.game_id, []).append(r.mod_id)
+            total_removed, games_done, failures = 0, 0, 0
+            for game_id, mids in sorted(by_game.items()):
+                acf = steamPaths.locate_acf(root, game_id)
+                if acf is None:
+                    continue  # 该游戏从没在本机下载过：无账可清
+                try:
+                    removed, _absent = steamPaths.remove_items_from_acf(
+                        acf, mids)
+                except ValueError as exc:
+                    failures += 1
+                    self._log.warn(f"账本扫尾：游戏 {game_id} 的账本"
+                                   f"未动（{exc}）")
+                    continue
+                if removed:
+                    total_removed += len(removed)
+                    games_done += 1
+            if total_removed:
+                self._log.ok(
+                    f"退出前断根扫尾：已通知 steamcmd 忘记黑名单里的 "
+                    f"{total_removed} 个条目（{games_done} 个游戏；"
+                    "原账本文件已自动备份在同目录）")
+            if failures:
+                self._log.warn(f"账本扫尾：{failures} 个游戏的账本文件"
+                               "有问题未动（详见上方日志）")
+        except Exception as exc:  # 收尾不拦退出
+            self._log.warn(f"退出前账本扫尾未完成（不影响退出）：{exc}")
 
     # ---------- 全局异常兜底 ----------
 

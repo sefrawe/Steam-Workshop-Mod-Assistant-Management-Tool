@@ -45,22 +45,21 @@ QThread 里跑；线程只调 BackupManager / SteamApiClient（前者写库沿
 原文核对后为准。
 """
 from types import SimpleNamespace
-from core import inventoryFlow
 
 from PySide6.QtCore import QThread, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
-from core import constants, netGate
-
-
+from core import constants, netGate, steamPaths
+from core import inventoryFlow
 from core.backupManager import BackupManager, steamcmd_running
 from core.batchDownloadFlow import BatchDownloadFlow, resolve_written
 from core.modRepository import ModRepository
 from core.steamApiClient import SteamApiClient, SteamApiError
+from core.urlParser import workshop_url
 from gui.logBus import LogBus
 from gui.modFolderOpener import open_mod_folder
-from core.urlParser import workshop_url
+
 # 备份引擎的保留策略参数在 _BackupPhaseWorker 构造时从设置页现读：
 # backup_keep_per_mod / backup_total_quota_gb 两键（core/appSettings.DEFAULTS）。
 
@@ -271,6 +270,13 @@ class BatchDownloadController(QWidget):
             self._log.error("该档案没有设置下载目录：请到「游戏 → 编辑档案」"
                             "补齐后再下载")
             return False
+        # 决策 100（修35）：批次前清缓存——设置页开关默认开、hint 早已
+        # 向用户承诺"每批下载开始前自动清空"，此前全项目零消费点。
+        # 时机 = 开批检查全过、任何命令都还没发（steamcmd 刚起在提示符
+        # 空闲，不持缓存文件锁；备份阶段读的 content 目录与缓存目录
+        # 互不相干）。清理是优化不是前提：引擎逐项尝试、占用/联接
+        # 跳过、绝不抛错（契约见 core/steamPaths.clear_download_caches）。
+        self._clear_steamcmd_caches()
 
         # 锁定本轮上下文：之后用户切档案只影响界面，不影响批次
         self._game = game
@@ -288,6 +294,7 @@ class BatchDownloadController(QWidget):
             return True
 
         return self._begin_download_phase(ids)
+
     def _has_login_cmd(self) -> bool:
         """本批是否自动登录（决策 91 综合判定；start_batch 的卡片
         has_login 与 _launch_flow 的 login_cmd 共用这一个判定，两边
@@ -303,6 +310,33 @@ class BatchDownloadController(QWidget):
         raw = str(self._settings.get("steamcmd_login_cmd") or "")
         return bool(raw.strip())
 
+    def _clear_steamcmd_caches(self) -> None:
+        """决策 100：批次开始前清空 steamcmd 下载缓存（depotcache 与
+        workshop\\downloads）——steamcmd 会用缓存把已删除的 mod 原样
+        装配回 content 并写回它的账本文件（"复活"机制），清掉即断根；
+        对部分"下载失败"也有改善。设置开关
+        steamcmd_clear_cache_before_batch（默认开）；关 = 直发车，
+        保留缓存省流量（换来的代价是删过的 mod 可能被装配回来——
+        黑名单与退出扫尾仍在，见 MainWindow._acf_sweep_at_exit）。
+        引擎单源 core/steamPaths.clear_download_caches：content 目录
+        本体一概不碰；steamcmd 未配置 → 无事发生。
+        已知限制：缓存特别大时 rmtree 在主线程可能占几秒（首批最明显，
+        之后每批只清当批增量）。实测明显卡顿再升级为线程化，先不预设。"""
+        if self._settings.get_int("steamcmd_clear_cache_before_batch", 1) == 0:
+            return
+        cmd = str(self._settings.get("steamcmd_path") or "")
+        try:
+            freed, cleared, skipped = steamPaths.clear_download_caches(cmd)
+        except Exception as exc:  # 清理是优化：任何意外都不拦批次
+            self._log.warn(f"批次前清缓存出错（照常开批）：{exc}")
+            return
+        if cleared == 0 and not skipped:
+            return  # 缓存本来就空 / 未配置：零日志噪音
+        line = (f"批次前清缓存：清掉 {cleared} 项，"
+                f"释放 {freed / 2 ** 20:.1f} MB")
+        if skipped:
+            line += f"；跳过 {len(skipped)} 项（被占用/联接，不影响开批）"
+        self._log.info(line)
 
     # ---------------- 阶段一：备份（决策 40） ----------------
     def _start_backup_phase(self, ids: list[int]) -> None:
