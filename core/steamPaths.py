@@ -474,6 +474,32 @@ def remove_items_from_acf(
         raise ValueError(f"acf 写回失败（原文件已备份在 {backup}）：{exc}") from exc
 
     return removed, absent
+def acf_installed_ids(acf_path: str | Path) -> set[int] | None:
+    """只读：账本文件里登记的工坊条目编号集合（Installed 与 Details
+    两块合并）。已清账页的残留检测用——判断黑名单编号是否还躺在
+    steamcmd 的账里。任何读不了/解析失败 → 返回 None（调用方按
+    "未知"显示），绝不抛错——检测是锦上添花，不能因它报错。
+    与 remove_items_from_acf 同文件同依赖（vdf），零新增。"""
+    p = Path(acf_path)
+    try:
+        text = p.read_text(encoding="utf-8-sig")
+        data = vdf.loads(text)
+        ws = data.get("AppWorkshop") if isinstance(data, dict) else None
+        if not isinstance(ws, dict):
+            return None
+        ids: set[int] = set()
+        for block in (ws.get("WorkshopItemsInstalled"),
+                      ws.get("WorkshopItemDetails")):
+            if isinstance(block, dict):
+                for key in block:
+                    try:
+                        ids.add(int(key))
+                    except (TypeError, ValueError):
+                        pass  # 键不是数字形态：跳过（不该发生，不炸）
+        return ids
+    except Exception:  # OSError / 解析失败 / 编码问题——一概"未知"
+        return None
+
 # ---------- 工坊账本文件（acf）定位 ----------
 #
 # acf 是 steamcmd 自己的记账文件，本项目的版本判定不用它，但两件事

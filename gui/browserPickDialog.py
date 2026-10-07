@@ -1,5 +1,6 @@
-"""gui/browserPickDialog.py · 模块②「加入新 mod」的页内标签页选择器。
-
+"""模块②「加入新 mod」的页内标签页选择器。
+"""
+"""
 内嵌 BrowserTabPage（与独立页同一份代码，零复制）：勾选后点
 【送到「加入新 mod」】= 对话框把清单发给 lines_picked 并关闭——
 人本来就在模块②，全程无跳页；清单送回走 receive_external_lines

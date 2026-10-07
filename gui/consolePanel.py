@@ -132,6 +132,7 @@ class ConsolePanel(QWidget):
 
     # ---------------- 日志接收与显示 ----------------
 
+    # ---------------- 日志接收与显示 ----------------
     def _append_line(self, level: str, text: str) -> None:
         ts = time.strftime("%H:%M:%S")
         colors = log_colors()
@@ -142,6 +143,34 @@ class ConsolePanel(QWidget):
         self._log_view.appendHtml(
             f'<span style="color:{ts_color}">{ts}</span> '
             f'<span style="color:{color}">{safe}</span>')
+        self._on_new_log_line()  # 修37：弹出/红点的触发点（此前遗失）
+
+    def _on_new_log_line(self) -> None:
+        """新日志到达的"让人看见"处理（修37）：自动弹出 + 红点。
+        此前 _append_line 只画字——_auto_show_enabled 无人调用、
+        show_requested 从未发出、_log_dirty 永远 False，设置页承诺
+        的"开=弹出 / 关=红点"两条路都是死的（批次轮回重构标签时
+        接线遗失，键名注释还在、消费代码没了）。
+        语义（与设置页 hint 逐字对齐）：
+        - 开 且 控制台整个被隐藏 → 拉回屏幕并切到运行日志页：弹出
+          就是因为有新消息，让用户直接看见它。isVisible 含祖先链，
+          停靠窗一关即为 False——视图菜单藏的、X 关的、拖成浮动又
+          关的，一视同仁（视图开关是显隐状态，不压这个行为开关）；
+        - 开 且 控制台可见但人不在运行日志页（看终端/批次）→ 只亮
+          红点不抢页面：批次期间日志连发，把人从终端页拽走会打断
+          登录和敲命令——拍板：可见时不切页，是刻意不做的；
+        - 关 → 只走红点（控制台整个隐藏时红点也看不见，但重新打开
+          控制台就能看到「● 运行日志」未读提示）。
+        线程安全：本方法只在主线程执行（LogBus 信号排队到达，与
+        上面的 appendHtml 同一约束，文件头已有纪律）。"""
+        if self._auto_show_enabled() and not self.isVisible():
+            self._tabs.setCurrentIndex(0)  # 页是局部变量建的场景，按编号切
+            self.show_requested.emit()
+            return  # 切页已触发 _on_tab_changed 摘点，红点不必再挂
+        if self._tabs.currentIndex() == 0:
+            return  # 人就在运行日志页，无事可做
+        self._log_dirty = True
+        self._tabs.setTabText(0, "● 运行日志")
 
     def _on_tab_changed(self, index: int) -> None:
         """切到"运行日志"即视为已读：摘掉红点。"""

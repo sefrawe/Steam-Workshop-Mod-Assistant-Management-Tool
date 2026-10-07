@@ -37,12 +37,14 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from core import constants, steamPaths
+from core import steamPaths
 from core.backupManager import steamcmd_running
-from core.formatters import abs_time            # V2：formatters 住 core
-from gui.logBus import LogBus                   # V2：LogBus 独立成文件
-from gui.theme import font_px  # 字号单源（D25）
+from core.formatters import abs_time  # V2：formatters 住 core
 from core.urlParser import workshop_url
+from gui.logBus import LogBus  # V2：LogBus 独立成文件
+from gui.theme import font_px  # 字号单源（D25）
+import shutil
+from pathlib import Path
 
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
@@ -54,10 +56,10 @@ COL_MOD_ID = 2
 COL_TITLE = 3
 COL_URL = 4
 COL_PURGED = 5
-COL_NOTE = 6
-
-_COL_HEADERS = ["选", "游戏", "Mod 编号", "标题快照", "↗", "清账时间", "备注"]
-
+COL_RESIDUE = 6
+COL_NOTE = 7
+_COL_HEADERS = ["选", "游戏", "Mod 编号", "标题快照", "↗", "清账时间",
+                "残留", "备注"]
 
 class PurgedPage(QWidget):
     """已清账黑名单管理台。refresh() 供主窗口切到本页时调用
@@ -121,12 +123,28 @@ class PurgedPage(QWidget):
             "还在，steamcmd 仍会反复校验装配它们；移除后 steamcmd 彻底"
             "忘了这些条目。steamcmd 运行中不可执行（它退出时会整个覆盖"
             "写回）；操作前自动备份原账本文件，改坏可还原。\n"
+            "「立即执行退出扫尾」：退出软件时本来就会自动把黑名单编号"
+            "从 steamcmd 账本里移除（写前自动备份、失败只记日志）；"
+            "本按钮 = 不等退出、现在就做一遍——马上要用别的前端、"
+            "或不想等下次关软件时用。steamcmd 运行中会拒绝执行。\n"
+
+            "「清除残留…」：黑名单编号可能残留在三个地方——①内容目录"
+            "（复活产物或别的前端下回来后没入账的文件夹）、②steamcmd "
+            "账本条目（steamcmd 还认得它，会反复校验装配；退出软件时"
+            "也会自动移除并备份，不想等就手动）、③下载半成品（批次前"
+            "清缓存时会连带清掉，此处兜底）。残留只在黑名单条目上存在"
+            "（账内 mod 的删除归【清理与删除】页，它看不见黑名单条目）"
+            "——本动作只清这三个位置，绝不碰备份区：黑名单 mod 的备份"
+            "是刻意保留的恢复资产，不是残留。\n"
+            "depotcache（数据块缓存）按 depot 分块、无法按编号定位，"
+            "归「批次前清理 steamcmd 缓存」机制统一清空（默认开），"
+            "无需手动。\n"
             "想重新收录某个编号：勾选它 →「允许录入」，再到入账中心"
             "【扫描游戏目录】。\n"
             "软件外手动删过文件夹、或从没入过账的\"毒 mod\"：用"
-            "【手动拉黑…】登记。本页只动黑名单登记与 steamcmd 账本"
-            "条目，不碰 mod 内容文件夹（要删内容文件夹去【清理与删除】页）。",
+            "【手动拉黑…】登记。",
             self)
+
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
 
@@ -182,6 +200,14 @@ class PurgedPage(QWidget):
             "steamcmd 从此彻底忘了它们，不再校验装配、不再占磁盘。\n"
             "steamcmd 运行中会拒绝执行；操作前自动备份原账本文件")
         self._act_acf.triggered.connect(self._remove_from_acf_checked)
+        self._act_cleanup = QAction("清除残留…（目录+账本+半成品）", menu)
+        self._act_cleanup.setToolTip(
+            "把勾选条目残留在盘上的东西一次清掉：内容目录、steamcmd "
+            "账本条目、下载半成品。\nsteamcmd 运行中会拒绝执行；目录"
+            "删除不可撤销，账本移除前自动备份")
+        self._act_cleanup.triggered.connect(self._cleanup_residue_checked)
+        menu.addAction(self._act_cleanup)
+
         menu.addAction(self._act_acf)
         self._btn_sel.setMenu(menu)
         bh.addWidget(self._btn_sel)
@@ -192,6 +218,16 @@ class PurgedPage(QWidget):
             "删过文件夹、或从未入过账的\"毒 mod\"")
         btn_black.clicked.connect(self._manual_blacklist)
         bh.addWidget(btn_black)
+        btn_sweep = QPushButton("立即执行退出扫尾", bar)
+        btn_sweep.setToolTip(
+            "把黑名单里全部编号（所有游戏）从 steamcmd 的工坊账本文件"
+            "里移除——退出软件时本来就会自动做这件事（写前自动备份、"
+            "失败只记日志），本按钮 = 不等退出、现在就做一遍。\n"
+            "适用：马上要用别的前端（RimSort 等）、或不想等下次关软件。"
+            "steamcmd 运行中会拒绝执行")
+        btn_sweep.clicked.connect(self._sweep_all_now)
+        bh.addWidget(btn_sweep)
+
         bh.addStretch(1)
         root.addWidget(bar)
 
@@ -223,6 +259,9 @@ class PurgedPage(QWidget):
     def _reload(self) -> None:
         self._games = {g.app_id: g.name for g in self._repo.list_games()}
         self._games_in_order = list(self._repo.list_games())
+        self._game_dirs = {g.app_id: (g.download_dir or "").strip()
+                           for g in self._games_in_order}
+
         self._combo.blockSignals(True)
         try:
             self._combo.clear()
@@ -249,6 +288,11 @@ class PurgedPage(QWidget):
             rows = [r for r in rows if r.game_id == self._filter_game]
         self._rows = rows
         self._row_by_id = {r.mod_id: r for r in rows}
+        # 残留检测（口B·只读，毫秒级）：三个可定位位置逐条查。
+        # acf 每游戏只读一次；不报大小——为显示几个字去遍历几 GB
+        # 目录树不值当，想看大小去资源管理器。
+        self._residues = self._detect_residues(rows)
+
         self._table.setRowCount(len(rows))
         for row, r in enumerate(rows):
             it = QTableWidgetItem()
@@ -274,7 +318,17 @@ class PurgedPage(QWidget):
             self._table.setItem(row, COL_URL, ui)
             self._table.setItem(row, COL_PURGED,
                                 QTableWidgetItem(abs_time(r.purged_at)))
+            disp, tip_text = self._residues.get(r.mod_id, ("—", ""))
+            ri = QTableWidgetItem(disp)
+            ri.setToolTip(tip_text)
+            if disp.startswith("⚠"):
+                ri.setForeground(QBrush(QColor(_C_WARN)))
+            elif disp == "✓":
+                ri.setForeground(QBrush(QColor(_C_OK)))
+            self._table.setItem(row, COL_RESIDUE, ri)
+
             self._table.setItem(row, COL_NOTE, QTableWidgetItem(r.note or ""))
+
         n = len(rows)
         self._count_label.setText(
             f"黑名单共 {n} 个编号"
@@ -526,6 +580,76 @@ class PurgedPage(QWidget):
             self._log.info(f"「{gname}」没有 steamcmd 的工坊账本文件——"
                            "该游戏可能从没用本机 steamcmd 下载过，无需清理")
         self._reload()
+    def _sweep_all_now(self) -> None:
+        """退出扫尾（修36/决策114）的手动版：黑名单全部编号、跨全部
+        档案，一次出清 steamcmd 账本。与勾选版「从 steamcmd 账本移除
+        条目…」的分工：那个服务"挑几个"，这个服务"全都要、现在就要"
+        ——无需勾选、不看当前筛选。安全边界与退出扫尾一致：steamcmd
+        在跑 → 拒绝（写回覆盖等于白改）；写前自动备份；失败只记日志
+        不拦任何东西；黑名单登记保留。"""
+        rows = self._repo.list_purged()
+        if not rows:
+            QMessageBox.information(
+                self, "退出扫尾", "黑名单是空的：没有需要扫除的编号。")
+            return
+        if steamcmd_running():
+            QMessageBox.warning(
+                self, "steamcmd 正在运行",
+                "steamcmd 正在运行，现在改它的账本文件会在它退出时被"
+                "整个覆盖回去（等于白改）。\n\n请先停止 steamcmd"
+                "（控制台 → steamcmd 终端 → 停止），再回来执行。")
+            return
+        root = steamPaths.steamcmd_root(
+            self._settings.get("steamcmd_path") if self._settings else "")
+        if root is None:
+            QMessageBox.information(
+                self, "退出扫尾",
+                "尚未设置 steamcmd 程序路径，无法定位工坊账本文件。\n"
+                "请先到设置页填写 steamcmd 程序路径。")
+            return
+        by_game: dict[int, list[int]] = {}
+        for r in rows:
+            by_game.setdefault(r.game_id, []).append(r.mod_id)
+        ret = QMessageBox.question(
+            self, "立即执行退出扫尾",
+            f"把黑名单里全部 {len(rows)} 个编号从 steamcmd 的工坊账本"
+            f"文件里移除？（涉及 {len(by_game)} 个游戏档案）\n\n"
+            "· 这正是退出软件时自动做的那件事，本按钮 = 现在就做；\n"
+            "· steamcmd 从此彻底忘了这些条目，不再校验装配；\n"
+            "· 操作前自动备份原账本文件（同目录 .bak_时间戳）；\n"
+            "· 黑名单登记保留，条目继续被拦截入账。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            self._log.info("已取消退出扫尾：账本未动")
+            return
+        total_removed: list[int] = []
+        missing: list[str] = []
+        for game_id, mids in sorted(by_game.items()):
+            gname = self._games.get(game_id, str(game_id))
+            acf = steamPaths.locate_acf(root, game_id)
+            if acf is None:
+                missing.append(gname)
+                continue
+            try:
+                removed, absent = steamPaths.remove_items_from_acf(acf, mids)
+            except ValueError as exc:
+                self._log.error(f"「{gname}」的账本扫除失败（条目未动）：{exc}")
+                continue
+            total_removed.extend(removed)
+            line = f"「{gname}」：已移除 {len(removed)} 个条目"
+            if absent:
+                line += f"；{len(absent)} 个编号账本里本来就没有"
+            self._log.ok(line)
+        if total_removed:
+            self._log.warn(f"退出扫尾完成：共移除 {len(total_removed)} 个"
+                           "账本条目（原文件已自动备份；黑名单登记保留）")
+        elif not missing:
+            self._log.info("退出扫尾：账本里本来就没有这些条目，无需处理")
+        for gname in missing:
+            self._log.info(f"「{gname}」没有 steamcmd 的工坊账本文件"
+                           "（该游戏可能从没用本机 steamcmd 下载过）")
+        self._reload()
 
     # ---------- 表格交互 ----------
     def _on_cell_clicked(self, row: int, col: int) -> None:
@@ -573,6 +697,13 @@ class PurgedPage(QWidget):
             lambda: (self._table.item(row, COL_CHECK).setCheckState(
                 Qt.CheckState.Checked), self._remove_from_acf_checked()))
         menu.addAction(act_acf)
+        act_cleanup = QAction("清除残留…", menu)
+        act_cleanup.setToolTip("同批量动作，单条版")
+        act_cleanup.triggered.connect(
+            lambda: (self._table.item(row, COL_CHECK).setCheckState(
+                Qt.CheckState.Checked), self._cleanup_residue_checked()))
+        menu.addAction(act_cleanup)
+
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def _copy_id(self, mid: int) -> None:
@@ -583,4 +714,157 @@ class PurgedPage(QWidget):
     def refresh(self) -> None:
         """主窗口切到本页时调用：黑名单可能刚被别处（右键彻底清账 /
         清理页）改动，进页重读。"""
+        self._reload()
+    # ---------- 残留检测与清除（口B） ----------
+    def _detect_residues(self, rows: list) -> dict[int, tuple[str, str]]:
+        """逐条盘点黑名单条目的残留（只读）。返回 编号 → (显示, tooltip)。
+        content 用档案的 download_dir（建档时写入，不依赖 steamcmd
+        配置）；账本与半成品需要 steamcmd 根——没配则这两项标未知。"""
+        root = steamPaths.steamcmd_root(
+            self._settings.get("steamcmd_path") if self._settings else "")
+        acf_by_game: dict[int, set[int] | None] = {}
+        for gid in {r.game_id for r in rows}:
+            acf = steamPaths.locate_acf(root, gid) if root else None
+            acf_by_game[gid] = (steamPaths.acf_installed_ids(acf)
+                                if acf is not None else None)
+        out: dict[int, tuple[str, str]] = {}
+        for r in rows:
+            parts: list[str] = []
+            unknown: list[str] = []
+            ddir = self._game_dirs.get(r.game_id)
+            if ddir:
+                if (Path(ddir) / str(r.mod_id)).is_dir():
+                    parts.append("内容目录")
+            else:
+                unknown.append("内容目录（档案没记下载目录）")
+            ids = acf_by_game.get(r.game_id)
+            if ids is None:
+                unknown.append("账本条目（未配 steamcmd 查不了——退出"
+                               "软件时会自动移除，无需手动）")
+            elif r.mod_id in ids:
+                parts.append("steamcmd 账本条目")
+            if root is None:
+                unknown.append("下载半成品（未配 steamcmd 查不了——"
+                               "批次前清缓存会连带清掉）")
+            elif (root / "steamapps" / "workshop" / "downloads"
+                  / str(r.mod_id)).exists():
+                parts.append("下载半成品")
+            if not parts and not unknown:
+                out[r.mod_id] = ("✓", "三个位置都没有残留")
+                continue
+            tip = ("、".join(parts) if parts else "已知范围无残留")
+            if unknown:
+                tip += "\n未查：" + "；".join(unknown)
+            out[r.mod_id] = (f"⚠ {len(parts)} 处" if parts else "✓", tip)
+        return out
+
+    def _cleanup_residue_checked(self) -> None:
+        """清除勾选条目的全部残留：内容目录 + steamcmd 账本条目 +
+        下载半成品，一键三处。账本移除走既有引擎（写前备份）；目录
+        删除前逐个查联接（红线：绝不穿透删除）；steamcmd 在跑时
+        整体拒绝（与「从 steamcmd 账本移除」同口径——它退出时会把
+        账本整个覆盖写回）。黑名单登记不受影响。"""
+        recs = self._checked()
+        if not recs:
+            QMessageBox.information(self, "清除残留", "先勾选编号。")
+            return
+        if steamcmd_running():
+            QMessageBox.warning(
+                self, "steamcmd 正在运行",
+                "steamcmd 正在运行：现在改账本会在它退出时被整个覆盖"
+                "回去，删目录也可能撞上正在写的文件。\n\n请先停止"
+                " steamcmd（控制台 → steamcmd 终端 → 停止）再执行。")
+            return
+        root = steamPaths.steamcmd_root(
+            self._settings.get("steamcmd_path") if self._settings else "")
+        # 现查残留（页面数据可能陈旧）
+        jobs: list[tuple[object, list[str]]] = []  # (记录, 位置名清单)
+        for r in recs:
+            spots: list[str] = []
+            ddir = self._game_dirs.get(r.game_id)
+            if ddir and (Path(ddir) / str(r.mod_id)).is_dir():
+                spots.append("content")
+            if root is not None:
+                acf = steamPaths.locate_acf(root, r.game_id)
+                ids = (steamPaths.acf_installed_ids(acf)
+                       if acf is not None else None)
+                if ids is not None and r.mod_id in ids:
+                    spots.append("acf")
+                if (root / "steamapps" / "workshop" / "downloads"
+                    / str(r.mod_id)).exists():
+                    spots.append("downloads")
+            if spots:
+                jobs.append((r, spots))
+        if not jobs:
+            QMessageBox.information(
+                self, "清除残留",
+                "勾选的编号在三个位置都没有可清的残留（或 steamcmd "
+                "未配置无法定位账本——那两项会在退出软件时自动处理）。")
+            return
+        lines = [f"对 {len(jobs)} 个编号清除残留（黑名单登记保留）：",
+                 "", "涉及："]
+        for r, spots in jobs[:10]:
+            lines.append(f" · {r.mod_id} {r.title or '（无标题）'}｜"
+                         + "、".join(spots))
+        if len(jobs) > 10:
+            lines.append(f" ……以及另外 {len(jobs) - 10} 个")
+        lines += ["", "· 内容目录与半成品物理删除，不可撤销；",
+                  "· 账本条目移除前自动备份原账本文件（同目录 "
+                  ".bak_时间戳）；",
+                  "· 已是联接的目录跳过不动（绝不穿透删除）。"]
+        ret = QMessageBox.question(
+            self, "清除残留", "\n".join(lines),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            self._log.info("已取消清除残留")
+            return
+        ok_n, fail_lines = 0, []
+        # 账本条目按游戏分组，一次一个文件（少写几遍、少备几份）
+        acf_jobs: dict[int, list[int]] = {}
+        for r, spots in jobs:
+            gname = self._games.get(r.game_id, str(r.game_id))
+            ddir = self._game_dirs.get(r.game_id)
+            for spot, path in (
+                    ("content", (Path(ddir) / str(r.mod_id))
+                    if ddir and "content" in spots else None),
+                    ("downloads", (root / "steamapps" / "workshop"
+                                   / "downloads" / str(r.mod_id))
+                    if root is not None and "downloads" in spots
+                    else None)):
+                if path is None:
+                    continue
+                try:
+                    if os.path.islink(str(path)) or os.path.isjunction(
+                            str(path)):
+                        fail_lines.append(
+                            f"{gname} {r.mod_id}：{spot} 是联接，"
+                            "跳过未动")
+                        continue
+                    shutil.rmtree(path)
+                    ok_n += 1
+                except OSError as exc:
+                    fail_lines.append(
+                        f"{gname} {r.mod_id}：{spot} 删除失败（{exc}）")
+            if "acf" in spots:
+                acf_jobs.setdefault(r.game_id, []).append(r.mod_id)
+        for game_id, mids in sorted(acf_jobs.items()):
+            gname = self._games.get(game_id, str(game_id))
+            acf = steamPaths.locate_acf(root, game_id)
+            if acf is None:
+                continue
+            try:
+                removed, _absent = steamPaths.remove_items_from_acf(acf, mids)
+                ok_n += len(removed)
+            except ValueError as exc:
+                fail_lines.append(f"{gname}：账本未动（{exc}）")
+        if ok_n:
+            self._log.ok(f"残留清除完成：{ok_n} 处已清"
+                         "（账本改动已自动备份原文件）")
+        for line in fail_lines:
+            self._log.warn(f"残留清除：{line}")
+        if fail_lines:
+            QMessageBox.warning(self, "清除残留",
+                                "部分失败（详见运行日志）：\n"
+                                + "\n".join(fail_lines[:10]))
         self._reload()

@@ -270,6 +270,24 @@ class BatchDownloadController(QWidget):
             self._log.error("该档案没有设置下载目录：请到「游戏 → 编辑档案」"
                             "补齐后再下载")
             return False
+        # 黑名单闸（修38）：彻底清账 = 物理删除 + 拉黑 + 断根，黑名单
+        # 编号不该从任何入口偷渡回来。这里的入口是"旧命令 / 浏览器
+        # 采集的旧网址 / 手滑勾选"——文件真会被 steamcmd 下载回来
+        # 占盘（账本免疫拦的是入账，拦不住下载本身）。硬拒绝并指路，
+        # 不静默剔除：静默剔除违背"不代替用户判断"，且用户会以为
+        # 批次完整执行了。
+        purged = {r.mod_id for r in self._repo.list_purged()
+                  if r.game_id == app_id}
+        blocked = [mid for mid in mod_ids if mid in purged]
+        if blocked:
+            shown = "、".join(str(m) for m in blocked[:10])
+            more = f" 等 {len(blocked)} 个" if len(blocked) > 10 else ""
+            self._log.error(
+                f"批次未开始：这些编号在黑名单（已彻底清账）：{shown}{more}。"
+                "steamcmd 会把它们原样下载回来占盘——确要重新收录，先到"
+                "【已清账管理】页对对应条目点「允许录入」，再重新开批")
+            return False
+
         # 决策 100（修35）：批次前清缓存——设置页开关默认开、hint 早已
         # 向用户承诺"每批下载开始前自动清空"，此前全项目零消费点。
         # 时机 = 开批检查全过、任何命令都还没发（steamcmd 刚起在提示符

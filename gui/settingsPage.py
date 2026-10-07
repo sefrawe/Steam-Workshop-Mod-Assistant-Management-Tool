@@ -44,7 +44,8 @@ from PySide6.QtWidgets import (
 
 from gui.theme import reapply_theme, font_px
 from core.appSettings import DEFAULTS, AppSettings
-from core.steamPaths import ensure_steamcmd_exe
+from core.steamPaths import clear_download_caches, ensure_steamcmd_exe
+
 
 # key / 中文标签 / 空值时的灰色提示 / 字段类型
 # （"file"=文件 / "dir"=目录 / "number"=正整数 / "text"=普通文本不校验
@@ -236,7 +237,25 @@ class SettingsPage(QWidget):
                 cb = QCheckBox()
                 cb.setToolTip(hint)
                 self._checks[key] = cb
-                form.addRow(label, cb)
+                if key == "steamcmd_clear_cache_before_batch":
+                    # 机制开关与就地执行同排：这条机制的"要不要自动"
+                    # 和"现在手动来一次"一眼看全（用户拍板的手动入口）
+                    btn = QPushButton("立即清理缓存")
+                    btn.setToolTip(
+                        "马上清空一次 steamcmd 的下载缓存（depotcache 与 "
+                        "workshop\\downloads），用的就是批次前自动清理"
+                        "的同一套引擎：内容目录一概不碰，steamcmd 正在"
+                        "运行时只清没被占用的部分（占用的跳过，属正常）。\n"
+                        "缓存特别大时界面可能卡几秒（删除在主线程执行）")
+                    btn.clicked.connect(self._clean_caches_now)
+                    h = QHBoxLayout()
+                    h.setContentsMargins(0, 0, 0, 0)
+                    h.addWidget(cb)
+                    h.addWidget(btn)
+                    h.addStretch(1)
+                    form.addRow(label, h)
+                else:
+                    form.addRow(label, cb)
                 continue
 
             if kind == "text_multi":
@@ -334,16 +353,29 @@ class SettingsPage(QWidget):
         note.setStyleSheet("color: gray;")
         root.addWidget(note)
 
-    def _browse(self, edit: QLineEdit, is_file: bool) -> None:
-        if is_file:
-            path, _ = QFileDialog.getOpenFileName(
-                self, "选择程序", edit.text() or "",
-                "可执行文件 (*.exe);;所有文件 (*)")
-        else:
-            path = QFileDialog.getExistingDirectory(
-                self, "选择目录", edit.text() or "")
-        if path:
-            edit.setText(str(path))   # Path 的字符串形式，跟原写法等价但更直白
+    def _clean_caches_now(self) -> None:
+        """就地清一次缓存（决策 100 引擎的手动入口）。结果写进
+        _saved_label——本页没有日志总线，这行常驻可见，够用。"""
+        cmd = str(self._settings.get("steamcmd_path") or "").strip()
+        if not cmd:
+            self._saved_label.setText("尚未设置 steamcmd 程序路径：填好后再来清理")
+            self._saved_label.setStyleSheet("color: gray;")
+            return
+        try:
+            freed, cleared, skipped = clear_download_caches(cmd)
+        except Exception as exc:  # 引擎契约：不抛错；这里是兜底
+            self._saved_label.setText(f"清理出错：{exc}")
+            self._saved_label.setStyleSheet("color: #e5484d;")
+            return
+        if cleared == 0 and not skipped:
+            self._saved_label.setText("缓存本来就是空的，无需清理")
+            self._saved_label.setStyleSheet("color: gray;")
+            return
+        line = f"已清理缓存：清掉 {cleared} 项，释放 {freed / 2 ** 20:.1f} MB"
+        if skipped:
+            line += f"；跳过 {len(skipped)} 项（被 steamcmd 占用，属正常）"
+        self._saved_label.setText(line)
+        self._saved_label.setStyleSheet("color: #46a758;")
 
     # ---------- 数据 ----------
     def _load_to_ui(self) -> None:
