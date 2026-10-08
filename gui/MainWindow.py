@@ -279,7 +279,8 @@ class MainWindow(QMainWindow):
         self._pending_triggers: dict | None = None
         self._confirm_dialog: ConfirmListDialog | None = None
         self._batch_ctrl = BatchDownloadController(
-            self._repo, self._settings, self._log, console=self._console)
+            self._repo, self._settings, self._log, console=self._console,
+            parent=self)
         self._console.terminal.download_batch_requested.connect(
             self._on_download_batch_requested)
         self._console.terminal.set_stop_guard(self._batch_ctrl.confirm_stop)
@@ -385,7 +386,8 @@ class MainWindow(QMainWindow):
         # mod 库页右键「获取下载命令…」→ 命令生成页并聚焦（核验页/
         # 异常页同一落点：跳页 + focus_ids，缺聚焦能力时只跳页）
         if hasattr(modlib, "command_gen_requested"):
-            modlib.command_gen_requested.connect(self._on_verify_command_gen)
+            modlib.command_gen_requested.connect(
+                self._on_modlist_command_gen)
 
 
 
@@ -1008,6 +1010,12 @@ class MainWindow(QMainWindow):
         setter = getattr(page, "set_input_text", None)
         if callable(setter) and text:
             setter(text)
+    def _on_modlist_command_gen(self, mod_ids: list[int]) -> None:
+        """mod 库页右键「获取下载命令…」的落点：改道【快速命令查询】页
+        并预填编号（只填不跑，查询由用户亲手点）。"""
+        self._goto_quick_cmd("\n".join(str(m) for m in mod_ids))
+        self._log.info(f"已把 {len(mod_ids)} 个编号带入【快速命令查询】"
+                       "（点【解析并查询】生成命令）")
 
     def _on_verify_command_gen(self, mod_ids: list[int]) -> None:
         """核验页修复三选「重新下载」：跳命令生成页并聚焦勾选。

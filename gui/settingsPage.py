@@ -181,11 +181,18 @@ _FIELDS = [
     # workflows/exceptionFlow.DEFAULT_TITLE_KEYWORDS 同文
     ("local_title_warn_keywords", "本地标题提醒关键词",
      "mod 库里标题含这些词的条目，在【标题检测】页黄字提醒（离线、"
-     "毫秒级）。中英文逗号或空格分隔（中文逗号保存时自动转半角），"
-     "大小写不影响匹配；留空 = 停用。默认：abandoned, deprecated, "
-     "discontinued, unmaintained, outdated——像 \"Abandoned Mines\" "
-     "这类地图名也会被命中，只是提醒不是判定，误报就把对应词删掉",
+     "毫秒级）。逗号或分号分隔（中英文逗号分号均可，保存时自动归一；"
+     "词内可含空格，如 no longer——空格不算分隔符），大小写不影响"
+     "匹配；留空 = 停用。"
+     "默认：abandoned, deprecated, discontinued, unmaintained, "
+     "outdated, obsolete, unsupported,legacy,defunct, no longer, "
+     "not maintained, not updated, no update, final version, "
+     "last version, 停更, 弃坑, 断更, 烂尾, 停止更新, 不再更新, "
+     "不更新, 停止维护, 不再维护, 不再支持, 弃用, 过时"
+     "——像 \"Abandoned Mines\" 这类地图名也会被命中，只是提醒"
+     "不是判定，误报就把对应词删掉",
      "text"),
+
 ]
 
 

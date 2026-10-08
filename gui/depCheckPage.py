@@ -297,17 +297,30 @@ class DepCheckPage(QWidget):
         self._fill_list(self._sec_changed[1], chg_rows)
         n_bad = len(deps.missing) + len(deps.changed)
         if n_bad == 0:
-            self._summary.setText(
-                f"无异常（解析 {deps.fetched} 条：无依赖 "
-                f"{len(deps.childless)} 条，其余依赖全部在账本）。")
-            self._summary.setStyleSheet(f"color: {_C_OK};")
+            if self._first_fetch:
+                # 首次拉取 = 建基线，不是"对比过没变化"——话说清
+                self._summary.setText(
+                    f"首次拉取完成：依赖基线已建立并入账"
+                    f"（{written} 条清单，其中无依赖 "
+                    f"{len(deps.childless)} 条，其余依赖全部在"
+                    "账本）。之后作者增删依赖，这里才会报"
+                    "「依赖变化」。")
+                self._summary.setStyleSheet(f"color: {_C_MUTED};")
+            else:
+                self._summary.setText(
+                    f"无异常（解析 {deps.fetched} 条：无依赖 "
+                    f"{len(deps.childless)} 条，其余依赖全部在账本）。")
+                self._summary.setStyleSheet(f"color: {_C_OK};")
         else:
+            head = ("首次拉取（本次结果已作为基线入账，缺依赖照常要补）：\n"
+                    if self._first_fetch else "")
             stat = (f"缺依赖 {len(deps.missing)} · "
                     f"依赖变化 {len(deps.changed)}")
             if deps.undetermined:
                 stat += f" · 未判定 {len(deps.undetermined)}"
-            self._summary.setText(stat)
+            self._summary.setText(head + stat)
             self._summary.setStyleSheet(f"color: {_C_WARN};")
+
         # 补充说明行
         last_fetch = self._repo.latest_dependency_fetch()
         notes = []

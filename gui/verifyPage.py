@@ -74,8 +74,7 @@ _BUCKETS = [
 ]
 
 _GUIDE_PARAS = (
-    "两把尺子先分清：本页核验看的是【磁盘】（含反向联接后的游戏真实"
-    "目录）；【扫描本地】读的是 steamcmd 自己的账本文件。所以"
+    "两把尺子先分清：本页核验看的是【磁盘】（下载目录实况，联接布局下即游戏真实读到的目录）；【扫描本地】读的是 steamcmd 自己的账本文件。所以"
     "核验能看见的条目，扫描本地未必认——两者对不上不是故障。",
 
     "各行含义：账说「已下载」但盘上缺失/为空 → 点【修复…】三选一；"
@@ -93,14 +92,15 @@ _GUIDE_PARAS = (
     "空目录行 = 快捷普通重下。",
 
     "本页不删任何文件；写库只发生在你主动的动作（修复三选里的"
-    "「标记为已移除」／设置游戏侧目录）与死路径自动重推导。链接巡检"
-    "只报不修；修不修、怎么修由你决定。",
+    "「标记为已移除」）与死路径自动重推导。游戏侧联接的检查在"
+    "【联接检测】页进行，本页不再重复。",
+
 )
 
 # 折叠记忆的三个键：QSettings 的 session/ 命名空间，值 "1"/"0"
 _SES_SEC_TABLE = "session/verify_sec_table"    # 问题明细
 _SES_SEC_NN = "session/verify_sec_nn"          # 非数字明细
-_SES_SEC_JUNC = "session/verify_sec_junc"      # 链接巡检明细
+
 
 
 class VerifyPage(QWidget):
@@ -142,9 +142,7 @@ class VerifyPage(QWidget):
         self._game_label = QLabel(self)
         root.addWidget(self._game_label)
 
-        self._jcfg_label = QLabel("", self)
-        self._jcfg_label.setWordWrap(True)   # 长路径换行，别撑宽窗口
-        root.addWidget(self._jcfg_label)
+
 
         tip = QLabel(
             "核验本身只读——写库只发生在你主动的动作（修复三选里的"
@@ -190,9 +188,7 @@ class VerifyPage(QWidget):
         btn_row = QWidget(self)
         h = QHBoxLayout(btn_row)
         h.setContentsMargins(0, 0, 0, 0)
-        self._jcfg_btn = QPushButton("设置游戏侧目录…", btn_row)
-        self._jcfg_btn.clicked.connect(self._set_game_mod_dir)
-        h.addWidget(self._jcfg_btn)
+
         self._verify_btn = QPushButton("开始核验", btn_row)
         self._verify_btn.clicked.connect(self._start_verify)
         h.addWidget(self._verify_btn)
@@ -233,27 +229,16 @@ class VerifyPage(QWidget):
         self._sec_nn.set_content(self._nn_list, 300)
         root.addWidget(self._sec_nn)
 
-        self._junc_label = QLabel("", self)
-        self._junc_label.setWordWrap(True)
-        root.addWidget(self._junc_label)
-        self._junc_list = QListWidget(self)
-        self._sec_junc = _Section("链接巡检明细", self)
-        self._sec_junc.set_content(self._junc_list, 300)
-        root.addWidget(self._sec_junc)
 
         # 折叠记忆：三节收展一变即落盘（含程序性收展）
         self._sec_table.expand_changed.connect(
             lambda ex: self._save_fold(_SES_SEC_TABLE, ex))
         self._sec_nn.expand_changed.connect(
             lambda ex: self._save_fold(_SES_SEC_NN, ex))
-        self._sec_junc.expand_changed.connect(
-            lambda ex: self._save_fold(_SES_SEC_JUNC, ex))
 
         self._verify_btn.setToolTip(
-            "只读对账：账本↔磁盘实况 + 游戏侧链接；除你主动选择的动作"
-            "（修复三选）外，不写库、不删任何文件")
-        self._jcfg_btn.setToolTip(
-            "选择游戏读取 mod 的目录，启用链接布局巡检；单目录布局无需配置")
+            "只读对账：账本↔磁盘实况；除你主动选择的动作（修复三选）外，"
+            "不写库、不删任何文件")
 
         root.addStretch(1)   # 剩余空间留页尾：分区保持自然高度
 
@@ -282,13 +267,11 @@ class VerifyPage(QWidget):
     def _save_fold(self, key: str, expanded: bool) -> None:
         """一节收展一变即落盘（用户点击与程序性收展都走这）。"""
         QSettings().setValue(key, "1" if expanded else "0")
-
     def _restore_fold_memory(self) -> None:
-        """启动时恢复三节上次的收展；无记录 = 维持默认展开。"""
+        """启动时恢复两节上次的收展；无记录 = 维持默认展开。"""
         q = QSettings()
         for key, sec in ((_SES_SEC_TABLE, self._sec_table),
-                         (_SES_SEC_NN, self._sec_nn),
-                         (_SES_SEC_JUNC, self._sec_junc)):
+                         (_SES_SEC_NN, self._sec_nn)):
             raw = q.value(key)
             if raw is not None:
                 sec.set_expanded(str(raw) != "0")
@@ -301,49 +284,19 @@ class VerifyPage(QWidget):
         self._titles = {}
         self._nn_list.clear()
         self._nn_label.setText("")
-        self._junc_list.clear()
-        self._junc_label.setText("")
-        # 切档案后旧明细已清空：两节收回折叠态，不留空框
+        # 切档案后旧明细已清空：非数字节收回折叠态，不留空框
         self._sec_nn.set_expanded(False)
-        self._sec_junc.set_expanded(False)
         self._sec_table.set_title("问题明细")
         self._summary.setText("")
         if game is None:
             self._game_label.setText(
                 "当前游戏：（未选择）—— 请先在左上角添加或选择档案")
-            self._jcfg_label.setText("")
-            self._jcfg_btn.setEnabled(False)
             self._verify_btn.setEnabled(False)
         else:
             self._game_label.setText(
                 f"当前游戏：{game.name}（{game.app_id}）")
-            self._refresh_cfg_label()
-            self._jcfg_btn.setEnabled(True)
             self._verify_btn.setEnabled(True)
 
-    # ---------- 游戏侧目录配置 ----------
-    def _refresh_cfg_label(self) -> None:
-        assert self._game is not None
-        gd = (self._game.game_mod_dir or "").strip()
-        if gd:
-            self._jcfg_label.setText(f"游戏侧 mods 目录：{gd}")
-        else:
-            self._jcfg_label.setText(
-                "游戏侧 mods 目录：（未配置——不检查游戏侧链接）")
-
-    def _set_game_mod_dir(self) -> None:
-        if self._game is None:
-            return
-        start = self._game.game_mod_dir or ""
-        path = QFileDialog.getExistingDirectory(
-            self, "选择游戏侧 mods 目录（如 CK3 的 mod 文件夹）", start)
-        if not path:
-            return
-        # update_game 约定 None=不修改；"清除"用写空串表达
-        self._repo.update_game(self._game.app_id, game_mod_dir=path)
-        self._game = self._repo.get_game(self._game.app_id)   # 内存同步
-        self._refresh_cfg_label()
-        self._log.info(f"游戏侧 mods 目录已设置：{path}")
 
     # ---------- 核验流程 ----------
     def _start_verify(self) -> None:
@@ -375,11 +328,11 @@ class VerifyPage(QWidget):
             self._rows_spec = []
             self._nn_list.clear()
             self._nn_label.setText("")
-            self._junc_list.clear()
-            self._junc_label.setText("")
+
+
             self._sec_table.set_expanded(False)
             self._sec_nn.set_expanded(False)
-            self._sec_junc.set_expanded(False)
+
             self._summary.setStyleSheet("color: #e5484d;")
             self._summary.setText(
                 "下载目录不存在，逐条对账没有意义（会满屏误报）。\n"
@@ -416,9 +369,6 @@ class VerifyPage(QWidget):
             f"账本外 {n_claim}，已收录待确认 {n_confirm}"
             + (f"，软删/失效保留 {n_keep}" if n_keep else "")
             + f"，非数字 {len(result.non_numeric)}")
-
-        # 第三步：账本 ↔ 游戏侧链接（未配置则显示提示）
-        self._run_junction_check(status_by_id)
 
     # ---------- 表格填充（行清单与重灌分离：筛选/排序不重查盘）----------
     def _fill_table(self, result: modVerifier.VerifyResult) -> None:
@@ -717,116 +667,6 @@ class VerifyPage(QWidget):
             self._nn_list.addItem("（无——正常）")
         self._sec_nn.set_expanded(n > 0)   # 空桶自动收起
 
-    # ---------- junction 巡检 ----------
-    def _run_junction_check(self, status_by_id: dict[int, str]) -> None:
-        """账本 ↔ 游戏侧链接巡检。动手逐条查之前，先用判定单源
-        （core/steamPaths.junction_state）认一次拓扑：
-        - 反向拓扑健康 → 一行绿字收工（逐条查会把每个已下载 mod 都
-          报成"实为目录"，满屏同一句误报；各 mod 在不在盘上，上方
-          账实对账透过联接已经查过）；
-        - 反向联接指错目标 / 悬空 → 一行红字 + 指路联接检测页
-          （联接一坏，steamcmd 写入就静默落空）；
-        - 其余情况维持既有逐条巡检。"""
-        assert self._game is not None
-        self._junc_list.clear()
-        self._junc_label.setText("")
-        game_dir = str(self._game.game_mod_dir or "").strip().strip('"').strip()
-        if game_dir:
-            reverse = steamPaths.junction_state(self._game.download_dir,
-                                                game_dir)
-            if reverse.state == "linked":
-                if os.path.isdir(game_dir):
-                    self._junc_label.setText(
-                        "junction 巡检：✓ 反向拓扑正常——下载目录是联接，"
-                        f"指向游戏侧目录：{game_dir}\n"
-                        "（反向布局下游戏直接读真实目录，无需逐条链接；"
-                        "各 mod 是否在盘上，已由上方账实对账覆盖）")
-                    self._junc_label.setStyleSheet("color: #46a758;")
-                    self._log.ok(f"junction 巡检：反向拓扑正常（{game_dir}）")
-                    # 反向健康 = 一行绿字收工，必须 return：
-                    # 不 return 会落进逐条巡检，modVerifier 对反向布局
-                    # 返回 None，绿字会被"未启用"覆盖
-                    self._sec_junc.set_expanded(False)
-                    return
-                # 悬空：不赌状态名，用存在性兜底——绝不能当"正常"放过去：
-                # steamcmd 下次下载会写进一个不存在的位置，静默失败
-                self._junc_label.setText(
-                    "junction 巡检：✗ 反向联接指对了位置，"
-                    f"但游戏侧目录当前不存在：{game_dir}\n"
-                    "steamcmd 的下载此刻写不进去。"
-                    "到「游戏 → 连接指引」重新检测，按步骤修复"
-                    "（通常把该目录建回来即可接上）。")
-                self._junc_label.setStyleSheet("color: #e5484d;")
-                self._log.warn(
-                    "junction 巡检：反向联接悬空，"
-                    f"游戏目录不存在：{game_dir}")
-                self._sec_junc.set_expanded(False)
-                return
-            if reverse.state == "wrong_target":
-                self._junc_label.setText(
-                    "junction 巡检：✗ 反向联接指错了目标——下载目录是联接，"
-                    f"但没有指向游戏侧目录（解析目标：{reverse.detail}）。\n"
-                    "steamcmd 的内容正写进别处，游戏侧收不到。"
-                    "到「游戏 → 连接指引」重新检测，按步骤原地重建。")
-                self._junc_label.setStyleSheet("color: #e5484d;")
-                self._log.warn(
-                    "junction 巡检：反向联接指错目标，"
-                    f"解析目标：{reverse.detail}")
-                self._sec_junc.set_expanded(False)
-                return
-            # 其余状态（下载目录是真实目录等）→ 落到逐条巡检
-
-        result = modVerifier.verify_junctions(
-            self._game.download_dir, self._game.game_mod_dir, status_by_id)
-        if result is None:
-            self._junc_label.setText(
-                "junction 巡检：未启用——未配置游戏侧 mods 目录，"
-                "或游戏侧目录与下载目录相同（单目录布局，没有链接可查）。"
-                "需要检查链接布局时点上方【设置游戏侧目录…】。")
-            self._junc_label.setStyleSheet("color: gray;")
-            self._sec_junc.set_expanded(False)
-            return
-        if result.dead_root:
-            self._junc_label.setText(
-                f"junction 巡检：目录不存在（{result.game_mod_dir}），"
-                "请检查配置。")
-            self._junc_label.setStyleSheet("color: #e5484d;")
-            self._log.warn("junction 巡检：游戏侧目录不存在")
-            self._sec_junc.set_expanded(False)
-            return
-
-        # 修法差异：缺链接 → 重建链接（重下无效！重下只恢复 content 侧）；
-        # 指错/真实目录/多余 → 只报不动，人工确认
-        lines: list[str] = []
-        for mid in result.link_missing:
-            lines.append(f"{mid}：游戏侧缺少链接（游戏里看不到此 mod）"
-                         "——重建链接即可，无需重新下载")
-        for mid, target in result.link_wrong_target:
-            lines.append(f"{mid}：链接指向 {target}，不是工坊内容目录"
-                         "——确认无用后删除重建")
-        for mid in result.link_real_dir:
-            lines.append(f"{mid}：游戏侧是真实目录不是链接"
-                         "——本工具不代删，请人工确认")
-        for name in result.extra:
-            lines.append(f"{name}：游戏侧多余条目——人工确认后自行处理")
-        for line in lines:
-            self._junc_list.addItem(line)
-
-        n_bad = len(lines)
-        self._junc_label.setText(
-            f"junction 巡检：正常 {result.ok}"
-            f"｜缺链接 {len(result.link_missing)}"
-            f"｜指错目标 {len(result.link_wrong_target)}"
-            f"｜实为目录 {len(result.link_real_dir)}"
-            f"｜多余条目 {len(result.extra)}")
-        self._junc_label.setStyleSheet(
-            "color: #46a758;" if n_bad == 0 else "color: #f76b15;")
-        self._log.ok(
-            f"junction 巡检完成：正常 {result.ok}，缺链接 "
-            f"{len(result.link_missing)}，指错 "
-            f"{len(result.link_wrong_target)}，实为目录 "
-            f"{len(result.link_real_dir)}，多余 {len(result.extra)}")
-        self._sec_junc.set_expanded(bool(lines))
 
     # ---------- 跳转命令生成页（双击行的快捷重下）----------
     def _on_row_double_clicked(self, row: int, _col: int) -> None:

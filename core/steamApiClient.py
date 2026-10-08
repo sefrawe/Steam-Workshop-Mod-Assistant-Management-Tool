@@ -47,6 +47,7 @@ from dataclasses import dataclass
 import threading
 
 import requests
+from loguru import logger
 
 # 可选增强：注入失败不应影响程序其余部分，所以吞掉一切异常并注明原因
 try:
@@ -358,14 +359,18 @@ class SteamApiClient:
         return items
 
     # ---------- 内部：带重试的请求 ----------
-
     def _request_json(self, url: str, send: Callable[[], requests.Response]) -> dict:
         """发一次请求 → 解析 JSON，重试三档（POST/GET 共用这一份逻辑）：
+
         - 429/503、网络异常、空响应体：值得重试，指数退避（等待翻倍）
         - 其他非 200（如 404）：立刻报错，重试没有意义
         - 重试用完仍失败：抛 SteamApiError，把最后一次的失败原因带出去
-        - 取消置位（v2.45）：任何检查点/退避等待里立即抛
-          SteamApiCancelled——重试与退避都不再发生
+        - 取消置位：任何检查点/退避等待里立即抛 SteamApiCancelled
+          ——重试与退避都不再发生
+
+        每次失败都打一条 warning：重试期动辄一两分钟，不出声会被
+        当成卡死。
+
         send 是"怎么发这个请求"的无参函数（POST 还是 GET 由调用方决定），
         本方法只管"发了之后怎么算失败、失败了怎么办"——重试策略只有
         这一份，改判定/改退避只动这里，绝不出现两处走样。
@@ -377,10 +382,24 @@ class SteamApiClient:
                 resp = send()
             except requests.RequestException as exc:
                 last_exc = exc
-                # 连不上/DNS 失败/超时/证书校验失败等，值得重试
+                if attempt < self._max_retries:
+                    logger.warning(
+                        "Steam 请求失败（第 {}/{} 次）：{}；{} 秒后自动重试"
+                        "（不是卡死，是在重试）",
+                        attempt + 1, self._max_retries + 1, exc,
+                        self._interval_ms / 1000 * (2 ** attempt))
+                # 最后一次失败不打日志：紧接着的抛错由调用方上报
             else:
                 if resp.status_code in _RETRY_STATUSES:
-                    last_exc = SteamApiError(f"HTTP {resp.status_code}（疑似限流）")
+                    last_exc = SteamApiError(
+                        f"HTTP {resp.status_code}（疑似限流）")
+                    if attempt < self._max_retries:
+                        logger.warning(
+                            "Steam 接口限流（HTTP {}，第 {}/{} 次）；"
+                            "{} 秒后自动重试",
+                            resp.status_code, attempt + 1,
+                                              self._max_retries + 1,
+                                              self._interval_ms / 1000 * (2 ** attempt))
                 elif resp.status_code != 200:
                     raise SteamApiError(
                         f"HTTP {resp.status_code}，接口：{url}")
@@ -388,15 +407,21 @@ class SteamApiClient:
                     try:
                         return resp.json()
                     except ValueError as exc:
-                        last_exc = exc  # 偶发空响应/坏 JSON，值得重试
+                        last_exc = exc
+                        if attempt < self._max_retries:
+                            logger.warning(
+                                "Steam 响应不是合法 JSON（第 {}/{} 次）；"
+                                "{} 秒后自动重试",
+                                attempt + 1, self._max_retries + 1,
+                                self._interval_ms / 1000 * (2 ** attempt))
             if attempt < self._max_retries:
-                # 指数退避：第 1 次重试等 1 个间隔，第 2 次等 2 个，
-                # 第 3 次等 4 个……等待可被取消立即打断
+                # 指数退避：等待可被取消立即打断
                 self._sleep_cancellable(
                     self._interval_ms / 1000 * (2 ** attempt))
-        self._check_cancel()  # 重试耗尽时若恰好点过停，取消优先于报错
+                self._check_cancel()
         raise SteamApiError(
             f"请求多次失败（共 {self._max_retries + 1} 次）：{last_exc}")
+
 
     def _post_json(self, url: str, form: dict) -> dict:
         """POST 表单查询（两个官方接口的发送方式），重试逻辑见 _request_json。"""

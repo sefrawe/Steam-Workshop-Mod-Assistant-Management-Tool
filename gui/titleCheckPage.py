@@ -80,8 +80,8 @@ class TitleCheckPage(QWidget):
         row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
-        btn = QPushButton("刷新", row)
-        btn.setToolTip("按当前词表重扫一遍（设置页改完词表点它即刻生效）")
+        btn = QPushButton("开始检测", row)
+        btn.setToolTip("点击才扫描本地标题（设置页改完词表，点它重新生效）")
         btn.clicked.connect(self._recompute)
         h.addWidget(btn)
         h.addStretch(1)
@@ -117,17 +117,24 @@ class TitleCheckPage(QWidget):
         else:
             self._game_label.setText(
                 f"当前游戏：{game.name}（{game.app_id}）")
-        self._recompute()
+        # 不自动检测：切档案只清场，结果等用户点【开始检测】
+        self._list.clear()
+        self._mods_by_id = {}
+        if game is None:
+            self._status.setText("选好档案后点【开始检测】。")
+        else:
+            self._status.setText("点【开始检测】扫描当前档案的本地标题。")
+        self._status.setStyleSheet(f"color: {_C_MUTED};")
 
     def refresh(self) -> None:
-        """进页刷新钩子：设置页词表可能刚改过，重算。"""
-        self._recompute()
+        """进页钩子：不再自动重算（只在用户点击【开始检测】时跑）。
+        改过词表后点【开始检测】重扫即可。"""
 
     # ---------- 计算（纯读）----------
     def _recompute(self) -> None:
         self._list.clear()
         if self._game is None:
-            self._status.setText("选好档案后自动检测。")
+            self._status.setText("请先在左上角选择档案，再点【开始检测】")
             self._status.setStyleSheet(f"color: {_C_MUTED};")
             return
         mods = self._repo.list_mods(self._game.app_id)

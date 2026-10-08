@@ -47,7 +47,8 @@ DEFAULTS: dict[str, str] = {
     "backup_keep_per_mod": "3",    # 每个 mod 保留的备份份数（超出淘汰最旧，钉住豁免）
     "backup_total_quota_gb": "10",  # 全部备份合计的容量上限 GB（超出从最旧清腾）
     "console_auto_show": "1",  # 控制台被关闭时来了新日志要不要自动弹出
-    "local_title_warn_keywords": "abandoned,deprecated,discontinued,unmaintained,outdated",
+    "local_title_warn_keywords": "abandoned,deprecated,discontinued,unmaintained,legacy,outdated,obsolete,unsupported,defunct,no longer,not maintained,not updated,no update,final version,last version,停更,弃坑,断更,烂尾,停止更新,不再更新,不更新,停止维护,不再维护,不再支持,弃用,过时",
+
     # 关闭高级筛选窗口时自动清空条件（决策 97）："1" = 关窗即清空
     # （默认，原行为）；"0" = 关窗保留条件，重开接着用
     "advsearch_autoclear": "1",

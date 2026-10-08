@@ -940,27 +940,30 @@ class ExceptionPage(QWidget):
         card.set_status("自查清单", _C_MUTED)
         card.add_text(exceptionFlow.MULTIFRONTEND_NOTE)
         card.set_expanded(False)
-
-        # ---- 汇总行（已清账历史归档不算"本地发现"，决策 104）----
-        n_purged_arch = sum(1 for mid in rep.failed_ids
-                            if mid not in lib_ids)
+        # ---- 汇总行（三类分开数，互不混计）----
+        # 本地发现 = 盘面/账实问题（空目录/缺失/孤儿/非数字）。
+        # 失效归档是"远端状态的账本记录"（由更新检测建立），归联网侧
+        # 不归本地——此前同一失效条目两段汇总各计一次，读起来像
+        # "本地发现 N 处里混进了联网的一处"。
+        n_purged_arch = sum(1 for mid in rep.failed_ids if mid not in lib_ids)
+        n_arch_failed = len(rep.failed_ids) - n_purged_arch
         local_total = (len(b1_ids) + len(rep.missing) + len(rep.orphans)
-                       + len(rep.failed_ids) - n_purged_arch
                        + len(rep.non_numeric))
         if remote is not None:
-            remote_total = (len(remote.invalid)
-                            + len(remote.query_failed)
+            remote_total = (len(remote.invalid) + len(remote.query_failed)
                             + len(remote.suspected_collection))
         else:
             remote_total = None
-        if local_total == 0 and not flags and not (remote_total or 0):
+        if (local_total == 0 and n_arch_failed == 0 and not flags
+                and not (remote_total or 0)):
             tail = "（含联网深度检测）" if remote is not None else ""
             self._summary.setStyleSheet(f"color: {_C_OK};")
             self._summary.setText(f"六桶检查完毕{tail}：未发现异常。")
             self._log.ok(f"异常检测（{owner_name}）：未发现异常")
             self._apply_card_filter()
             return
-        if (not local_total and not (remote_total or 0) and flags):
+        if (not local_total and not n_arch_failed
+                and not (remote_total or 0) and flags):
             self._summary.setStyleSheet(f"color: {_C_WARN};")
             self._summary.setText(
                 "可判范围内未发现异常；有未能检查的部分，见上方横幅。")
@@ -970,9 +973,17 @@ class ExceptionPage(QWidget):
         parts: list[str] = []
         if local_total:
             parts.append(f"本地发现 {local_total} 处")
-        if remote_total:
-            parts.append(f"联网深检确认 {remote_total} 处"
-                         "（失效/查询失败/疑似合集）")
+        if remote_total is not None:
+            if remote_total:
+                parts.append(f"联网深检确认 {remote_total} 处"
+                             "（远端失效/查询失败/疑似合集）")
+        elif n_arch_failed:
+            parts.append(f"账本已记失效 {n_arch_failed} 处"
+                         "（更新检测确认的归档；远端实况可跑"
+                         "【联网深度检测】复核）")
+        if not parts:
+            parts.append("账本曾记失效的条目本次远端查询均正常"
+                         "（明细见桶④卡片）")
         if rep.tracked_on_disk:
             parts.append(f"待下载·盘上已有内容 {len(rep.tracked_on_disk)}"
                          "（排队中，非异常）")
@@ -980,8 +991,10 @@ class ExceptionPage(QWidget):
         self._summary.setText(
             f"「{owner_name}」：" + "；".join(parts)
             + "。各桶卡片内有明细与修法引导，修完复检。")
-        self._log.warn(f"异常检测（{owner_name}）：" + "；".join(parts))
+        self._log.warn(f"异常检测（{owner_name}）："
+                       + "；".join(parts))
         self._apply_card_filter()
+
 
     # ---------- 卡片基建 ----------
     def _card(self, name: str, title: str, tip: str,

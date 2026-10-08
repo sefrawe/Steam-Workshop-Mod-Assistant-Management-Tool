@@ -243,7 +243,10 @@ def classify_entries(entries: Iterable[dict]) -> RemoteFindings:
 # 只收高置信度词；"最终版""别更新了"之类赌气命名不收，免得满屏狼烟
 _ABANDONED_KEYWORDS = (
     "abandoned", "deprecated", "discontinued", "unmaintained",
-    "no longer", "不再维护", "不再更新", "停止更新", "停更", "弃坑",
+    "outdated", "obsolete", "unsupported", "legacy", "defunct",
+    "no longer", "not maintained", "not updated", "no update",
+    "不再维护", "不再更新", "停止更新", "停更", "弃坑",
+    "断更", "烂尾", "停止维护", "不再支持",
 )
 
 # 标题比较前剥掉的版本记号：作者常把版本号写进标题（v1.6 / [1.6]），
@@ -391,10 +394,20 @@ def classify_dependencies(entries: list[dict], lib_ids: set[int],
 # ============================================================
 # 桶C：本地标题关键词提醒 —— 离线、毫秒级、零联网、不入闸（D24）
 # ============================================================
+
 # 词表默认值：只收高置信度词（与桶A 远端弃坑词表同一哲学：宁可漏报
 # 不误报）。设置页「本地标题提醒关键词」可自行增删，留空 = 停用。
-# 中文词不进默认：本地标题含中文弃坑词的少且误报难判，需要再自己加。
-DEFAULT_TITLE_KEYWORDS = "abandoned,deprecated,discontinued,unmaintained,outdated"
+# 中文词已进默认：匹配 = casefold 子串；英文短语含空格合法
+# （解析见 classify_local_titles：空格不再当分隔符）。
+DEFAULT_TITLE_KEYWORDS = (
+    "abandoned,deprecated,discontinued,unmaintained,outdated,"
+    "obsolete,unsupported,defunct,"
+    "no longer,not maintained,not updated,no update,legacy,"
+    "final version,last version,"
+    "停更,弃坑,断更,烂尾,停止更新,不再更新,不更新,"
+    "停止维护,不再维护,不再支持,弃用,过时"
+)
+
 
 
 @dataclass
@@ -408,13 +421,13 @@ class LocalTitleFindings:
     def total(self) -> int:
         return len(self.hits)
 
-
-def classify_local_titles(local_titles: dict[int, str],
-                          keywords_raw: str | None) -> LocalTitleFindings:
+def classify_local_titles(local_titles: dict[int, str], keywords_raw: str | None) -> LocalTitleFindings:
     """桶C 分类核心（纯函数）。keywords_raw = 设置页原文：逗号/
-    中文逗号/分号/空白分隔均可（宽容解析——设置页保存侧已把中文
-    逗号归一半角，这里是消费端兜底，两道保险），大小写不敏感子串
-    匹配；解析后为空 = 功能停用（返回空）。
+    中文逗号/分号分隔（宽容解析——设置页保存侧已把中文逗号归一
+    半角，这里是消费端兜底，两道保险）。词内允许空格（英文短语
+    如 no longer），故空格不再当分隔符——若曾用空格分隔自定义
+    词表，改版后请改用逗号。大小写不敏感子串匹配；解析后为空 =
+    功能停用（返回空）。
     误报要明示：调用方必须在行内显示命中的词——"Abandoned Mines"
     这类地图名同样会命中，只提醒不处置，判断权在用户。只扫本地
     账本标题；远端侧的弃坑检测在桶A，两桶词表独立。"""
@@ -422,8 +435,8 @@ def classify_local_titles(local_titles: dict[int, str],
     raw = str(keywords_raw or "").strip()
     if not raw:
         return out
-    kws = sorted({k.casefold() for k in re.split(r"[,，;；\s]+", raw)
-                  if k.strip()})
+    kws = sorted({k.strip().casefold()
+                  for k in re.split(r"[,，;；]+", raw) if k.strip()})
     if not kws:
         return out
     for mid, title in local_titles.items():
