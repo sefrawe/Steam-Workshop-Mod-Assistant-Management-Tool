@@ -281,8 +281,12 @@ class MainWindow(QMainWindow):
         self._batch_ctrl = BatchDownloadController(
             self._repo, self._settings, self._log, console=self._console,
             parent=self)
+        self._batch_ctrl.hide()  # 无界面控制器：挂 parent 后子件会随主窗口
+        # 自动显示，默认几何停在 (0,0) 压住菜单栏左端吃点击——显式藏起；
+        # hide 只动显隐不动父子链，window() 照样返回主窗口（重试回退不受影响）
         self._console.terminal.download_batch_requested.connect(
             self._on_download_batch_requested)
+
         self._console.terminal.set_stop_guard(self._batch_ctrl.confirm_stop)
         self._console.terminal.process_exited.connect(
             self._batch_ctrl.on_process_exited)
