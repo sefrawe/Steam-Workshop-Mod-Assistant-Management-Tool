@@ -30,31 +30,7 @@ import sqlite3
 import sys
 import threading
 from pathlib import Path
-from gui.backupOverviewPage import BackupOverviewPage
-from gui.backupPage import BackupPage
-from core import dataExporter
-from gui.batchDownloadController import BatchDownloadController
-from gui.confirmListDialog import ConfirmListDialog
-from gui.accountCenterPage import AccountCenterPage
-from gui.updateCheckPage import UpdateCheckPage
-from gui.updateSelectDialog import UpdateSelectDialog
-from gui.verifyPage import VerifyPage
-from gui.junctionCheckPage import JunctionCheckPage
-from gui.deletePage import DeletePage
-from gui.purgedPage import PurgedPage
-from gui.titleCheckPage import TitleCheckPage
-from gui.remoteHealthPage import RemoteHealthPage
-from gui.depCheckPage import DepCheckPage
-from gui.exceptionPage import ExceptionPage
-from gui.browserPickDialog import BrowserPickDialog
-from gui.dailyUpdatePage import DailyUpdatePage
-from gui.migrationPage import MigrationPage
-from gui.rescuePage import RescuePage
-from gui.uninstallPage import UninstallPage
-from gui.addModPage import AddModPage
-from gui.gameExitPage import GameExitPage
-from gui.quickCommandPage import QuickCommandPage
-from gui.welcomePage import PROJECT_URL, WelcomePage
+
 from PySide6.QtCore import QSettings, Qt, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
@@ -68,31 +44,53 @@ from PySide6.QtWidgets import (
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
-    QWidget,QFileDialog,
+    QWidget, QFileDialog,
 )
-from gui.browserTabPage import BrowserTabPage
-from gui.browserPickDialog import BrowserPickDialog
 
 from core import appPaths
 from core import constants
+from core import dataExporter
 from core import steamPaths
-from core.backupManager import steamcmd_running
-
 from core.appSettings import AppSettings
+from core.backupManager import steamcmd_running
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
-from gui.consolePanel import ConsolePanel
-from gui.gameSwitcher import GameSwitcher
-from gui.logBus import LogBus
-from gui.modListPage import ModListPage
-from gui.updateComparePage import UpdateComparePage
-from gui.commandGenPage import CommandGenPage
-from gui.statsPage import StatsPage
-from gui.settingsPage import SettingsPage
-
-from gui.shareListPage import ShareListPage
+from gui.accountCenterPage import AccountCenterPage
+from gui.addModPage import AddModPage
 from gui.apiKeyPage import ApiKeyPage
+from gui.backupOverviewPage import BackupOverviewPage
+from gui.backupPage import BackupPage
+from gui.batchDownloadController import BatchDownloadController
+from gui.browserPickDialog import BrowserPickDialog
+from gui.browserTabPage import BrowserTabPage
+from gui.commandGenPage import CommandGenPage
+from gui.confirmListDialog import ConfirmListDialog
+from gui.consolePanel import ConsolePanel
+from gui.dailyUpdatePage import DailyUpdatePage
+from gui.deletePage import DeletePage
+from gui.depCheckPage import DepCheckPage
+from gui.exceptionPage import ExceptionPage
 from gui.firstUsePage import FirstUsePage
+from gui.gameExitPage import GameExitPage
+from gui.gameSwitcher import GameSwitcher
+from gui.junctionCheckPage import JunctionCheckPage
+from gui.logBus import LogBus, set_log_bridge
+from gui.migrationPage import MigrationPage
+from gui.modListPage import ModListPage
+from gui.purgedPage import PurgedPage
+from gui.quickCommandPage import QuickCommandPage
+from gui.remoteHealthPage import RemoteHealthPage
+from gui.rescuePage import RescuePage
+from gui.settingsPage import SettingsPage
+from gui.shareListPage import ShareListPage
+from gui.statsPage import StatsPage
+from gui.titleCheckPage import TitleCheckPage
+from gui.uninstallPage import UninstallPage
+from gui.updateCheckPage import UpdateCheckPage
+from gui.updateComparePage import UpdateComparePage
+from gui.updateSelectDialog import UpdateSelectDialog
+from gui.verifyPage import VerifyPage
+from gui.welcomePage import PROJECT_URL, WelcomePage
 
 DEFAULT_DB_PATH = appPaths.db_path()  # T17：数据根单源（源码=项目根\data）
 _NAV_WIDTH = 210
@@ -255,6 +253,7 @@ class MainWindow(QMainWindow):
         # （_build_docks）接住总线后，日志同时去两处：文件旁路
         # （装了 loguru 时落 data/logs/app_*.log）+ 控制台"运行日志"页
         self._log = LogBus()
+        set_log_bridge(self._log)  # loguru→软件内控制台反向桥（core 层重试警告等直写 loguru 的日志同步上屏）
 
         # 数据库操作全在主线程（毫秒级）；联网/扫描等长操作走各自
         # 页面的工作线程
@@ -571,7 +570,8 @@ class MainWindow(QMainWindow):
         if pid == constants.PAGE_STATS:
             return StatsPage(self._repo, parent=self._stack)
         if pid == constants.PAGE_SETTINGS:
-            return SettingsPage(self._settings, parent=self._stack)
+            return SettingsPage(self._settings, parent=self._stack, log=self._log)
+
         if pid == constants.PAGE_VERIFY:
             page = VerifyPage(self._repo, self._settings,
                               parent=self._stack, log=self._log)
@@ -1373,6 +1373,21 @@ class MainWindow(QMainWindow):
         # 退出前断根扫尾（决策 114）：steamcmd 已在上面收停、账本还没
         # 关——正是补断根刀的安全窗口。详见 _acf_sweep_at_exit。
         self._acf_sweep_at_exit()
+        # T5（2026-10 增补）：退出扫尾清缓存（默认关，cache_clean_on_exit）：
+        # 把本会话 steamcmd 登录刷新的 manifest 带走。默认关的理由：大缓存
+        # 删除占主线程、拖慢退出（刻意不做清单原则），且批后/清账后已
+        # 覆盖高价值时刻——确有需要再到设置页开。
+        if self._settings.get_int("cache_clean_on_exit", 0) != 0:
+            try:
+                freed, cleared, skipped = steamPaths.clear_download_caches(
+                    self._settings.get("steamcmd_path"))
+                if cleared or skipped:
+                    self._log.info(
+                        f"退出清缓存：清掉 {cleared} 项，"
+                        f"释放 {freed / 2 ** 20:.1f} MB"
+                        + (f"；跳过 {len(skipped)} 项（被占用）" if skipped else ""))
+            except OSError as exc:
+                self._log.warn(f"退出清缓存未完成（不影响退出）：{exc}")
 
         self._save_panel_state()
         self._repo.close()

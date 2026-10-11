@@ -67,6 +67,7 @@ KIND_DISCONNECTED = "disconnected"            # 与 Steam 断线（steamcmd 自�
 KIND_COMMAND_NOT_FOUND = "command_not_found"  # 命令不识别（输错了/粘错了）
 KIND_LOGIN_OK = "login_ok"                    # 登录完成（可以开始下命令了）
 KIND_READY = "ready"                          # steamcmd 启动就绪
+KIND_FULL_VALIDATION = "full_validation" # 工坊全量校验（例行对账，非卡死）
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,13 @@ _PATTERNS: list[tuple[re.Pattern, object]] = [
     # 启动就绪：出现这行说明 steamcmd 起来了、可以发登录命令
     (re.compile(r"Loading Steam API\.\.\.OK"),
      lambda m: Verdict(kind=KIND_READY)),
+    # 工坊全量校验：账实不符时 steamcmd 的例行对账（千条级实测
+    # 约 25 分钟），期间不吐任何其他结论——识别它并说人话，否则
+    # 日志空窗会被误读成"批次卡死"。不携带编号、不是下载结论，
+    # 只是一次状态广播
+    (re.compile(r"Running full workshop file validation"),
+     lambda m: Verdict(kind=KIND_FULL_VALIDATION)),
+
     # 下载开始：整行匹配（行尾就是省略号才算）——垫底的原因见文件头坑 1
     (re.compile(r"^Downloading item (\d+)\s+\.\.\.\s*$"),
      lambda m: Verdict(kind=KIND_DOWNLOAD_STARTED, mod_id=int(m.group(1)))),
@@ -194,4 +202,8 @@ def describe(v: Verdict) -> str:
         return "登录成功"
     if v.kind == KIND_READY:
         return "steamcmd 就绪"
+    if v.kind == KIND_FULL_VALIDATION:
+        return ("steamcmd 正在做工坊全量校验（例行对账，不是卡死；"
+                "千条级实测约 25 分钟），请耐心等它走完")
     return v.kind  # 未知种类原样返回，不吞（与 formatters.status_zh 同款口径）
+

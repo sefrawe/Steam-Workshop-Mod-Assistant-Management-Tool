@@ -316,15 +316,17 @@ class ModListPage(QWidget):
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
 
-        # 搜索范围下拉（决策 99 沿用）：全部=标题+备注 SQL 合查；
-        # 标题/备注/编号=页面内存过滤（repo 契约零改动）
+        # 搜索范围下拉（决策 99 沿用）：不筛选=标题+备注 SQL 合查；
+        # 标题/备注/编号=页面内存过滤（repo 契约零改动）。
+        # 首项叫"不筛选"不叫"全部"（2026-10 用户拍板）：与颜色下拉的
+        # "不筛选"同一口径——"全部"读起来像主动筛了一遍
         self._search_field_combo = QComboBox(row)
-        for label, val in (("全部", "all"), ("标题", "title"),
+        for label, val in (("不筛选", "all"), ("标题", "title"),
                            ("备注", "note"), ("编号", "id")):
             self._search_field_combo.addItem(label, val)
         self._search_field_combo.setToolTip(
             "搜索框查什么：\n"
-            "全部：标题和备注都查（默认）；\n"
+            "不筛选：标题和备注都查（默认）；\n"
             "标题 / 备注：只查对应字段；\n"
             "编号：按完整编号精确匹配（输非数字 = 0 命中）")
         self._search_field_combo.currentIndexChanged.connect(
@@ -336,10 +338,12 @@ class ModListPage(QWidget):
         self._search_edit.setClearButtonEnabled(True)
         h.addWidget(self._search_edit, 1)
 
-        # 状态下拉：显示中文，currentData 存库内原始值
+        # 状态下拉：显示中文，currentData 存库内原始值。
+        # 首项叫"不筛选"不叫"全部"（2026-10 用户拍板）：与颜色下拉
+        # "不筛选"同一口径；currentData 仍是 None，查询逻辑零变化
         self._status_combo = QComboBox(row)
         for label, val in (
-                ("全部", None),
+                ("不筛选", None),
                 ("待下载", STATUS_TRACKED),
                 ("已下载", STATUS_DOWNLOADED),
                 ("已删除", "deleted"),
@@ -347,6 +351,7 @@ class ModListPage(QWidget):
         ):
             self._status_combo.addItem(label, val)
         self._status_combo.setToolTip(
+            "不筛选 = 不按状态过滤（全部状态都显示）；\n"
             "待下载 = 账上有编号、还没下载；已下载 = 你确认过下载成功")
         h.addWidget(self._status_combo)
 

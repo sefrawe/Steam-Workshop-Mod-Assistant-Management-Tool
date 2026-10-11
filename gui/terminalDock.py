@@ -110,9 +110,8 @@ _VERDICT_LEVELS = {
     outputAnalyzer.KIND_COMMAND_NOT_FOUND: "warn",
     outputAnalyzer.KIND_LOGIN_OK: "ok",
     outputAnalyzer.KIND_READY: "info",
+    outputAnalyzer.KIND_FULL_VALIDATION: "warn",
 }
-
-
 class _PtyReader(QThread):
     """后台读线程：循环读伪终端输出，每读到一块就发回主线程。
 

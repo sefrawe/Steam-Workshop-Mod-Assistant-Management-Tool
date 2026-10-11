@@ -73,6 +73,16 @@ O_CHK, O_URL, O_ID, O_SIZE = range(4)
 _URL_COL = {"missing": M_URL, "clean": C_URL, "orphan": O_URL}
 
 # ③ 排序下拉：文案 → 行排序键（对引擎行对象排序，重灌式）
+# 引擎动作 kind → 人话（逐条日志/失败明细用；ActionResult.kind 是
+# 数据契约不动，翻译住页面侧——账面/文件两步在日志里肉眼可分）
+_KIND_ZH = {
+    "ledger_soft": "账面·软删除",
+    "ledger_purge": "账面·彻底清账",
+    "backup_file": "备份文件",
+    "content": "content 文件",
+    "orphan": "孤儿目录",
+}
+
 _CLEAN_SORTS = (
     ("按编号（小→大）", lambda r: r.mod_id),
     ("按盘上大小（大→小）", lambda r: -(r.dir_size or 0)),
@@ -1036,19 +1046,46 @@ class DeletePage(QWidget):
         stopped = payload["stopped"]
         ok = [r for r in results if r.ok]
         bad = [r for r in results if not r.ok]
+        # 计数口径（2026-10 增补）：进度与汇总按"动作条"计——「连账面
+        # 一起处置」的 mod 在执行层拆成账面+文件两条（wipe_purge 实录：
+        # 1 个 mod = 2 条 = 显示"完成 2 条"）。汇总补"涉及 N 个 mod"
+        # 消解误读；逐条日志用 _KIND_ZH 写明是哪一步。涉及数按全部
+        # 结果去重（成功+失败都算"动过了"），失败明细逐条列出
+        n_mods = len({r.mod_id for r in results})
         tail = "（已按要求停止，剩余动作未执行）" if stopped else ""
         summary = (
-                f"执行结束：完成 {len(ok)} 条，失败 {len(bad)} 条{tail}"
-                + ("\n" + "\n".join(f"· {r.kind} {r.mod_id}：{r.detail}"
-                                    for r in bad) if bad else ""))
-        self._set_colored(self._lbl_progress, summary,
-                          _C_OK if (not bad and not stopped) else _C_WARN)
+                f"执行结束：完成 {len(ok)} 条动作（涉及 {n_mods} 个 mod），"
+                f"失败 {len(bad)} 条{tail}"
+                + ("\n" + "\n".join(f"· {_KIND_ZH.get(r.kind, r.kind)} "
+                                    f"{r.mod_id}：{r.detail}" for r in bad) if bad else ""))
+        self._set_colored(self._lbl_progress, summary, _C_OK if (not bad and not stopped) else _C_WARN)
         if stopped:
             self._log.warn("处置已停止：停在条与条之间，完成的条目已生效")
         for r in ok:
-            self._log.ok(f"清理·{r.kind} mod {r.mod_id}：{r.detail}")
+            self._log.ok(f"清理·{_KIND_ZH.get(r.kind, r.kind)} "
+                         f"mod {r.mod_id}：{r.detail}")
         for r in bad:
-            self._log.error(f"清理·{r.kind} mod {r.mod_id} 失败：{r.detail}")
+            self._log.error(f"清理·{_KIND_ZH.get(r.kind, r.kind)} "
+                            f"mod {r.mod_id} 失败：{r.detail}")
+
+        # T4（2026-10 增补）：本轮有彻底清账 → 顺手清一次 steamcmd
+        # 缓存（防复活断根的最后一步）：刚删完 content + acf 条目，
+        # 复活燃料（该条目的缓存块/manifest）当场销毁。强制执行不设
+        # 开关——它是清账手术的收尾，与 acf 自动移除同家族；代价仅为
+        # 下次下载重拉 manifest。整批只清一次（引擎一次清全部，逐条清
+        # 是浪费）。
+        if any(r.kind == "ledger_purge" for r in ok):
+            cmd = str(self._settings.get("steamcmd_path") or "")
+            try:
+                freed, cleared, skipped = steamPaths.clear_download_caches(cmd)
+                if cleared or skipped:
+                    self._log.info(
+                        f"清账后清缓存（防复活）：清掉 {cleared} 项，"
+                        f"释放 {freed / 2 ** 20:.1f} MB"
+                        + (f"；跳过 {len(skipped)} 项（被占用）" if skipped else ""))
+            except OSError as exc:
+                self._log.warn(f"清账后清缓存出错（不影响清账结果）：{exc}")
+
         # 处置落账 → mod 库页强制重读（软删除/清账结果不用用户自己点刷新）
         self.ledger_changed.emit()
         # 处置完自动重新盘点：残留与新生孤儿立刻显现，不用自己想起来

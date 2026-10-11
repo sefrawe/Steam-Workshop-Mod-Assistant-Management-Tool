@@ -86,8 +86,13 @@ DEFAULTS: dict[str, str] = {
     # （防已删除 mod 复活、减少下载失败，RimSort 同款对策、同默认开）；
     # "0" = 不清（保留缓存省流量，但删过的 mod 可能被 steamcmd 复活）
     "steamcmd_clear_cache_before_batch": "1",
-
-
+    "cache_clean_on_batch_end": "1",  # T2：批次收尾自动清缓存（默认开）
+    "cache_clean_on_exit": "0",  # T5：退出时清缓存（默认关）
+    # 远端弃坑提醒词表（2026-10 增补）：远端健康页按词表扫远端标题，
+    # 命中即红字。留空 = 停用弃坑检测（标题不符/banned 不受影响）。
+    # 默认与 workflows/exceptionFlow._ABANDONED_KEYWORDS 同文（刻意比
+    # 本地词表少 final/last version——"最终版"式命名误报率高）
+    "remote_title_warn_keywords": "abandoned,deprecated,discontinued,unmaintained,outdated,obsolete,unsupported,legacy,defunct,no longer,not maintained,not updated,no update,不再维护,不再更新,停止更新,停更,弃坑,断更,烂尾,停止维护,不再支持",
 }
 
 

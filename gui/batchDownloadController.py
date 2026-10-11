@@ -8,8 +8,8 @@ gui/batchDownloadController.py · 「下载批次」的大脑：把终端、步�
 - core/batchDownloadFlow：状态机——只管"逐条发命令、收结论、报汇总"，
   不碰数据库不碰网络；
 - 本控制器：流程之外的一切——开工检查、开批前备份（V1 决策 40 保留）、
-  触发值补采（D3）、收尾链（剔黑→批查→落判决→弹确认清单，D4/D11/D39）、
-  僵尸批次防线、卡片行右键动作与重试；
+     触发值补采（D3）、收尾链（剔黑→批查→落判决→回填远端元数据→弹确认
+   清单，D4/D11/D39）、僵尸批次防线、卡片行右键动作与重试；
 - StepCardList：只画界面，按钮/右键动作以信号（ids_action 等）发来，
   实现全在本文件；
 - MainWindow：受理"终端转批次"请求（本控制器只提供 start_batch，
@@ -135,10 +135,13 @@ class _BackupPhaseWorker(QThread):
 
 
 class _QueryWorker(QThread):
+
     """Steam 匿名接口批查（开批前补采触发值 / 收尾核对现场值共用）。
-    result 字典：{mod_id: (time_updated, title, file_size)}；
-    查不到/失效条目（result != 1）记 (None, None, None)——是查询结果
+    result 字典：{mod_id: (time_updated, title, file_size, creator)}；
+    查不到/失效条目（result != 1）记全 None 四元组——是查询结果
     不是错误；整批网络失败 → result 为空字典 + error 有话。
+    creator 防御取（字段名未在客户端实文核过，取不到 = None，
+    accountCenterPage 登记批查同款先例）。
     netGate 互斥：拿不到名额 → 全部按查询失败处理（不排队不重试——
     批查是收尾的助攻，不值得为它卡住批次）。
     """
@@ -167,9 +170,12 @@ class _QueryWorker(QThread):
                 if it.mod_id is None or it.result != 1:
                     # 失效/私有/查无此条：按"查询失败"记（D4 走触发值路径）
                     key = it.mod_id if it.mod_id is not None else -1
-                    result[key] = (None, None, None)
+                    result[key] = (None, None, None, None)
                 else:
-                    result[it.mod_id] = (it.time_updated, it.title, it.file_size)
+                    result[it.mod_id] = (it.time_updated, it.title,
+                                         it.file_size,
+                                         getattr(it, "creator", None))
+
         except SteamApiError as exc:
             error = str(exc)  # 整批失败：result 保持空 → 全按失败走
         except Exception as exc:  # 防御兜底：任何意外都要变成看得见的
@@ -327,34 +333,35 @@ class BatchDownloadController(QWidget):
             return False
         raw = str(self._settings.get("steamcmd_login_cmd") or "")
         return bool(raw.strip())
+    def _do_clear_caches(self, label: str) -> None:
+        """清缓存核心（决策 100）：调引擎 + 按结果写日志。批前 / 批后
+        （T2）共用这一份——日志口径与"空缓存不噪音"的规则只此一处。"""
+        cmd = str(self._settings.get("steamcmd_path") or "")
+        try:
+            freed, cleared, skipped = steamPaths.clear_download_caches(cmd)
+        except Exception as exc:  # 清理是优化：任何意外都不拦主流程
+            self._log.warn(f"{label}清缓存出错（不影响继续）：{exc}")
+            return
+        if cleared == 0 and not skipped:
+            return  # 缓存本来就空 / 未配置：零日志噪音
+        line = f"{label}清缓存：清掉 {cleared} 项，释放 {freed / 2 ** 20:.1f} MB"
+        if skipped:
+            line += f"；跳过 {len(skipped)} 项（被占用/联接，不影响后续）"
+        self._log.info(line)
 
     def _clear_steamcmd_caches(self) -> None:
         """决策 100：批次开始前清空 steamcmd 下载缓存（depotcache 与
         workshop\\downloads）——steamcmd 会用缓存把已删除的 mod 原样
         装配回 content 并写回它的账本文件（"复活"机制），清掉即断根；
-        对部分"下载失败"也有改善。设置开关
-        steamcmd_clear_cache_before_batch（默认开）；关 = 直发车，
-        保留缓存省流量（换来的代价是删过的 mod 可能被装配回来——
-        黑名单与退出扫尾仍在，见 MainWindow._acf_sweep_at_exit）。
-        引擎单源 core/steamPaths.clear_download_caches：content 目录
-        本体一概不碰；steamcmd 未配置 → 无事发生。
-        已知限制：缓存特别大时 rmtree 在主线程可能占几秒（首批最明显，
-        之后每批只清当批增量）。实测明显卡顿再升级为线程化，先不预设。"""
+        对部分"下载失败"也有改善。设置开关 steamcmd_clear_cache_before_batch
+        （默认开）；关 = 直发车，保留缓存省流量。引擎单源
+        core/steamPaths.clear_download_caches：content 一概不碰；
+        未配置 → 无事发生。已知限制：缓存特别大时 rmtree 在主线程
+        可能占几秒，实测明显卡顿再线程化。"""
         if self._settings.get_int("steamcmd_clear_cache_before_batch", 1) == 0:
             return
-        cmd = str(self._settings.get("steamcmd_path") or "")
-        try:
-            freed, cleared, skipped = steamPaths.clear_download_caches(cmd)
-        except Exception as exc:  # 清理是优化：任何意外都不拦批次
-            self._log.warn(f"批次前清缓存出错（照常开批）：{exc}")
-            return
-        if cleared == 0 and not skipped:
-            return  # 缓存本来就空 / 未配置：零日志噪音
-        line = (f"批次前清缓存：清掉 {cleared} 项，"
-                f"释放 {freed / 2 ** 20:.1f} MB")
-        if skipped:
-            line += f"；跳过 {len(skipped)} 项（被占用/联接，不影响开批）"
-        self._log.info(line)
+        self._do_clear_caches("批次前")
+
 
     # ---------------- 阶段一：备份（决策 40） ----------------
     def _start_backup_phase(self, ids: list[int]) -> None:
@@ -424,10 +431,11 @@ class BatchDownloadController(QWidget):
                            "本批将没有版本凭证，成功条目按「版本未知」入账")
         else:
             got = 0
-            for mid, (tu, _t, _s) in result.items():
+            for mid, (tu, _t, _s, _c) in result.items():
                 if mid in ids and tu is not None:
                     self._triggers[mid] = tu  # 只补表里没有的键
                     got += 1
+
             self._log.info(f"版本凭证就绪：{got}/{len(ids)} 条"
                            "（查不到的条目照常下载）")
         self._launch_flow(ids)
@@ -501,16 +509,14 @@ class BatchDownloadController(QWidget):
 
     # ---------------- 收尾链（D4/D11/D39） ----------------
     def _on_batch_done(self, s: dict) -> None:
-
         self._flow = None
         ok = list(s.get("ok") or [])
         failed = list(s.get("failed") or [])
         timeout = list(s.get("timeout") or [])
         game = self._game
         self._game = None
-        if game is None:            # 防御：理论不可达
+        if game is None:  # 防御：理论不可达
             return
-
         # ① 下载完成弹日志（用户拍板）：汇总必达，控制台按设置自动弹
         err = s.get("error") or ""
         if err:
@@ -524,9 +530,14 @@ class BatchDownloadController(QWidget):
                 self._log.ok(head)
             else:
                 self._log.warn(head + "——可用卡片上的【重试失败与超时条目】再跑")
-
+        # T2（2026-10 增补）：批次收尾顺手清一次缓存——本批自己产的
+        # manifest/半成品不跨批积累（steamcmd 每次登录还会刷新缓存
+        # manifest，workshop_log 实证）。默认开；代价≈零：下次用时
+        # 重新拉 manifest（KB 级）。
+        if self._settings.get_int("cache_clean_on_batch_end", 1) != 0:
+            self._do_clear_caches("批次后")
         # ② 失败/超时也落判决史（不进确认队列，repo 层按 kind 过滤；
-        #    触发值带上留档——判决史要说清"当时想下的是哪个版本"）
+        # 触发值带上留档——判决史要说清"当时想下的是哪个版本"）
         history = []
         for r in failed:
             history.append({"mod_id": r.mod_id, "kind": "fail",
@@ -540,56 +551,58 @@ class BatchDownloadController(QWidget):
                             "note": "Timeout"})
         if history:
             self._repo.record_verdicts(history)
-
         # ③ 没有成功条目：没有可确认的东西，到此为止
         if not ok:
             self._log.info("本批没有成功条目：无待确认项")
             return
-
         # ④ 剔黑名单（D11 三拦之一）：黑名单条目已下载的不拦（下载是
-        #    盘面行为），但绝不落待确认——防手滑确认入账
+        # 盘面行为），但绝不落待确认——防手滑确认入账
         purged = self._repo.filter_purged([r.mod_id for r in ok])
         net_ok = [r for r in ok if r.mod_id not in purged]
         if purged:
             self._log.warn(f"{len(purged)} 条在已清账黑名单，"
-                           "不列入待确认清单（编号："
-                           + "、".join(str(m) for m in sorted(purged)) + "）")
+                           "不列入待确认清单（编号：" +
+                           "、".join(str(m) for m in sorted(purged)) + "）")
         if not net_ok:
             self._log.info("成功条目全部在黑名单：无待确认项")
             return
-
         # ⑤ 收尾批查（下载后的现场核对）：成功条目逐条拿现场版本，
-        #    供 resolve_written 判 verified / 降级 / 版本未知
+        # 供 resolve_written 判 verified / 降级 / 版本未知
         self._log.info(f"正在核对 {len(net_ok)} 条成功条目的远端版本…")
         self._query_worker = _QueryWorker([r.mod_id for r in net_ok])
         self._cleanup_worker_on_finish(self._query_worker, "_query_worker")
         self._query_worker.done.connect(
             lambda result, err: self._on_final_query(
                 game, net_ok, result, err))
-        self._query_worker.start()  # 建≠跑：不 start 线程永远不执行，
+        self._query_worker.start()
+        # 建≠跑：不 start 线程永远不执行，
         # done 永不发射——批次就停在"正在核对…"（两场冒烟实证）
 
-
-    def _on_final_query(self, game, net_ok: list, result: dict,
-                        error: str) -> None:
-
+    def _on_final_query(self, game, net_ok: list, result: dict, error: str) -> None:
         if error:
             # 批查失败不拦入账（D4c）：全部按查询失败走，触发值照写
             self._log.warn(f"远端版本核对失败（{error}）：成功条目将按"
                            "「未验证」入账，下轮更新检测会重新核对")
-
         rows = []
+        mismatched: list[int] = []  # 下载期间远端又更新了的（trigger≠query）
+        metas: dict[int, dict] = {}  # 批查成功的远端元数据（回填库用）
         for r in net_ok:
-            q, title, size = result.get(r.mod_id, (None, None, None))
+            q, title, size, creator = result.get(
+                r.mod_id, (None, None, None, None))
             written, source = resolve_written(r.trigger, q)
+            if r.trigger is not None and q is not None and q != r.trigger:
+                mismatched.append(r.mod_id)
+            if q is not None:
+                metas[r.mod_id] = {"time_updated": q, "title": title,
+                                   "creator": creator, "file_size": size}
             rows.append({
                 "mod_id": r.mod_id,
                 "kind": "success",
                 "game_id": game.app_id,
                 "version_trigger": r.trigger,
-                "version_query": q,          # 现场值留档，对账有据
+                "version_query": q,  # 现场值留档，对账有据
                 "version_written": written,  # D4 分支结果（R18：≤ 触发值）
-                "title": title,              # D39：落 pending 顺手存
+                "title": title,  # D39：落 pending 顺手存
                 "file_size": size or r.size_bytes,  # 批查优先，退下载实测
                 "source": source,
             })
@@ -597,17 +610,32 @@ class BatchDownloadController(QWidget):
         # 本批已给出更优判决（success 待确认）：早先扫描留下的同编号
         # 未确认 claim 提案就此作废（提案跟随更优事实）——只删未确认
         # claim 行，确认行与其他 kind 不动（repo 契约原样）
-        self._repo.drop_stale_claims(game.app_id,
-                                     [r["mod_id"] for r in rows])
+        self._repo.drop_stale_claims(game.app_id, [r["mod_id"] for r in rows])
+        # 元数据回填（2026-10 增补）：批查本就带回了全套远端信息，此前
+        # 只用了版本号——登记时批查失败（网络断/名额被占）的条目，下载
+        # 一轮成功后远端信息仍是空。这里把 time_updated/title/creator/
+        # file_size 写回 mods 表远端侧：update_api_metadata 是检测三路
+        # 写库之一，只动远端侧、绝不碰确认三件套（R17/R18 无涉）
+        self._backfill_remote_meta(metas)
         pending = [v for v in self._repo.pending_confirmations(game.app_id)
                    if v.kind != "claim"]  # claim 候选归入账中心待认领区，
         # 不进"下载批次收尾"清单（与入账中心①②分区口径一致）
-
         n_new = len(rows)
+        n_ver = sum(1 for r in rows if r["source"] == "verified")
         self._log.ok(
-            f"{n_new} 条已列入待确认清单（黑名单已剔除）——"
-            "请核对后点【确认入账】把版本登记进账本；"
-            "也可以先不管，之后在「入账中心」处理")
+            f"{n_new} 条已列入待确认清单（黑名单已剔除；版本经现场核对"
+            f"吻合 {n_ver} 条）——请核对后点【确认入账】把版本登记进"
+            "账本；也可以先不管，之后在「入账中心」处理")
+        # 下载期间远端已更新的点名（2026-10 增补）：盘上是下载开始时的
+        # 版本（trigger），远端已到新版——按 trigger 诚实收录（来源
+        # unverified，库页灰显），不批次内自动重下（作者连更时永不收敛）；
+        # 下轮检测必然重新报告，届时再下载一轮即得最新版（跨批收敛）
+        if mismatched:
+            shown = "、".join(str(m) for m in sorted(mismatched)[:10])
+            more = f" 等 {len(mismatched)} 条" if len(mismatched) > 10 else ""
+            self._log.warn(
+                f"{len(mismatched)} 条下载期间远端已更新：已按下载开始时"
+                f"的版本收录（未验证）——下轮检测会重报：{shown}{more}")
         # ⑮ 批次收尾自动盘点（D23/D36，默认开）：落 pending 之后、
         # 线程跑不等它——确认清单即刻弹，盘点完成进运行日志，候选在
         # 入账中心②区等（页面进页自动刷新）。刚下载的编号已由上面
@@ -619,12 +647,38 @@ class BatchDownloadController(QWidget):
             else:
                 cmd = str(self._settings.get("steamcmd_path") or "")
                 self._scan_worker = _InventoryWorker(self._repo, game, cmd)
-                self._cleanup_worker_on_finish(self._scan_worker, "_scan_worker")
-
+                self._cleanup_worker_on_finish(self._scan_worker,
+                                               "_scan_worker")
                 self._scan_worker.done.connect(self._on_auto_inventory_done)
                 self._scan_worker.start()
         if pending:
             self.confirmation_ready.emit(pending)
+
+    def _backfill_remote_meta(self, metas: dict[int, dict]) -> None:
+        """收尾批查的元数据回填（2026-10 增补）。只回填账上已有的编号：
+        账外条目（快速命令下载，D39）调 update_api_metadata 会显式报错
+        （mod 不存在），先 filter_existing_ids 滤掉——它们确认建行时
+        从判决行自带标题/大小，其余字段下轮检测补全（原机制不动）。
+        刻意不写 last_checked_at：那是检测流程的记账字段，批查不冒充
+        检测。助攻性质：整体 try 包住，任何意外只警告、绝不拦收尾链。
+        """
+        if not metas:
+            return
+        try:
+            existing = self._repo.filter_existing_ids(list(metas))
+            done = 0
+            for mod_id, meta in metas.items():
+                if mod_id not in existing:
+                    continue
+                self._repo.update_api_metadata(mod_id, **meta)
+                done += 1
+        except Exception as exc:
+            self._log.warn(f"远端信息回填中断（不影响收尾与入账）：{exc}")
+            return
+        if done:
+            self._log.info(f"已回填 {done} 条的远端信息（远端版本/标题/"
+                           "作者/大小）——登记时没查到信息的条目借此补全")
+
     def _on_auto_inventory_done(self, report, error: str) -> None:
         """⑮ 收尾自动盘点回执：只进运行日志不弹窗——批次主结果
         （确认清单）已在用户眼前，盘点是顺手的卫生工作。"""

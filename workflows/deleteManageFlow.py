@@ -354,6 +354,19 @@ def build_plan(repo: ModRepository, report: InventoryReport,
     if report.steamcmd_running and (content_actions or orphan_actions):
         notes.append("注意：steamcmd 正在运行——此刻删除可能与下载争用。"
                      "被误删的条目重跑下载命令即可回来（steamcmd 会自建条目）。")
+    # 动作口径预告（2026-10 增补）：执行层把「连账面一起处置」的条目
+    # 拆成账面+文件两条动作（wipe_soft / wipe_purge，"账先盘后"定序），
+    # 勾了带走备份文件的每份各一条——动作总条数可能大于 mod 个数。
+    # 确认弹窗先说清，执行汇总按同口径计数，"完成 2 条"不会被误读
+    # 成 2 个 mod
+    involved = ({mid for mid, _a in req.ledger_actions.items()}
+                | set(req.clean_actions) | set(req.orphan_ids))
+    if len(actions) > len(involved):
+        notes.append(
+            f"执行口径：本次共 {len(actions)} 条动作、涉及 "
+            f"{len(involved)} 个 mod——「连账面一起处置」的条目各拆"
+            "「账面 + 文件」两步，带走备份文件的每份各一条；进度与"
+            "完成数按动作条计，逐条日志写明是哪一步。")
     return CleanupPlan(actions=actions, notes=notes)
 
 

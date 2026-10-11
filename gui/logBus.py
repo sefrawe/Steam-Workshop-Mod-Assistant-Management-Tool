@@ -25,6 +25,11 @@ data/logs/app_YYYY-MM-DD.log（00:00 轮转、约留 14 天、UTF-8）。
 loguru 未安装 = 静默跳过（pyqtdarktheme 同款：可选依赖缺省降级，
 不算错误）；写失败也静默（catch=True）——日志是旁路，绝不反过来
 影响主流程。loguru 的 sink 自带内部锁，工作线程直接调安全。
+反向桥（2026-10 增补）：core 层直写 loguru 的日志（如
+steamApiClient 的重试警告）经桥接 sink 同步上软件内控制台——
+注册入口 set_log_bridge（主窗口调用一次）；filter 只放行本项目
+模块且排除 gui.logBus 自身写入，防重复显示与递归环。
+
 """
 from PySide6.QtCore import QObject, Signal
 
@@ -33,6 +38,36 @@ from PySide6.QtCore import QObject, Signal
 # 兜底新建的 LogBus 实例写的也是同一份文件，不会丢行
 _FILE_LOGGER = None
 
+# 桥接目标（2026-10 增补）：loguru → 软件内控制台。None = 未注册
+# （主窗口构造 LogBus 后调 set_log_bridge 注册一次），行为与旧版一致
+_BRIDGE = None
+
+# loguru 级别名 → UI 级别名（consolePanel 着色契约的四个值）
+_UI_LEVELS = {"INFO": "info", "SUCCESS": "ok", "WARNING": "warn",
+              "ERROR": "error", "CRITICAL": "error"}
+
+def set_log_bridge(bus) -> None:
+    """注册桥接目标（主窗口构造自己的 LogBus 后调用一次）。此后
+    core 层直接写 loguru 的日志会同步出现在软件内控制台；不注册
+    = 完全旧行为，调用方零负担。"""
+    global _BRIDGE
+    _BRIDGE = bus
+
+def _bridge_sink(message) -> None:
+    """loguru 的 sink：把每条记录转发到注册的 LogBus 信号。
+    线程安全：loguru sink 在调用线程同步执行，Qt 信号跨线程自动
+    排队（与 LogBus 自身同一套机制）——工作线程里的 logger.warning
+    也能安全上屏。挂载处的 filter 已排除 gui.logBus 的写入：
+    页面经 LogBus 发的消息不会经桥回来显示第二遍（防重复），
+    _emit → loguru → 桥 → emit 的环也被斩断（防递归）。"""
+    bus = _BRIDGE
+    if bus is None:
+        return
+    try:
+        level = _UI_LEVELS.get(message.record["level"].name, "info")
+        bus.line_emitted.emit(level, str(message))
+    except Exception:
+        pass  # 桥是旁路：任何失败都不反伤主流程（与 catch=True 同哲学）
 
 def _setup_file_log() -> None:
     """挂 loguru 文件 sink（模块 import 末尾调用一次，幂等）。
@@ -58,6 +93,18 @@ def _setup_file_log() -> None:
             catch=True,            # 写失败（磁盘满等）静默吞，不打断主流程
             format="{time:YYYY-MM-DD HH:mm:ss} | {level: <7} | {message}",
             )
+        # 桥接 sink（2026-10 增补）：core 层直写 loguru 的日志同步上
+        # 软件内控制台。level 与文件 sink 对齐（INFO 起）；filter 只放
+        # 行本项目模块且排除 gui.logBus——record["name"] 是调用
+        # logger 的模块名，防重复、防递归（见 _bridge_sink 注释）
+        _lg.add(
+            _bridge_sink,
+            level="INFO",
+            filter=lambda r: (r["name"] or "").startswith(("core.", "gui."))
+                             and r["name"] != "gui.logBus",
+            format="{message}",
+        )
+
         _FILE_LOGGER = _lg
     except Exception:
         _FILE_LOGGER = None

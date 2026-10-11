@@ -97,13 +97,22 @@ class RemoteQueryWorker(QThread):
                     # 已让客户端侧的等待可中断，这里是批与批之间的
                     # 纯 sleep），最多多等一个间隔——与 V1 同口径
                     time.sleep(self._interval_ms / 1000)
+
         except SteamApiCancelled:
             # 取消事件在请求/等待中途触发：与批边界停止同一收场
             self.stopped.emit()
             return
         except SteamApiError as exc:
+            # 停止竞态（2026-10 修复）：stop() 置位后，在途请求若恰好
+            # 快速失败（如 RemoteDisconnected），抛的是网络错误而不是
+            # 取消——但停止意图已表达，按"已停止"收场，不报失败
+            # （实录：20:33:36 请求停止 → 20:33:54 弹"依赖拉取失败"）
+            if self._stop_requested:
+                self.stopped.emit()
+                return
             self.failed.emit(str(exc))
             return
+
         if self._stop_requested:
             self.stopped.emit()
             return

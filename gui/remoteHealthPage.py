@@ -223,7 +223,10 @@ class RemoteHealthPage(QWidget):
     # ---------- 回调 ----------
     def _on_succeeded(self, entries: list) -> None:
         self._set_running(False)
-        health = exceptionFlow.classify_health(entries, self._titles)
+        health = exceptionFlow.classify_health(
+            entries, self._titles,
+            keywords_raw=(self._settings.get("remote_title_warn_keywords")
+                          if self._settings is not None else None))
         skipped = exceptionFlow.classify_entries(entries)   # 失效/查询失败计数（纯函数复用）
         cross = len(skipped.invalid) + len(skipped.query_failed)
         shown = self._fill_list(self._sec_mismatch[1], [

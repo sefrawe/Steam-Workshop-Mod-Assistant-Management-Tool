@@ -157,20 +157,27 @@ def _tree_size(p: Path) -> int:
                 pass
     return total
 
-
 def clear_download_caches(steamcmd_path: str | None) -> tuple[int, int, list[str]]:
     """清空 steamcmd 的下载缓存（决策 100）：批次开始前调用，防已删除
     mod 复活、减少下载失败（RimSort 的"自动清除仓库缓存"同款对策，
     该工具默认开启；GitHub 亦有同现象的野生报告）。
 
-    机制背景（v2.48 定案）：steamcmd 把下载过的数据块缓存在
-    steamapps\\depotcache\\、把半成品暂存在 steamapps\\workshop\\downloads\\。
+    机制背景（v2.48 定案；2026-10 路径修正）：steamcmd 把下载过的
+    数据块缓存在 depotcache\\、把半成品暂存在 steamapps\\workshop\\downloads\\。
     content 里的 mod 被删除后缓存还在；此后批次下载别的 mod 时，
     steamcmd 可能用缓存把已删除的 mod 原样装配回 content 并写回 acf，
-    随后的自动复扫忠实入账 = "复活"。下载内容目录本体（content）
-    一概不碰——那是受保护的资产，不是缓存。
+    随后的自动复扫忠实入账 = "复活"。content 一概不碰——受保护的
+    资产，不是缓存。
 
-    只清两个缓存目录的"内容"，目录本身保留（不存在也无妨）。
+    depotcache 的实际位置（2026-10 实测修正）：steamcmd 独立安装把
+    depotcache 放在安装根直下（<根>\\depotcache，与 logs\\、userdata\\
+    同级），并不在 steamapps\\ 下——此前引擎找 <根>\\steamapps\\depotcache，
+    目录不存在 → 每次静默空转，"没有缓存"的假阴性由此而来（装配
+    材料从未被清掉，"秒下 37MB"与删 acf 后完整重建都由它解释）。
+    现按两处候选都清：根直下为主，steamapps\\ 下为兼容候选
+    （存在就清，不存在跳过）。
+
+    只清缓存目录的"内容"，目录本身保留（不存在也无妨）。
     正被 steamcmd 占用的文件删除会失败——逐项尝试、失败的记入返回
     清单跳过，绝不抛错、绝不阻塞批次（清理是优化，不是下载的前提）。
     目录本身若是联接则整体跳过（联接红线：绝不穿透删除）。
@@ -184,7 +191,8 @@ def clear_download_caches(steamcmd_path: str | None) -> tuple[int, int, list[str
     freed = 0
     cleared = 0
     skipped: list[str] = []
-    for cache in (root / "steamapps" / "depotcache",
+    for cache in (root / "depotcache",                     # 实测真身：安装根直下
+                  root / "steamapps" / "depotcache",       # 兼容候选：旧认知位置
                   root / "steamapps" / "workshop" / "downloads"):
         if not cache.is_dir():
             continue
@@ -204,7 +212,6 @@ def clear_download_caches(steamcmd_path: str | None) -> tuple[int, int, list[str
             except OSError:
                 skipped.append(str(child))
     return freed, cleared, skipped
-
 
 class JunctionReport(NamedTuple):
     """联接状态判定结果（junction_state 的返回值）。
@@ -407,6 +414,28 @@ def client_library_roots(*, install_dir: str | None = None) -> list[str]:
 # ③ 解析失败（文件损坏/不是 VDF）绝不落笔；
 # ④ steamcmd 是否在跑由调用方把关（它退出时会把内存里的旧账本
 #    整个覆盖写回，运行中改等于白改）。
+def _prune_acf_backups(acf_path: Path, keep: int = 1) -> None:
+    """acf 备份滚动清理：只留最近 keep 份（2026-10 拍板 keep=1），
+    更旧的删掉。尽力而为——清理失败绝不反伤主流程（删不掉就留着）。
+
+    备份名自带时间戳（.bak_YYYYMMDD_HHMMSS，零填充），字典序即
+    时间序，按名排序即可。只在写回成功之后调用：写失败时刚建的
+    备份是唯一好账本，绝不能动（调用点见 remove_items_from_acf）。
+    keep=1 的语义：任何时刻盘上至少有一份"最近一次成功手术前"的
+    原账；写失败的路径不经过这里，极端情况下会短暂留两份（本次 +
+    上次成功的），那是写失败时的额外保险，无害。
+    """
+    prefix = acf_path.name + ".bak_"
+    try:
+        baks = sorted(x for x in acf_path.parent.iterdir()
+                      if x.name.startswith(prefix) and x.is_file())
+    except OSError:
+        return
+    for old in baks[:max(0, len(baks) - keep)]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
 def remove_items_from_acf(
         acf_path: str | Path,
         mod_ids: Iterable[int],
@@ -423,6 +452,11 @@ def remove_items_from_acf(
 
     文件级问题（读不了/解析失败/没有 AppWorkshop 根）→ ValueError，
     文件保持原样；一个条目都没删时不动文件、不产生备份。
+
+    备份滚动清理（2026-10 增补，keep=1 拍板）：写回成功后只保留
+    最近 1 份备份（_prune_acf_backups），更旧的自动删除——备份的
+    价值在"最近一次可回退"，不是无限史档；写失败的路径先抛异常、
+    不经过清理，刚建的备份与上一份都在，人工恢复时有得选。
     """
     p = Path(acf_path)
     try:
@@ -445,7 +479,6 @@ def remove_items_from_acf(
     workshop = data["AppWorkshop"]
     blocks = (workshop.get("WorkshopItemsInstalled"),
               workshop.get("WorkshopItemDetails"))
-
     removed: list[int] = []
     absent: list[int] = []
     for mid in mod_ids:
@@ -465,15 +498,19 @@ def remove_items_from_acf(
     stamp = time.strftime("%Y%m%d_%H%M%S")
     backup = p.with_name(p.name + f".bak_{stamp}")
     shutil.copy2(p, backup)
-
     try:
         # pretty=True：嵌套块缩进换行，与 steamcmd 原生格式接近，
         # 人肉打开也好读；utf-8 无 BOM（steamcmd 自己写的 acf 就没 BOM）
-        p.write_text(vdf.dumps(data, pretty=True), encoding="utf-8", newline="\n")
+        p.write_text(vdf.dumps(data, pretty=True),
+                     encoding="utf-8", newline="\n")
     except OSError as exc:
         raise ValueError(f"acf 写回失败（原文件已备份在 {backup}）：{exc}") from exc
 
+    # 写回成功才清旧备份（keep=1，2026-10 拍板）：写失败的路径走不到
+    # 这里——刚建的备份安然无恙，是唯一的好账本
+    _prune_acf_backups(p)
     return removed, absent
+
 def acf_installed_ids(acf_path: str | Path) -> set[int] | None:
     """只读：账本文件里登记的工坊条目编号集合（Installed 与 Details
     两块合并）。已清账页的残留检测用——判断黑名单编号是否还躺在

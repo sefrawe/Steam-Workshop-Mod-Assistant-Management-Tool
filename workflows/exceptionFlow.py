@@ -284,19 +284,32 @@ class HealthFindings:
                 + len(self.abandoned) + len(self.banned))
 
 
-def classify_health(entries: Iterable[dict],
-                    local_titles: dict[int, str]) -> HealthFindings:
+def classify_health(entries: Iterable[dict], local_titles: dict[int, str],
+                    *, keywords_raw: str | None = None) -> HealthFindings:
     """桶A 分类核心：对深检拿回的条目字典做健康判定。
-    与 classify_entries 同一注入边界（纯数据进出）；local_titles =
-    账本 编号 → 本地标题（页面侧一次取齐传入）。
+    与 classify_entries 同一注入边界（纯数据进出）；local_titles = 账本
+    编号 → 本地标题（页面侧一次取齐传入）。
+    keywords_raw（2026-10 增补）：设置页「远端弃坑提醒关键词」原文；
+    None = 未传（回退模块默认 _ABANDONED_KEYWORDS——既有调用方与
+    测试零变化）；空串/纯空白 = 停用弃坑检测（标题不符/banned 照判）。
     判定口径：只对 result=1 的条目判——查询失败/失效的归桶⑤桶④，
     不重复报；标题比较双方剥版本记号、压空白、casefold 后比较——
     剥完还不一致才算"标题不符"；弃坑关键词只扫远端标题（扫描述
     误报率不可控，刻意不扫）；banned 字段缺席 → missing_banned_field
     置位，绝不静默当 0。"""
+    # 词表解析（与 classify_local_titles 同款宽容口径）：逗号/中文
+    # 逗号/分号分隔、去空、casefold、去重；未传 = 模块默认，空 = 停用
+    if keywords_raw is None:
+        kws: tuple | list = _ABANDONED_KEYWORDS
+    else:
+        kws = sorted({k.strip().casefold()
+                      for k in re.split(r"[,，;；]+",
+                                        str(keywords_raw or "").strip())
+                      if k.strip()})
     out = HealthFindings()
     saw_result1 = False
     banned_known = False
+
     for entry in entries:
         pid = _to_int(entry.get("publishedfileid"))
         if pid is None or _to_int(entry.get("result")) != 1:
@@ -311,8 +324,9 @@ def classify_health(entries: Iterable[dict],
         if not remote_title:
             continue
         low = remote_title.casefold()
-        if any(k in low for k in _ABANDONED_KEYWORDS):
+        if kws and any(k in low for k in kws):
             out.abandoned.append(pid)
+
         local = str(local_titles.get(pid) or "").strip()
         if local and _normalize_title(local) != _normalize_title(remote_title):
             out.title_mismatch.append((pid, local, remote_title))

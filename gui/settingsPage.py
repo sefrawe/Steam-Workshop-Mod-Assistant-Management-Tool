@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
 from gui.theme import reapply_theme, font_px
 from core.appSettings import DEFAULTS, AppSettings
 from core.steamPaths import clear_download_caches, ensure_steamcmd_exe
-
+from gui.logBus import LogBus
 
 # key / 中文标签 / 空值时的灰色提示 / 字段类型
 # （"file"=文件 / "dir"=目录 / "number"=正整数 / "text"=普通文本不校验
@@ -162,6 +162,17 @@ _FIELDS = [
      "对部分\"下载失败\"也有改善。代价：缓存里的共享数据块会重新下载，"
      "短时间反复安装同一批 mod 时多耗流量。默认开（与 RimSort 同默认）",
      "bool"),
+    # T2 批后清缓存开关（2026-10 增补）
+    ("cache_clean_on_batch_end", "批次后清理 steamcmd 缓存",
+     "开：每批下载结束后自动清空 steamcmd 的下载缓存（与批次前清理"
+     "同一套引擎）——本批下载自己产生的 manifest/半成品不跨批积累"
+     "（steamcmd 每次登录也会刷新缓存里的 manifest）。代价：短时间内"
+     "重复安装同一批 mod 时多耗一点流量。默认开", "bool"),
+    # T5 退出清缓存开关（2026-10 增补）
+    ("cache_clean_on_exit", "退出时清理 steamcmd 缓存",
+     "开：程序退出前清一次 steamcmd 下载缓存（把本次会话登录刷新的"
+     "manifest 带走）。默认关：大缓存删除会拖慢退出几秒，且批次后/"
+     "清账后的自动清理已覆盖主要时机——确有需要再开", "bool"),
 
     # 控制台自动弹出开关（决策 58 的就地开关 console_auto_show 提进设置页）
     ("console_auto_show", "有新消息时弹出控制台",
@@ -190,19 +201,33 @@ _FIELDS = [
      "last version, 停更, 弃坑, 断更, 烂尾, 停止更新, 不再更新, "
      "不更新, 停止维护, 不再维护, 不再支持, 弃用, 过时"
      "——像 \"Abandoned Mines\" 这类地图名也会被命中，只是提醒"
-     "不是判定，误报就把对应词删掉",
-     "text"),
-
+     "不是判定，误报就把对应词删掉", "text"),
+    # 远端弃坑词表（2026-10 增补）：远端健康页扫远端标题用，
+    # 与本地词表同款解析与空值语义（留空=停用弃坑检测）
+    ("remote_title_warn_keywords", "远端弃坑提醒关键词",
+     "远端健康检测时，远端标题含这些词的条目按「弃坑」红字提醒"
+     "（标题不符 / banned 两类信号不受本词表影响）。逗号或分号分隔"
+     "（中英文均可，保存时自动归一；词内可含空格），大小写不影响"
+     "匹配；留空 = 停用弃坑检测。"
+     "默认：abandoned, deprecated, discontinued, unmaintained, "
+     "outdated, obsolete, unsupported, legacy, defunct, no longer, "
+     "not maintained, not updated, no update, 不再维护, 不再更新, "
+     "停止更新, 停更, 弃坑, 断更, 烂尾, 停止维护, 不再支持"
+     "——刻意比本地词表少 final/last version（「最终版」式命名"
+     "误报率高，远端词表宁漏勿误）", "text"),
 ]
+
 
 
 class SettingsPage(QWidget):
 
-    def __init__(self, settings: AppSettings,
-                 parent: QWidget | None = None) -> None:
+    def __init__(self, settings: AppSettings, parent: QWidget | None = None, *,
+                 log: LogBus | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
+        self._log = log if log is not None else LogBus()
         self._edits: dict[str, QLineEdit] = {}
+
         # 多行文本（决策 95）：登录命令一项。QPlainTextEdit 的读写
         # 接口与 QLineEdit 不同（toPlainText/setPlainText），分开收，
         # 统一读取走 _field_text 助手
@@ -359,30 +384,36 @@ class SettingsPage(QWidget):
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")
         root.addWidget(note)
-
     def _clean_caches_now(self) -> None:
-        """就地清一次缓存（决策 100 引擎的手动入口）。结果写进
-        _saved_label——本页没有日志总线，这行常驻可见，够用。"""
+        """就地清一次缓存（决策 100 引擎的手动入口）。结果既写进
+        _saved_label（本页常驻可见），也发进运行日志（与批次前/批后/
+        清账后的自动清理同一出处，事后可查）。"""
         cmd = str(self._settings.get("steamcmd_path") or "").strip()
         if not cmd:
             self._saved_label.setText("尚未设置 steamcmd 程序路径：填好后再来清理")
             self._saved_label.setStyleSheet("color: gray;")
+            self._log.warn("手动清理缓存：尚未设置 steamcmd 程序路径，未执行")
             return
         try:
             freed, cleared, skipped = clear_download_caches(cmd)
         except Exception as exc:  # 引擎契约：不抛错；这里是兜底
             self._saved_label.setText(f"清理出错：{exc}")
             self._saved_label.setStyleSheet("color: #e5484d;")
+            self._log.error(f"手动清理缓存出错：{exc}")
             return
         if cleared == 0 and not skipped:
             self._saved_label.setText("缓存本来就是空的，无需清理")
             self._saved_label.setStyleSheet("color: gray;")
+            self._log.info("手动清理缓存：缓存本来就是空的，无需清理")
             return
         line = f"已清理缓存：清掉 {cleared} 项，释放 {freed / 2 ** 20:.1f} MB"
         if skipped:
             line += f"；跳过 {len(skipped)} 项（被 steamcmd 占用，属正常）"
         self._saved_label.setText(line)
         self._saved_label.setStyleSheet("color: #46a758;")
+        self._log.ok(f"手动清理缓存：清掉 {cleared} 项，"
+                     f"释放 {freed / 2 ** 20:.1f} MB"
+                     + (f"；跳过 {len(skipped)} 项（被占用）" if skipped else ""))
 
     # ---------- 数据 ----------
     def _load_to_ui(self) -> None:
@@ -482,10 +513,11 @@ class SettingsPage(QWidget):
                 # 拿到的恒为完整 exe 路径
                 value = ensure_steamcmd_exe(value)
                 edit.setText(value)   # 界面同步显示保存后的真实值
-            if key == "local_title_warn_keywords":
+            if key in ("local_title_warn_keywords",
+                       "remote_title_warn_keywords"):
                 # 中文逗号归一半角：界面允许顺手打中文逗号，入库
-                # 口径保持单一——消费端（标题检测页，本版已落位）
-                # 按半角逗号/空白切分；手改 JSON 绕过这里的由消费端兜底
+                # 口径保持单一——消费端按半角逗号/分号切分；手改
+                # JSON 绕过这里的由消费端兜底
                 value = value.replace("，", ",")
             self._settings.set(key, value)
 
@@ -532,13 +564,20 @@ class SettingsPage(QWidget):
         for key, edit in self._edits.items():
             if self._kinds[key] == "number":
                 edit.setText(DEFAULTS[key])
+            elif str(DEFAULTS.get(key) or ""):
+                # 默认值非空的文本（两个词表）：恢复 = 填回默认词表——
+                # 清空是"停用"语义，与【恢复默认】按钮意图相悖
+                edit.setText(DEFAULTS[key])
             else:
                 edit.clear()
+
         # 多行文本（决策 95）：清空 = 默认值（默认本来就是空）
         for multi in self._multi_edits.values():
             multi.clear()
-        for cb in self._checks.values():
-            cb.setChecked(True)
+        for key, cb in self._checks.items():
+            # 开关默认值从 DEFAULTS 读（"0"=默认关），不再一刀切 True
+            cb.setChecked(str(DEFAULTS.get(key, "1")) != "0")
+
         self._saved_label.setText("已恢复默认值，点【保存】写入文件")
         self._saved_label.setStyleSheet("color: gray;")
     def _browse(self, edit: QLineEdit, is_file: bool) -> None:
