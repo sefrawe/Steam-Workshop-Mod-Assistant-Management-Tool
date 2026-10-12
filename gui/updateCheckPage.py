@@ -1,4 +1,4 @@
-"""gui/updateCheckPage.py · 更新检测——账本页头承诺的「版本判定第二处」。"""
+"""更新检测"""
 r"""对当前档案全部未删除 mod 批量查询 Steam 远端实况：补全标题等元
 数据、按判决制公式判定哪些需要更新、给特别关注的 mod 记提醒、
 result=9 时建立失效归档。
@@ -262,7 +262,12 @@ class UpdateCheckPage(QWidget):
         self._table = QTableWidget(0, len(_RESULT_COLUMNS), self)
         self._table.setHorizontalHeaderLabels(_RESULT_COLUMNS)
         self._table.verticalHeader().setVisible(False)
-        self._table.setAlternatingRowColors(True)
+        # 交替行必须关：qdarktheme 的 QSS 会在视图级把交替色压在
+        # 单元格背景之上，结果表的三色底会被整个盖住（mod 库页同款
+        # 坑，modListPage._build_ui 注释有案底）。行底色由 _show_results
+        # 逐格画，未上色行黑底，观感与 mod 库页一致
+        self._table.setAlternatingRowColors(False)
+
         self._table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(
@@ -273,6 +278,12 @@ class UpdateCheckPage(QWidget):
                            (5, 110), (6, 110)):
             self._table.setColumnWidth(col, width)
         root.addWidget(self._table, 1)
+        # 结果表右键菜单（⑩配套）：打开工坊页面 / 打开 mod 文件夹 /
+        # 复制编号——菜单按行现查库取数据，不缓存整行
+        self._table.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(
+            self._on_result_context_menu)
 
     # ---------- 对外（MainWindow 调用） ----------
     def set_game(self, game: Game | None) -> None:
@@ -549,22 +560,36 @@ class UpdateCheckPage(QWidget):
                     self._repo.update_api_metadata(item.mod_id, **meta)
         return updates_found, triggers, n_archived
 
-    def _show_results(self, suspected_ids: set[int],
-                      failed: dict[int, int],
+    def _show_results(self, suspected_ids: set[int], failed: dict[int, int],
                       n_archived: int = 0) -> None:
         """结果表只显示有信息量的行：需更新/版本未知/疑似合集/查询失败
         进表；已最新/未下载/远端未知不占行——数量进汇总行兜底，完整
         消失会让人怀疑没查到。顺序仍按开始检测时的库内顺序；正常条目
-        重新从库里读一遍（展示写入后的最新状态）。"""
+        重新从库里读一遍（展示写入后的最新状态）。
+
+        行底色分栏（⑩极简版）：不重排、不插组头行，只上色——
+        特别关注=琥珀、长时间未更新=灰、两者兼有=红。阈值直接沿用
+        设置页「慢更新提醒阈值（天）」（slow_update_days，默认 180），
+        改阈值去设置页改完重测即可。实色叠画（半透明版会被交替行 QSS
+        盖掉——mod 库页同款坑，modListPage._build_ui 有案底）。
+
+        筛选下拉（⑩配套）：按底色类别筛行——setRowHidden 纯显隐，
+        不重查库、不重画表，瞬间生效；行类别记进 _row_categories
+        （与表行一一对应），重新检测后自动套用当前筛选。汇总计数
+        仍按全量口径（筛选只藏行，不改数字）。
+        纯显示层：零写库（R17）。
+        """
+        self._ensure_result_filter()
         threshold = self._settings.get_int("slow_update_days", 30)
         visible = [m for m in self._mods_at_start if m.status != "deleted"]
+
         # 第一遍：分拣 + 顺带取 fresh（第二遍不重查库）
-        rows = []       # (m, fresh, title, kind) 有信息量的
+        rows = []  # (m, fresh, title, kind) 有信息量的
         n_normal = 0
         for m in visible:
             fresh = self._repo.get_mod(m.mod_id)
             title = (fresh.title if fresh is not None else None) \
-                or m.title or "（无标题）"
+                    or m.title or "（无标题）"
             if m.mod_id in failed:
                 kind = "查询失败"
             elif m.mod_id in suspected_ids:
@@ -575,11 +600,26 @@ class UpdateCheckPage(QWidget):
                 rows.append((m, fresh, title, kind))
             else:
                 n_normal += 1
-        counts = {"需更新": 0, "版本未知": 0,
-                  "疑似": len(suspected_ids), "失败": len(failed)}
+
+        counts = {"需更新": 0, "版本未知": 0, "疑似": len(suspected_ids),
+                  "失败": len(failed)}
         self._table.setRowCount(len(rows))
         red = QColor("#e5484d")
+        # 实色（半透明版被交替行盖掉+深底太淡，见 modListPage 同款坑）：
+        # 琥珀=特别关注、灰=长时间未更新（沉底语义，不抢眼）、
+        # 红=两者兼有（关注着但作者可能弃坑，最该斟酌的）
+        amber = QColor("#b45309")
+        gray = QColor("#3f3f46")
+        overlap = QColor("#991b1b")
+        stale_cutoff = int(time.time()) - threshold * 86400
+        # 行类别表：与表行一一对应，筛选下拉按它显隐（plain=无底色）
+        self._row_categories = []
+        n_special = n_stale = n_both = 0
+
         for r, (m, fresh, title, kind) in enumerate(rows):
+            # 行是复用的：上次检测若该行是疑似合集，「展开合集…」按钮
+            # 会残留（setCellWidget 只换不删）——先摘掉再画
+            self._table.removeCellWidget(r, 6)
             self._set_cell(r, 0, str(m.mod_id))
             self._set_cell(r, 1, title)
             counts["需更新"] += kind == "需更新"
@@ -601,9 +641,8 @@ class UpdateCheckPage(QWidget):
                         "接口返回了异常结果码（可能被设为私有/地区"
                         "限制/远端波动）——稍后重测即可")
             elif m.mod_id in suspected_ids:
-                self._set_cell(r, 3,
-                               "远端缺少文件大小——可能是合集，"
-                               "点右侧按钮确认")
+                self._set_cell(r, 3, "远端缺少文件大小——可能是合集，"
+                                     "点右侧按钮确认")
             else:
                 self._set_cell(r, 3, relative_time(fresh.time_updated))
             # 更新间隔 = 本次版本距上一版过了多少天（作者的更新节奏）。
@@ -621,8 +660,7 @@ class UpdateCheckPage(QWidget):
                     item.setForeground(red)
             else:
                 self._set_cell(r, 4, "—")
-            self._set_cell(r, 5,
-                           fmt_size(fresh.local_size or fresh.file_size))
+            self._set_cell(r, 5, fmt_size(fresh.local_size or fresh.file_size))
             self._set_cell(r, 6, "")
             if m.mod_id in suspected_ids:
                 btn = QPushButton("展开合集…", self._table)
@@ -630,13 +668,189 @@ class UpdateCheckPage(QWidget):
                     lambda _=False, mid=m.mod_id:
                     self._expand_collection(mid))
                 self._table.setCellWidget(r, 6, btn)
+
+            # ——底色分栏：两旗独立判，重叠给第三色；行序不动——
+            special = bool(fresh.is_special)
+            stale = (fresh.time_updated is not None
+                     and fresh.time_updated <= stale_cutoff)
+            if special and stale:
+                bg = overlap
+            elif special:
+                bg = amber
+            elif stale:
+                bg = gray
+            else:
+                bg = None
+            if bg is not None:
+                for c in range(len(_RESULT_COLUMNS)):
+                    cell = self._table.item(r, c)
+                    if cell is not None:
+                        cell.setBackground(bg)
+            n_special += special
+            n_stale += stale
+            n_both += special and stale
+            self._row_categories.append(
+                "both" if special and stale else
+                "special" if special else
+                "stale" if stale else "plain")
+
+        # 底色图例进汇总行：有上色的组才出现，没上色不加噪声
+        bits = []
+        if n_special:
+            bits.append(f"琥珀=特别关注 {n_special}")
+        if n_stale:
+            bits.append(f"灰=长时间未更新 {n_stale}（≥{threshold} 天）")
+        if n_both:
+            bits.append(f"红=两者兼有 {n_both}")
+        color_tail = ("｜底色：" + "，".join(bits)) if bits else ""
+
         arch_tail = f"（result=9 建档 {n_archived}）" if n_archived else ""
-        self._summary.setText(
+        self._summary_base = (
             f"检测完成：需更新 {counts['需更新']}｜版本未知 "
             f"{counts['版本未知']}｜疑似合集 {counts['疑似']}"
             f"｜查询失败 {counts['失败']}{arch_tail}"
-            f"｜已最新/未下载/远端未知 {n_normal} 个（不占表）")
+            f"｜已最新/未下载/远端未知 {n_normal} 个（不占表）"
+            f"{color_tail}")
+        self._summary.setText(self._summary_base)
         self._summary.setStyleSheet("color: #46a758;")
+        self._sync_result_filter_options()  # 空档置灰（可能退回「不筛选」）
+        self._apply_result_filter()  # 重检测后保持当前筛选 + 刷新计数
+
+    def _ensure_result_filter(self) -> None:
+        """结果筛选下拉（⑩配套）：运行时惰性创建一次，插在汇总行上方
+        ——不动 _build_ui（就地 import 与 modListPage._on_open_pages_paste
+        同款家规：本页唯一用点，免动文件头 import 区）。"""
+        if getattr(self, "_result_filter", None) is not None:
+            return
+        from PySide6.QtWidgets import QComboBox
+        combo = QComboBox(self)
+        for text, key in (("不筛选", None),
+                          ("★ 特别关注", "special"),
+                          ("长时间未更新", "stale"),
+                          ("两者兼有（红）", "both"),
+                          ("其他（无底色）", "plain")):
+            combo.addItem(text, key)
+        combo.setToolTip(
+            "按结果表的底色类别筛行（纯显隐，不重查库）：\n"
+            "★ 特别关注 = 琥珀底；长时间未更新 = 灰底（远端最后更新"
+            "距今超过慢更新阈值）；\n两者兼有 = 红底；其他 = 没上色的"
+            "行。\n换筛选瞬间生效；重新检测后仍保持当前选择")
+        combo.currentIndexChanged.connect(self._apply_result_filter)
+        try:
+            lay = self._summary.parentWidget().layout()
+            lay.insertWidget(lay.indexOf(self._summary), combo)
+        except Exception as exc:
+            # 布局结构不合预期：页面照常用，只是没有这个下拉——
+            # 报日志定位，别让一个筛选条把检测结果页拖死
+            log = getattr(self, "_log", None)
+            if log is not None:
+                log.warn(f"结果筛选下拉未能挂进布局：{exc}")
+            return
+        self._result_filter = combo
+
+    def _sync_result_filter_options(self) -> None:
+        """筛选下拉的空档置灰（⑩配套收尾）：本次结果里没出现的类别，
+        对应选项禁用（灰字、点不开）——躺着筛不出任何行的档位只会让
+        人多点一次再疑惑。类别表 _row_categories 由 _show_results 填，
+        每次检测完重算；「不筛选」永远可用。
+        当前选中的档位若因重新检测变空，自动退回「不筛选」——不留
+        一个筛不出任何行的死选择（重置会触发 _apply_result_filter，
+        全量行随即恢复显示）。
+
+        model 的声明类型是基类 QAbstractItemModel（没有 .item()，
+        IDE 报"未解析"），运行时实为 QStandardItemModel——用
+        isinstance 收窄类型既让 IDE 闭嘴，也兜住模型类型意外变化
+        （那种情况不置灰、全可用，功能照常）。"""
+        from PySide6.QtGui import QStandardItemModel
+
+        combo = getattr(self, "_result_filter", None)
+        if combo is None:
+            return
+        cats = getattr(self, "_row_categories", [])
+        counts = {c: cats.count(c)
+                  for c in ("special", "stale", "both", "plain")}
+        model = combo.model()
+        if not isinstance(model, QStandardItemModel):
+            return  # 意料外的模型类型：不置灰（全可用），照常工作
+        for i in range(combo.count()):
+            item = model.item(i)
+            if item is None:
+                continue
+            key = combo.itemData(i)
+            item.setEnabled(key is None or counts.get(key, 0) > 0)
+        if (combo.currentData() is not None
+                and counts.get(combo.currentData(), 0) == 0):
+            combo.setCurrentIndex(0)  # 死选择退回；信号触发即恢复全显
+
+    def _apply_result_filter(self, *_a) -> None:
+        """筛选变化 → 逐行 setRowHidden（零重查、零重画）。汇总行尾部
+        缀「筛选中：显示 N / M」；不筛选/全显示时不缀，免噪声。
+        类别表 _row_categories 由 _show_results 填，与表行一一对应。"""
+        combo = getattr(self, "_result_filter", None)
+        if combo is None:
+            return
+        want = combo.currentData()
+        cats = getattr(self, "_row_categories", [])
+        total = self._table.rowCount()
+        n_show = 0
+        for r in range(total):
+            cat = cats[r] if r < len(cats) else "plain"
+            show = want is None or cat == want
+            self._table.setRowHidden(r, not show)
+            n_show += show
+        base = getattr(self, "_summary_base", None)
+        if base is None:
+            base = self._summary.text()
+        if want is None or total == 0 or n_show == total:
+            self._summary.setText(base)
+        else:
+            self._summary.setText(base + f"｜筛选中：显示 {n_show} / {total}")
+    def _on_result_context_menu(self, pos) -> None:
+        """结果表右键菜单：打开工坊页面 / 打开 mod 文件夹 / 复制编号。
+        行 → 编号直接读第 0 列文本（_show_results 写的就是纯数字），
+        不另建行号映射；mod 现查库取菜单打开那一刻的最新状态。被筛选
+        藏起来的行点不到（indexAt 对隐藏坐标返回无效索引），天然不
+        参与。就地 import（gui 层新用点，免动文件头 import 区——
+        modListPage 的 batchOpenDialog 同款家规）。"""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtWidgets import QApplication, QMenu
+        from gui.modFolderOpener import open_mod_folder
+
+        index = self._table.indexAt(pos)
+        if not index.isValid():
+            return
+        id_item = self._table.item(index.row(), 0)
+        if id_item is None or not id_item.text().isdigit():
+            return
+        mid = int(id_item.text())
+        m = self._repo.get_mod(mid)
+
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        act_url = menu.addAction("打开工坊页面")
+        act_url.setToolTip("在浏览器打开该 mod 的 Steam 创意工坊页面")
+        act_folder = menu.addAction("打开 mod 文件夹")
+        act_folder.setToolTip(
+            "在文件管理器打开该 mod 的下载内容文件夹（下载目录\\编号）")
+        if m is None:
+            act_folder.setEnabled(False)
+        menu.addSeparator()
+        act_copy = menu.addAction("复制编号")
+        act_copy.setToolTip("把这个 mod 的工坊编号复制到剪贴板")
+        act = menu.exec(self._table.viewport().mapToGlobal(pos))
+        if act is None:
+            return
+        if act is act_url:
+            QDesktopServices.openUrl(QUrl(workshop_url(
+                mid, (m.url if m is not None else "") or "")))
+        elif act is act_folder and m is not None:
+            # 归属开始检测时的档案（结果区的归属），不是界面当前档案
+            open_mod_folder(self, self._check_game or self._game, m,
+                            log=self._log)
+        elif act is act_copy:
+            QApplication.clipboard().setText(str(mid))
+            self._log.info(f"已复制编号 {mid}")
 
     def _set_cell(self, row: int, col: int,
                   text: str) -> QTableWidgetItem:

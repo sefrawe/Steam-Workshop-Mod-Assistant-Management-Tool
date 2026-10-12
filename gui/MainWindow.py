@@ -471,8 +471,9 @@ class MainWindow(QMainWindow):
         # 控制器按本批编号取用（多余键无害）
         self._pending_triggers = dict(triggers)
         self._forward_daily_updates(app_id, len(mods), False)
+        dlg = UpdateSelectDialog(mods, app_id, parent=self,
+                                 settings=self._settings)
 
-        dlg = UpdateSelectDialog(mods, app_id, parent=self)
         dlg.execute_requested.connect(self._on_update_execute_requested)
         dlg.finished.connect(self._on_update_dialog_finished)
         self._update_dialog = dlg
