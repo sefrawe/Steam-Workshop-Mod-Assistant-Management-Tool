@@ -14,22 +14,29 @@ set_game 与进页（refresh 钩子）都重算——设置页改完词表，切
 
 远端侧的弃坑检测在【远端健康】页，两处词表相互独立（V1 口径照搬）。
 """
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices,QAction
+import html
+import re
+
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QAction, QColor
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMenu, QMessageBox,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,QApplication
+    QHBoxLayout, QLabel, QMenu, QMessageBox,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget, QApplication,
+    QAbstractItemView, QHeaderView, QLineEdit, QTableWidget, QTableWidgetItem
 )
 
-from core import constants
 from core.models import Game
-from gui.logBus import LogBus
-from workflows import exceptionFlow
-from gui.theme import font_px  # 字号单源（D25）
 from core.urlParser import workshop_url
+from gui.logBus import LogBus
+from gui.theme import font_px  # 字号单源（D25）
+from workflows import exceptionFlow
+from gui.tableSort import SortItem  # 表头数值排序（单源共享件）
+
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
 _C_MUTED = "#8a8a8f"
+_TITLE_ROLE = Qt.ItemDataRole.UserRole + 1
+# 标题纯文本住数据角色：显示层是富文本标签，查找过滤读这里
 
 
 class TitleCheckPage(QWidget):
@@ -91,13 +98,52 @@ class TitleCheckPage(QWidget):
         self._status.setWordWrap(True)
         root.addWidget(self._status)
 
-        self._list = QListWidget(self)
-        self._list.setWordWrap(False)
-        self._list.setAlternatingRowColors(True)
-        self._list.setFixedHeight(240)
-        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._list.customContextMenuRequested.connect(self._on_row_menu)
-        root.addWidget(self._list)
+        # 页面级查找（备份页同款：防抖 300ms、只隐藏不清数据、清空恢复）
+        srow = QWidget(self)
+        sh = QHBoxLayout(srow)
+        sh.setContentsMargins(0, 0, 0, 0)
+        sh.addWidget(QLabel("查找：", srow))
+        self._filter_edit = QLineEdit(srow)
+        self._filter_edit.setClearButtonEnabled(True)
+        self._filter_edit.setPlaceholderText(
+            "按标题 / 编号 / 命中词过滤（即时生效，只隐藏；清空恢复）…")
+        self._filter_edit.textChanged.connect(
+            lambda _t: self._filter_timer.start())
+        sh.addWidget(self._filter_edit, 1)
+        root.addWidget(srow)
+
+        # 命中表（备份页同款表格化）：编号/标题/命中词分列——黏一行
+        # 分不清的教训；标题列富文本标出命中词位置（"Abandoned Mines"
+        # 式误报当场可辨）。双击行 = 开工坊页面
+        self._table = QTableWidget(0, 3, self)
+        self._table.setHorizontalHeaderLabels(
+            ["编号", "标题（双击行 = 打开工坊页面）", "命中词"])
+        self._table.verticalHeader().setVisible(False)
+        self._table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection)
+        self._table.setWordWrap(False)
+        # 不开交替行色（qdarktheme QSS 会盖掉富文本标签的底，⑩同款坑）
+        _th = self._table.horizontalHeader()
+        _th.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        _th.setSectionsClickable(True)  # 表头可点排序（原 False 关死）
+        _th.sortIndicatorChanged.connect(
+            lambda *_a: self._apply_filter())  # 排序搬条目、隐藏挂行号
+
+        self._table.setColumnWidth(0, 110)
+        self._table.setColumnWidth(2, 160)
+        self._table.itemDoubleClicked.connect(self._on_dclicked)
+        self._table.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_row_menu)
+        root.addWidget(self._table, 1)
+
+        # 查找防抖（备份页同款 300ms）
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(300)
+        self._filter_timer.timeout.connect(self._apply_filter)
 
         note = QLabel(
             "改词表：设置页 →「本地标题提醒关键词」。远端侧的弃坑检测"
@@ -106,7 +152,7 @@ class TitleCheckPage(QWidget):
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")
         root.addWidget(note)
-        root.addStretch(1)
+
 
     # ---------- 对外（MainWindow 自动调用）----------
     def set_game(self, game: Game | None) -> None:
@@ -118,8 +164,13 @@ class TitleCheckPage(QWidget):
             self._game_label.setText(
                 f"当前游戏：{game.name}（{game.app_id}）")
         # 不自动检测：切档案只清场，结果等用户点【开始检测】
-        self._list.clear()
+        # 不自动检测：切档案只清场，结果等用户点【开始检测】
+        self._table.setRowCount(0)
+        self._table.setSortingEnabled(False)  # 带排序灌数据=边灌边排、行错位
+
+        self._filter_edit.clear()
         self._mods_by_id = {}
+
         if game is None:
             self._status.setText("选好档案后点【开始检测】。")
         else:
@@ -132,7 +183,8 @@ class TitleCheckPage(QWidget):
 
     # ---------- 计算（纯读）----------
     def _recompute(self) -> None:
-        self._list.clear()
+        self._table.setRowCount(0)
+        self._table.setSortingEnabled(False)  # 带排序灌数据=边灌边排、行错位
         if self._game is None:
             self._status.setText("请先在左上角选择档案，再点【开始检测】")
             self._status.setStyleSheet(f"color: {_C_MUTED};")
@@ -151,24 +203,105 @@ class TitleCheckPage(QWidget):
         if not str(kw_raw or "").strip():
             self._status.setText("已停用（设置页关键词为空）")
             self._status.setStyleSheet(f"color: {_C_MUTED};")
-
             return
         if lt.total == 0:
             self._status.setText("无命中")
             self._status.setStyleSheet(f"color: {_C_OK};")
-
             return
         self._status.setText(
             f"{lt.total} 个标题含关键词——打开工坊页面对照一眼，"
             "内容真的停更了再决定去留；误报的把对应词从设置页词表删掉。")
         self._status.setStyleSheet(f"color: {_C_WARN};")
-        for mid, kws in sorted(lt.hits.items()):
-            it = QListWidgetItem(
-                f"{mid} {self._title_of(mid)} · 命中：" + "、".join(kws))
-            it.setData(Qt.ItemDataRole.UserRole, mid)
-            self._list.addItem(it)
+        hits = sorted(lt.hits.items())
+        self._table.setRowCount(len(hits))
+        for r, (mid, kws) in enumerate(hits):
+            title = self._title_of(mid)
+            c0 = SortItem(str(mid), mid)  # 排序键 = 编号数值
+            c0.setData(Qt.ItemDataRole.UserRole, mid)
+            # 显示全交富文本标签；条目只带排序键与数据角色——条目里
+            # 再存一份显示文字 = 同一格画两遍（截图里的重影）
+            c1 = SortItem("", title)
+            c1.setData(_TITLE_ROLE, title)
+            c1.setToolTip("双击行打开工坊页面；右键更多动作\n命中："
+                          + "、".join(kws))
+            c2 = SortItem("、".join(kws), "、".join(kws))
+            c2.setForeground(QColor(_C_WARN))
+            _f = c2.font()
+            _f.setBold(True)
+            c2.setFont(_f)
+            for c, cell in enumerate((c0, c1, c2)):
+                self._table.setItem(r, c, cell)
+            # 标题列富文本：命中词加粗标色。鼠标穿透
+            # （WA_TransparentForMouseEvents）——双击/右键/悬浮直达
+            # 表格，不在标签上被吃掉；悬浮说明住在 c1 条目上
+            lbl = QLabel(self._marked_title(title, kws), self._table)
+            lbl.setTextFormat(Qt.TextFormat.RichText)
+            lbl.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            lbl.setContentsMargins(6, 0, 2, 0)  # 与条目文字的左内边距看齐
+            self._table.setCellWidget(r, 1, lbl)
+        self._table.setSortingEnabled(True)  # 灌完再开；点过的排法自动重放
+        self._apply_filter()
         self._log.warn(
             f"标题检测（{self._game.name}）：{lt.total} 个标题含关键词")
+
+    @staticmethod
+    def _marked_title(title: str, kws: list[str]) -> str:
+        """标题富文本：命中词加粗标色（一眼看到词落在标题哪个位置）。
+        大小写不敏感；多词重叠命中取并集；re.escape 防关键词里的
+        正则特殊字符（如 C++）。"""
+        spans: list[tuple[int, int]] = []
+        for kw in kws:
+            if not kw.strip():
+                continue
+            for m in re.finditer(re.escape(kw), title, re.IGNORECASE):
+                spans.append((m.start(), m.end()))
+        if not spans:
+            return html.escape(title)
+        spans.sort()
+        merged: list[list[int]] = []
+        for s, e in spans:
+            if merged and s <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], e)
+            else:
+                merged.append([s, e])
+        out: list[str] = []
+        pos = 0
+        for s, e in merged:
+            out.append(html.escape(title[pos:s]))
+            out.append('<b style="color:' + _C_WARN + '">'
+                       + html.escape(title[s:e]) + "</b>")
+            pos = e
+        out.append(html.escape(title[pos:]))
+        return "".join(out)
+
+    def _on_dclicked(self, item) -> None:
+        """双击任意格 = 打开该行 mod 的工坊页面（最快路径；右键
+        菜单照旧——一个动作一个定义没变，只是多了一个入口）。"""
+        it = self._table.item(item.row(), 0)
+        mid = it.data(Qt.ItemDataRole.UserRole) \
+            if it is not None else None
+        if mid is not None:
+            self._open_url(mid)
+    def _apply_filter(self) -> None:
+        """查找落地：不命中的行隐藏（只隐藏不清数据，清空即全恢复；
+        幂等）。标题列的纯文本住在数据角色（显示层是富文本标签），
+        匹配读数据不读显示。"""
+        kw = self._filter_edit.text().strip().casefold()
+        t = self._table
+        for r in range(t.rowCount()):
+            if not kw:
+                t.setRowHidden(r, False)
+                continue
+            it1 = t.item(r, 1)
+            hay = " ".join((
+                t.item(r, 0).text() if t.item(r, 0) is not None else "",
+                str(it1.data(_TITLE_ROLE) or "")
+                if it1 is not None else "",
+                t.item(r, 2).text() if t.item(r, 2) is not None else "",
+            )).casefold()
+            t.setRowHidden(r, kw not in hay)
+
 
     def _title_of(self, mid: int) -> str:
         m = self._mods_by_id.get(mid)
@@ -176,10 +309,12 @@ class TitleCheckPage(QWidget):
 
     # ---------- 行菜单（查看类，与 V1 桶C 行同款）----------
     def _on_row_menu(self, pos) -> None:
-        it = self._list.itemAt(pos)
-        if it is None:
+        it = self._table.item(self._table.rowAt(pos.y()), 0) \
+            if self._table.rowAt(pos.y()) >= 0 else None
+        mid = it.data(Qt.ItemDataRole.UserRole) \
+            if it is not None else None
+        if mid is None:
             return
-        mid = it.data(Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
         act_url = QAction("打开工坊页面", menu)
@@ -193,7 +328,7 @@ class TitleCheckPage(QWidget):
         act_copy = QAction("复制编号", menu)
         act_copy.triggered.connect(lambda: self._copy_id(mid))
         menu.addAction(act_copy)
-        menu.exec(self._list.mapToGlobal(pos))
+        menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def _open_url(self, mid: int) -> None:
         # 网址走唯一入口 workshop_url（存了用存的、没存按编号现拼）。

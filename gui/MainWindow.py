@@ -386,6 +386,12 @@ class MainWindow(QMainWindow):
         # 触发它的菜单项——先接线，落点就绪，谁发谁到）
         if hasattr(modlib, "backup_requested"):
             modlib.backup_requested.connect(self._on_backup_requested)
+        # 详情面板依赖子页「送登记」转发口——与依赖页两个来路，
+        # 同一落点
+        if hasattr(modlib, "deps_send_to_register"):
+            modlib.deps_send_to_register.connect(
+                self._on_send_to_register)
+
         # mod 库页右键「获取下载命令…」→ 命令生成页并聚焦（核验页/
         # 异常页同一落点：跳页 + focus_ids，缺聚焦能力时只跳页）
         if hasattr(modlib, "command_gen_requested"):
@@ -619,8 +625,15 @@ class MainWindow(QMainWindow):
             return RemoteHealthPage(self._repo, self._settings,
                                     parent=self._stack, log=self._log)
         if pid == constants.PAGE_DEP_CHECK:
-            return DepCheckPage(self._repo, self._settings,
+            page = DepCheckPage(self._repo, self._settings,
                                 parent=self._stack, log=self._log)
+            # 依赖页「送登记」→ 入账中心登记区预填解析（与浏览器清单
+            # handoff 同款：跨页路由单源住主窗口）
+            if hasattr(page, "send_to_register_requested"):
+                page.send_to_register_requested.connect(
+                    self._on_send_to_register)
+            return page
+
         if pid == constants.PAGE_EXCEPTION:
             page = ExceptionPage(self._repo, self._settings,
                                  parent=self._stack, log=self._log)
@@ -991,6 +1004,20 @@ class MainWindow(QMainWindow):
             return
         receiver(urls)
         self._goto_page(constants.PAGE_ADD_MOD)
+    def _on_send_to_register(self, mod_ids: list) -> None:
+        """依赖检测页/详情面板「送登记」的落点：编号清单交入账中心
+        receive_ids（预填粘贴框 + 自动解析预览，不写库），受理即跳页
+        ——登记本身仍要人在④区点【登记新编号】（写库决定权在人，
+        预览只摆事实）。入账中心未就绪（分支回退占位器）时降级为
+        只提示，绝不炸；无档案不受理、不跳页。"""
+        page = self._pages.get(constants.PAGE_ACCOUNT_CENTER)
+        receiver = getattr(page, "receive_ids", None)
+        if not callable(receiver):
+            self._log.warn("入账中心未就绪，编号未送出——可在原页复制"
+                           "编号后到【入账中心 · 登记】粘贴")
+            return
+        if receiver(mod_ids):
+            self._goto_page(constants.PAGE_ACCOUNT_CENTER)
 
     def _on_open_browser_picker(self) -> None:
         """模块②【从浏览器取标签页…】的落点：弹页内选择器（内嵌

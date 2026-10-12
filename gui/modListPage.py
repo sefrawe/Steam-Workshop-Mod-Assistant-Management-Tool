@@ -277,6 +277,9 @@ class ModListPage(QWidget):
     backup_requested = Signal(int, list)
     # 高级筛选对话框【到 mod 库查看结果】→ MainWindow 跳到本页
     advanced_results_requested = Signal()
+    # 详情面板依赖子页「送登记」的转发口（MainWindow 接这里）：
+    # 面板发 → 本页转出，跨页路由仍单源住主窗口
+    deps_send_to_register = Signal(list)
 
     def __init__(self, repo, settings: AppSettings, parent: QWidget | None = None,
                  log: LogBus | None = None) -> None:
@@ -618,6 +621,10 @@ class ModListPage(QWidget):
         self._detail = ModDetailPanel(self._repo, split)
 
         self._detail.open_folder_requested.connect(self._open_folder_from_detail)
+        self._detail.mod_link_requested.connect(self._locate_mod)
+        self._detail.send_to_register_requested.connect(
+            self.deps_send_to_register)  # 信号转信号：跨页路由住主窗口
+
         split.addWidget(self._table)
         split.addWidget(self._detail)
         self._split = split
@@ -1132,6 +1139,17 @@ class ModListPage(QWidget):
         m = self._repo.get_mod(mod_id)
         if m is not None:
             self._open_mod_folder(m)
+    def _locate_mod(self, mod_id: int) -> None:
+        """详情面板依赖子页双击 → 左侧列表定位并选中（选中即联动
+        show_mod——子页原位重灌形成沿依赖链连逛）。不在当前清单 =
+        多半被筛选/搜索藏起来了：如实说明，不自动清筛选——悄悄改
+        用户的筛选反而让人迷路。"""
+        for i, m in enumerate(self._row_mods):
+            if m.mod_id == mod_id:
+                self._table.selectRow(i)
+                return
+        self._log.info(f"编号 {mod_id} 在账本但不在当前清单"
+                       "（可能被筛选/搜索挡住了——清一下筛选再点）")
 
     def _pick_color(self, m) -> None:
         names = [*COLOR_CHOICES.keys(), "（自定义颜色…）", "（清除标记）"]

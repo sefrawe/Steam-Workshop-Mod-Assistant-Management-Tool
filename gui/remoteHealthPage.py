@@ -11,22 +11,21 @@ r"""gui/remoteHealthPage.py · 桶A 远端健康（D24 拆分页之一）。
 深检结果同一口径）。查询顺带的失效/查询失败条目不在本页重复报
 ——归【异常处置】页（页内给计数与指路）。
 """
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QAction
+from PySide6.QtCore import Qt, QUrl, QTimer
+from PySide6.QtGui import QDesktopServices, QAction, QColor
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QProgressBar, QPushButton, QScrollArea,
-    QVBoxLayout, QWidget,
+    QApplication, QHBoxLayout, QLabel, QMenu, QMessageBox, QProgressBar, QPushButton, QScrollArea,
+    QVBoxLayout, QWidget, QLineEdit, QTableWidget, QAbstractItemView, QHeaderView, QTableWidgetItem,
 )
-from core.urlParser import workshop_url
 
-from core import constants, netGate   # ★ 待核：netGate 若在 gui 包改这行
+from core import constants, netGate  # ★ 待核：netGate 若在 gui 包改这行
 from core.models import Game
 from core.steamApiClient import SteamApiClient
+from core.urlParser import workshop_url
 from gui.logBus import LogBus
 from gui.remoteQueryWorker import RemoteQueryWorker, workshop_item_to_entry
-from workflows import exceptionFlow
 from gui.theme import font_px  # 字号单源（D25）
+from workflows import exceptionFlow
 
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
@@ -97,6 +96,25 @@ class RemoteHealthPage(QWidget):
         self._progress.setVisible(False)
         h.addWidget(self._progress, 1)
         root.addWidget(row)
+        # 页面级查找（依赖检测/备份页同款）：三张结果表联动过滤——
+        # 只隐藏不清数据，清空恢复；勾选不受影响
+        srow = QWidget(body)
+        sh = QHBoxLayout(srow)
+        sh.setContentsMargins(0, 0, 0, 0)
+        sh.addWidget(QLabel("查找：", srow))
+        self._filter_edit = QLineEdit(srow)
+        self._filter_edit.setClearButtonEnabled(True)
+        self._filter_edit.setPlaceholderText(
+            "按标题 / 编号 / 说明过滤三张结果表（即时，只隐藏；清空"
+            "恢复）…")
+        self._filter_edit.textChanged.connect(
+            lambda _t: self._filter_timer.start())
+        sh.addWidget(self._filter_edit, 1)
+        root.addWidget(srow)
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(300)
+        self._filter_timer.timeout.connect(self._apply_filter)
 
         self._summary = QLabel("", self)
         self._summary.setWordWrap(True)
@@ -104,35 +122,52 @@ class RemoteHealthPage(QWidget):
         self._sec_mismatch = self._make_section(
             "标题不符（本地 → 远端）",
             "作者改名或上传内容被顶替的信号：打开工坊页面对照一眼，"
-            "内容确实换了再决定去留。版本号差异已自动忽略。")
+            "内容确实换了再决定去留。版本号差异已自动忽略。",
+            _C_WARN)
         self._sec_abandoned = self._make_section(
             "标题含弃坑关键词",
-            "作者明示不再维护：还能用就继续用，出问题再找替代。")
+            "作者明示不再维护：还能用就继续用，出问题再找替代。",
+            _C_FAIL)
         self._sec_banned = self._make_section(
             "banned=1（被 Steam 封禁）",
-            "通常不可再下载，处置参考【异常处置】页桶④三步。")
+            "通常不可再下载，处置参考【异常处置】页桶④三步。",
+            _C_FAIL)
+
         self._note = QLabel("", self)
         self._note.setWordWrap(True)
         root.addWidget(self._note)
         root.addStretch(1)
-    def _make_section(self, heading: str, note: str) -> tuple:
-        """一个结果区：说明行 + 列表，装进滚动内容区（root_layout）。
-        返回（说明标签, 列表）。"""
+
+    def _make_section(self, heading: str, note: str,
+                      color: str = "#8a8a8f") -> tuple:
+        """一个结果区：说明行 + 结果表（备份页同款表格化：编号/标题
+        /说明分列——黏一行分不清的教训；勾选列 = 复制勾选编号的
+        对象来源）。返回（说明标签, 表格）。"""
         lbl = QLabel(heading + "——" + note, self)
         lbl.setWordWrap(True)
         lbl.setStyleSheet("color: gray;")
         self.root_layout.addWidget(lbl)
-        lw = QListWidget(self)
-        lw.setWordWrap(False)
-        lw.setAlternatingRowColors(True)
-        lw.setFixedHeight(180)
-        lw.setVisible(False)
-        lw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        lw.customContextMenuRequested.connect(
-            lambda pos, w=lw: self._on_row_menu(w, pos))
-        self.root_layout.addWidget(lw)
-        return lbl, lw
-
+        t = QTableWidget(0, 4, self)
+        t.setHorizontalHeaderLabels(["选", "编号", "标题", "说明"])
+        t.verticalHeader().setVisible(False)
+        t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        t.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        t.setWordWrap(False)
+        th = t.horizontalHeader()
+        th.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        th.setSectionsClickable(True)  # 表头可点排序（SortItem）
+        for col, width in ((0, 34), (1, 110), (2, 240)):
+            t.setColumnWidth(col, width)
+        t.setMinimumHeight(150)
+        t.setProperty("note_color", color)  # 说明列上色（_fill_list 读）
+        t.itemDoubleClicked.connect(self._on_row_dclicked)
+        t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        t.customContextMenuRequested.connect(
+            lambda pos, w=t: self._on_row_menu(w, pos))
+        th.sortIndicatorChanged.connect(lambda *_a: self._apply_filter())
+        t.setVisible(False)
+        self.root_layout.addWidget(t)
+        return lbl, t
 
     # ---------- 对外 ----------
     def set_game(self, game: Game | None) -> None:
@@ -290,48 +325,144 @@ class RemoteHealthPage(QWidget):
         self._btn.setEnabled(not running and self._game is not None)
         self._stop_btn.setEnabled(running)
         self._progress.setVisible(running)
-
     def _clear_results(self) -> None:
+        self._filter_edit.clear()
         for sec in (self._sec_mismatch, self._sec_abandoned,
                     self._sec_banned):
-            sec[1].clear()
+            sec[1].setRowCount(0)
             sec[1].setVisible(False)
         self._summary.setText("")
         self._note.setText("")
 
-    def _fill_list(self, lw: QListWidget, rows) -> int:
-        lw.clear()
-        for mid, title, note in rows:
-            it = QListWidgetItem(f"{mid} {title} · {note}")
-            it.setData(Qt.ItemDataRole.UserRole, mid)
-            lw.addItem(it)
-        lw.setVisible(bool(rows))
+    def _fill_list(self, t, rows) -> int:
+        """结果表灌装（灌表期关排序、灌完再开）。行 = (编号, 标题,
+        说明)；勾选列默认全不勾；说明列按 section 级别上色。"""
+        t.setSortingEnabled(False)  # 带排序灌数据=边灌边排、行错位
+        t.setRowCount(len(rows))
+        color = t.property("note_color")
+        for r, (mid, title, note) in enumerate(rows):
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable
+                         | Qt.ItemFlag.ItemIsEnabled)
+            chk.setCheckState(Qt.CheckState.Unchecked)
+            chk.setData(Qt.ItemDataRole.UserRole, mid)
+            from gui.tableSort import SortItem
+            c1 = SortItem(str(mid), mid)
+            c1.setData(Qt.ItemDataRole.UserRole, mid)
+            c3 = SortItem(note, note)
+            if color:
+                c3.setForeground(QColor(color))
+            for c, cell in enumerate((chk, c1, SortItem(title, title),
+                                      c3)):
+                t.setItem(r, c, cell)
+        t.setSortingEnabled(True)  # 灌完再开；点过的排法自动重放
+        t.setVisible(bool(rows))
         return len(rows)
 
     def _title_of(self, mid: int) -> str:
         m = self._mods_by_id.get(mid)
         return (m.title if m is not None and m.title else None) or "（无标题）"
-
-    def _on_row_menu(self, lw: QListWidget, pos) -> None:
-        it = lw.itemAt(pos)
-        if it is None:
-            return
-        mid = it.data(Qt.ItemDataRole.UserRole)
+    def _on_row_menu(self, t, pos) -> None:
+        """结果表右键：勾选总控 + 单行动作（光标下有行才有）+ 勾选
+        批动作。三张表共用（一个动作一个定义）。"""
+        row = t.rowAt(pos.y())
+        mid = None
+        if row >= 0:
+            it = t.item(row, 1)
+            mid = it.data(Qt.ItemDataRole.UserRole) \
+                if it is not None else None
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        act_url = QAction("打开工坊页面", menu)
-        act_url.setToolTip("在浏览器打开该 mod 的创意工坊页面")
-        act_url.triggered.connect(lambda: self._open_url(mid))
-        menu.addAction(act_url)
-        act_dir = QAction("打开 mod 文件夹", menu)
-        act_dir.triggered.connect(lambda: self._open_folder(mid))
-        menu.addAction(act_dir)
-        act_copy = QAction("复制编号", menu)
-        act_copy.triggered.connect(
-            lambda: (QApplication.clipboard().setText(str(mid)),
-                     self._log.info(f"已复制编号 {mid}")))
-        menu.addAction(act_copy)
-        menu.exec(lw.mapToGlobal(pos))
+        a_all = QAction("全选（可见行）", menu)
+        a_all.setToolTip("只勾选当前看得见的行——查找过滤在场时不盲勾")
+        a_all.triggered.connect(lambda _=False, w=t:
+                                self._check_all_visible(w))
+        menu.addAction(a_all)
+        a_none = QAction("清空勾选", menu)
+        a_none.triggered.connect(lambda _=False, w=t:
+                                 self._uncheck_all(w))
+        menu.addAction(a_none)
+        if mid is not None:
+            menu.addSeparator()
+            act_url = QAction("打开工坊页面", menu)
+            act_url.setToolTip("在浏览器打开该 mod 的创意工坊页面")
+            act_url.triggered.connect(lambda _=False, m=mid:
+                                      self._open_url(m))
+            menu.addAction(act_url)
+            act_dir = QAction("打开 mod 文件夹", menu)
+            act_dir.triggered.connect(lambda _=False, m=mid:
+                                      self._open_folder(m))
+            menu.addAction(act_dir)
+            act_copy = QAction("复制编号", menu)
+            act_copy.triggered.connect(
+                lambda _=False, m=mid: (
+                    QApplication.clipboard().setText(str(m)),
+                    self._log.info(f"已复制编号 {m}")))
+            menu.addAction(act_copy)
+        menu.addSeparator()
+        a3 = QAction("复制勾选行的编号", menu)
+        a3.setToolTip("先勾选若干行再点（每行一个）")
+        a3.triggered.connect(lambda _=False, w=t: self._copy_checked(w))
+        menu.addAction(a3)
+        menu.exec(t.viewport().mapToGlobal(pos))
+
+    def _on_row_dclicked(self, item) -> None:
+        """双击行 = 打开该 mod 的工坊页面。"""
+        t = item.tableWidget()
+        it = t.item(item.row(), 1)
+        mid = it.data(Qt.ItemDataRole.UserRole) \
+            if it is not None else None
+        if mid is not None:
+            self._open_url(mid)
+
+    def _check_all_visible(self, t) -> None:
+        """全选只勾可见行（备份页同款）；清空仍作用所有行。"""
+        for r in range(t.rowCount()):
+            if t.isRowHidden(r):
+                continue
+            it = t.item(r, 0)
+            if it is not None:
+                it.setCheckState(Qt.CheckState.Checked)
+
+    def _uncheck_all(self, t) -> None:
+        for r in range(t.rowCount()):
+            it = t.item(r, 0)
+            if it is not None:
+                it.setCheckState(Qt.CheckState.Unchecked)
+
+    def _copy_checked(self, t) -> None:
+        ids: list[int] = []
+        for r in range(t.rowCount()):
+            it = t.item(r, 0)
+            if it is not None and it.checkState() == Qt.CheckState.Checked:
+                mid = it.data(Qt.ItemDataRole.UserRole)
+                if mid is not None and int(mid) not in ids:
+                    ids.append(int(mid))
+        if not ids:
+            QMessageBox.information(self, "复制勾选行",
+                                    "先在列表里勾选若干行。")
+            return
+        QApplication.clipboard().setText(
+            "\n".join(str(i) for i in sorted(ids)) + "\n")
+        self._log.ok(f"已复制勾选的 {len(ids)} 个编号（每行一个）")
+
+    def _apply_filter(self) -> None:
+        """页面级查找落地：三张结果表联动（编号/标题/说明匹配）。
+        只隐藏不清数据；清空全恢复；勾选不受影响。幂等。"""
+        kw = self._filter_edit.text().strip().casefold()
+        for sec in (self._sec_mismatch, self._sec_abandoned,
+                    self._sec_banned):
+            t = sec[1]
+            for r in range(t.rowCount()):
+                if not kw:
+                    t.setRowHidden(r, False)
+                    continue
+                hay = " ".join(
+                    t.item(r, c).text()
+                    for c in (1, 2, 3)
+                    if t.item(r, c) is not None).casefold()
+                t.setRowHidden(r, kw not in hay)
+
     def _open_url(self, mid: int) -> None:
         m = self._mods_by_id.get(mid)
         # 网址现拼走唯一入口 workshop_url。此前直接 .format(mid) 填进

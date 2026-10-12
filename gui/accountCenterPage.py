@@ -532,6 +532,32 @@ class AccountCenterPage(QWidget):
     def showEvent(self, event) -> None:   # 进页自动刷新（导航钩子零接线）
         super().showEvent(event)
         self._reload_all()
+    def receive_ids(self, mod_ids: list) -> bool:
+        """跨页入口（依赖检测页/详情面板「送登记」）：编号清单转行
+        文本填进④登记粘贴框 → 自动解析预览（与页内【解析预览】同一
+        动作，不写库）→ 展开④区。登记本身仍要人点【登记新编号】
+        ——预览只摆事实（新登记/已在册/黑名单警示五类分色），写库
+        的决定权留给人。返回是否受理（无档案 = False，主窗口不跳页）。"""
+        ids = list(dict.fromkeys(
+            int(i) for i in mod_ids
+            if str(i).strip().lstrip("-").isdigit()))
+        if not ids:
+            return False
+        if self._game is None:
+            if self._log is not None:
+                self._log.warn("送登记未受理：先在左上角选择游戏档案"
+                               "（登记的编号归属当前档案）")
+            return False
+        self._paste_box.setPlainText(
+            "\n".join(str(i) for i in ids) + "\n")
+        self._sec_register.set_expanded(True)
+        self._on_parse()
+        if self._log is not None:
+            self._log.info(f"已把 {len(ids)} 个编号带入【入账中心 · "
+                           "登记】并解析预览——核对后点【登记新编号】"
+                           "入账")
+        return True
+
     def start_inventory_scan(self) -> None:
         """跨页入口（换机迁移⑦、恢复旧版本③等模块页的「盘点确认」
         落点）：与页内【扫描游戏目录】完全同一个动作——无档案时
@@ -910,8 +936,7 @@ class AccountCenterPage(QWidget):
             return
         parsed = parse_lines(text.splitlines())
         existing = {m.mod_id: m
-                    for m in self._repo.list_mods(self._game.app_id,
-                                                  order_by="mod_id")}
+                    for m in self._repo.list_mods(self._game.app_id,)}
         purged = (self._repo.filter_purged(parsed.mod_ids)
                   if parsed.mod_ids else set())
         self._plan = rf.classify_register(parsed, existing, purged,

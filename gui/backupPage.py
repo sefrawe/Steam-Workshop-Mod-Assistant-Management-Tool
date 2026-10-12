@@ -48,8 +48,7 @@ gui/backupPage.py · mod 内容备份的交互层。
 
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, QTimer, QUrl, Signal
-
+from PySide6.QtCore import QSettings, QThread, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, )
 from PySide6.QtWidgets import (
@@ -71,23 +70,27 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
-    QVBoxLayout, QLineEdit,
+    QVBoxLayout, QLineEdit, QFrame, QScrollArea,
     QWidget, )
 
+from core import steamPaths  # 档案未设备份目录时按 steamcmd 位置推导兜底
 from core.backupManager import BackupManager, steamcmd_running
+from core.formatters import abs_time, fmt_size, status_zh
 from core.models import Backup, Game
 from core.urlParser import workshop_url
 from gui.backupMoveDialog import BackupMoveDialog
 from gui.backupRelocateDialog import BackupRelocateDialog
+from gui.collapsibleSection import CollapsibleSection  # 先读我折叠（单源共享件）
 from gui.logBus import LogBus
+from gui.tableSort import SortItem as _SortItem  # 数值排序键（单源共享件；别名沿用旧名，_fill_row 零改动）
 from gui.theme import system_prefers_dark, font_px
-from core.formatters import abs_time, fmt_size, status_zh
-from core import steamPaths  # 档案未设备份目录时按 steamcmd 位置推导兜底
 
 # ---- 与设置页核对过的真键名（settingsPage.py）。注意配额在设置页
 # 以 GB 计（人好填），引擎以字节计（好比较），换算只在 _make_manager 做 ----
 _KEY_KEEP_PER_MOD = "backup_keep_per_mod"
 _KEY_QUOTA_GB = "backup_total_quota_gb"
+_SES_TIP = "session/backup_tip_fold"  # 先读我收展记忆
+_SES_VIEW = "session/backup_view"     # 视图（平铺/按mod分组）记忆
 
 # ---- 状态色（与重定位对话框同源，全局只有这一份口径）----
 _C_OK = "#46a758"
@@ -118,21 +121,6 @@ _COL_HEADERS = ["选", "↗", "mod 标题", "mod 编号", "备份时间",
 # 盘上列的排序次序：正常的在前、失联居中、没档案垫底
 _DISK_RANK = {"✓": 0, "失联": 1, "—": 2}
 
-
-class _SortItem(QTableWidgetItem):
-    """带数值排序键的单元格：显示文本给人看，比较大小用库内原值。
-    QTableWidget 点表头排序默认按显示文本比——"9.9 MiB" 会排到
-    "13.7 MiB" 后面；挂上原始数值后排序才符合直觉。
-    """
-
-    def __init__(self, text: str, key) -> None:
-        super().__init__(text)
-        self._key = key
-
-    def __lt__(self, other) -> bool:
-        if isinstance(other, _SortItem):
-            return self._key < other._key
-        return super().__lt__(other)
 
 
 class _BackupWorker(QThread):
@@ -306,7 +294,18 @@ class BackupPage(QWidget):
 
     # ---------- UI ----------
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        # 全页可滚动（入账中心/依赖检测同款）：窗口矮时出纵向滚动条，
+        # 工具行、统计行不再被挤没；表格有最小高度（见下），够高时
+        # 照旧占满，行为跟从前一样
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget(scroll)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
         title = QLabel("备份管理", self)
@@ -327,7 +326,22 @@ class BackupPage(QWidget):
             "点表头可排序，也可切换按 mod 分组查看。", self)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
-        root.addWidget(tip)
+        # 介绍折进「先读我」（入账中心同款共享件）：收起只占一行标题。
+        # 内容套内部滚动——说明文字随窗口宽度换行，固定高度下放不下
+        # 自己出滚动条，绝不裁字
+        tip_wrap = QScrollArea(self)
+        tip_wrap.setWidgetResizable(True)
+        tip_wrap.setFrameShape(QFrame.Shape.NoFrame)
+        tip_wrap.setWidget(tip)
+        self._sec_tip = CollapsibleSection("先读我：备份机制与操作约定")
+        self._sec_tip.set_content(tip_wrap, 96)
+        root.addWidget(self._sec_tip)
+        # 收展记忆：先恢复、后接线（set_expanded 会发信号，顺序反了
+        # 会把刚恢复的状态又写一遍）；首次使用默认展开
+        fold = QSettings().value(_SES_TIP)
+        self._sec_tip.set_expanded(
+            True if fold is None else str(fold) == "1")
+        self._sec_tip.expand_changed.connect(self._on_tip_fold)
 
         # ---- 工具行：三个下拉收齐全部动作，一行不再铺满按钮 ----
         bar = QWidget(self)
@@ -464,6 +478,18 @@ class BackupPage(QWidget):
             "平铺=全部备份按时间排；按 mod 分组=每个 mod 一组，"
             "组头显示份数和总大小")
         h.addWidget(self._view_combo)
+        # 视图记忆：上次用哪个视图，下次打开还是哪个（按 mod 分组
+        # 选过一次就一直是）。屏蔽信号防止建界面阶段触发 _reload
+        # ——那时档案还没接
+        try:
+            _vidx = int(QSettings().value(_SES_VIEW, 0))
+        except (TypeError, ValueError):
+            _vidx = 0
+        self._view_mode = "grouped" if _vidx == 1 else "flat"
+        self._view_combo.blockSignals(True)
+        self._view_combo.setCurrentIndex(_vidx)
+        self._view_combo.blockSignals(False)
+
         self._search = QLineEdit(bar)
         self._search.setPlaceholderText("搜索：标题 / 编号 / 备注…")
         self._search.setClearButtonEnabled(True)
@@ -504,6 +530,8 @@ class BackupPage(QWidget):
         self._table.itemChanged.connect(self._on_item_changed)
         self._table.cellClicked.connect(self._on_cell_clicked)
         header.sortIndicatorChanged.connect(self._on_sort_changed)
+        self._table.setMinimumHeight(600)  # 全页滚动下表格不塌陷
+
         # 右键菜单：与「对选中 ▾」共用同一组动作
         self._table.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu)
@@ -521,6 +549,11 @@ class BackupPage(QWidget):
 
 
     # ---------- 对外（MainWindow 调用）----------
+    def _on_tip_fold(self, on: bool) -> None:
+        """先读我收展落盘：下次打开还是这个样子（入账中心折叠记忆
+        同一套 session 口径）。"""
+        QSettings().setValue(_SES_TIP, "1" if on else "0")
+
 
     def set_game(self, game: Game | None) -> None:
         self._game = game
@@ -759,9 +792,9 @@ class BackupPage(QWidget):
                 i = j
         for r in range(rows):
             self._table.setRowHidden(r, not hit[r])
-
     def _on_view_changed(self, idx: int) -> None:
         self._view_mode = "grouped" if idx == 1 else "flat"
+        QSettings().setValue(_SES_VIEW, idx)  # 视图选择记住
         self._reload()
 
     def _set_all_checks(self, on: bool) -> None:
