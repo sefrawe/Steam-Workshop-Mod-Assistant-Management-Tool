@@ -785,9 +785,14 @@ class SQLiteRepository(ModRepository):
             self._conn.execute(
                 "DELETE FROM mods WHERE mod_id = ?", (mod_id,))
             # 黑名单登记放最后：mods 行删掉后 mod 对象已在手里，不怕丢
+            # 黑名单登记放最后：mods 行删掉后 mod 对象已在手里，不怕丢。
+            # note 即来源（2026-10 约定）：彻底清账自动登记 / 盘点忽略
+            # （入账中心）/ 孤儿处置拉黑（清理页）/ 手动拉黑（用户备注）。
+            # 旧行 note 为空显示"未知"，不做迁移
             self._conn.execute(
-                """INSERT OR REPLACE INTO purged_mods (mod_id, game_id, title)
-                   VALUES (?, ?, ?)""", (mod_id, mod.game_id, mod.title))
+                """INSERT OR REPLACE INTO purged_mods (mod_id, game_id, title, note) VALUES (?, ?, ?, ?)""",
+                (mod_id, mod.game_id, mod.title, "彻底清账自动登记"))
+
         return n_backups
 
     # ---------- 整理 setter ----------

@@ -178,3 +178,30 @@ def test_junction_tree_refused(env, tmp_path):
                      expected_root=str(content))
     res = dmf.execute_action(repo, act)
     assert not res.ok and real.exists() and (real / "data.bin").exists()
+def _report(tmp_path):
+    dd = tmp_path / "steamapps" / "workshop" / "content" / "294100"
+    dd.mkdir(parents=True)
+    (dd.parent.parent / "appworkshop_294100.acf").write_text("")
+    rep = dmf.InventoryReport(game_id=294100, game_name="t",
+                              download_dir=str(dd), backup_root=None)
+    rep.orphans = [dmf.OrphanRow(111, 10), dmf.OrphanRow(222, 20)]
+    return rep
+
+class _Repo:
+    def __init__(self, purged=()): self._p = set(purged)
+    def filter_purged(self, ids): return {i for i in ids if i in self._p}
+
+def test_defense_skips_already_purged_and_orders_first(tmp_path):
+    plan = dmf.build_plan(_Repo(purged={111}), _report(tmp_path),
+                          dmf.PlanRequest(orphan_ids=[111, 222],
+                                          orphan_defense=True))
+    kinds = [a.kind for a in plan.actions]
+    assert [a.mod_id for a in plan.actions if a.kind == "orphan_blacklist"] == [222]
+    acf = next(a for a in plan.actions if a.kind == "orphan_acf")
+    assert acf.ids == [111, 222]          # 断根对全部勾选生效
+    assert kinds.index("orphan_blacklist") < kinds.index("orphan")
+
+def test_plain_orphan_plan_unchanged(tmp_path):
+    plan = dmf.build_plan(_Repo(), _report(tmp_path),
+                          dmf.PlanRequest(orphan_ids=[111]))
+    assert {a.kind for a in plan.actions} == {"orphan"}

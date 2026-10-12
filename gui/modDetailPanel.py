@@ -585,7 +585,7 @@ class ModDetailPanel(QWidget):
                 "记在这里。" if state == "none" else
                 "最近一次拉取时该 mod 没有必需物品。多档案账本里若"
                 "本档案还没拉取过（是别的档案拉的），这里可能是"
-                "「未拉取」——本档案拉取一遍即明确。")
+                "「未拉取」——本档案拉取一遍即明确。已入账的条目双击可在mod库页内转跳。")
             t.setRowCount(0)
             self._btn_deps_copy.setEnabled(False)
             self._btn_deps_send.setEnabled(False)

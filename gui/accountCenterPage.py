@@ -895,7 +895,10 @@ class AccountCenterPage(QWidget):
                     f"盘点完成（{report.mod_dir}）：盘上 {report.folders_found}"
                     f" 个 mod 文件夹，新候选 {len(report.candidates_new)} 条，"
                     f"清失效 {len(report.stale_removed)} 条，大小回填 "
-                    f"{report.sizes_backfilled} 条")
+                    f"{report.sizes_backfilled} 条"
+                    + (f"，其中黑名单拦截 {report.skipped_purged} 条"
+                       "（复活条目：处置走清理页④或已清账管理·清除残留）"
+                       if report.skipped_purged else ""))
 
         self._reload_all()
 

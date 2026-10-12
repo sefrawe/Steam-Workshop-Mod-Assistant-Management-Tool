@@ -97,7 +97,28 @@ def _find_links(target: Path) -> list[Path]:
             else:
                 stack.append(e)
     return found
-
+def _acf_remove(acf_path: Path, ids: list[int]) -> tuple[int, str]:
+    """steamcmd 账本条目移除（★2026-10 按 core/steamPaths.py 实文核过
+    签名）：底层 remove_items_from_acf 返回 (实际移除的编号, 账本里
+    本就没有的编号) 两个清单——不是 (条数, 文本)，本包装换算成人话。
+    Installed / Details 两区块由底层一起清（只清 Installed 拦得住
+    入账、拦不住整体校验装配——两块都删才算断根）；写前自动备份
+    （.bak_时间戳）与只留最近 1 份由底层负责；一个条目都没删时底层
+    不动文件、不产生备份。文件级问题（读不了/解析失败/没有
+    AppWorkshop 根）底层抛 ValueError——execute_action 的 except
+    须已按本轮刀法加宽收编，逐条失败不炸整批。steamcmd 运行中的
+    拒绝已在 build_plan 决定（不发动作）。"""
+    removed, absent = steamPaths.remove_items_from_acf(str(acf_path), ids)
+    if not removed:  # 底层口径：一个没删 → 文件没动、备份没产生
+        shown = ("、".join(str(i) for i in absent[:8])
+                 + ("…" if len(absent) > 8 else "")) if absent else ""
+        return 0, ("这些编号本来就不在账本里，无事可移"
+                   + (f"：{shown}" if shown else ""))
+    note = f"移除 {len(removed)} 条，写前备份已自动留存（只留最近 1 份）"
+    if absent:
+        note += ("；账本里本就没有：" + "、".join(str(i) for i in absent[:8])
+                 + ("…" if len(absent) > 8 else ""))
+    return len(removed), note + "——装配引信已拆"
 
 # ============ 盘点 ============
 
@@ -220,6 +241,13 @@ class PlanRequest:
     # | "wipe_purge"（删文件+彻底清账）
     purge_backup_files: bool = False   # 彻底清账条目的磁盘备份文件是否带走
     orphan_ids: list[int] = field(default_factory=list)   # 勾选删除的孤儿
+    orphan_defense: bool = False
+    # 孤儿防复活复合开关（2026-10）：勾选删除的孤儿在删文件之外，
+    # 同时 ① 列入已清账黑名单 ② 移除 steamcmd 账本条目（断根）；
+    # 收尾清缓存由页面侧 T4 触发条件覆盖
+    steamcmd_path: str | None = None
+    # 页面传入：仅 defense 时定位 appworkshop acf（下载目录非标准
+    # 布局时的兜底，盘点 _read_versions 同款顺序）
 
 
 @dataclass
@@ -230,6 +258,9 @@ class Action:
     path: str = ""            # 磁盘类动作的目标路径
     expected_root: str = ""   # R4 保险丝参数：路径必须落在这个根内
     backup_id: int | None = None
+    game_id: int = 0  # 拉黑类动作需要（add_purged 必传；其余动作不填）
+    ids: list[int] = field(default_factory=list)  # 批次级动作（orphan_acf）
+    # 的编号清单——一次动作搬整批账本条目，不逐条重写 acf
 
 
 @dataclass
@@ -315,10 +346,46 @@ def build_plan(repo: ModRepository, report: InventoryReport,
         for mid in sorted(req.orphan_ids)]
     orphan_bytes = sum(o.dir_size for o in report.orphans
                        if o.mod_id in set(req.orphan_ids))
-
-    # ---- 定序（账先盘后）：账面 → 备份文件 → 账内目录 → 孤儿 ----
+    # ---- 孤儿防复活复合动作（2026-10）----
+    # 复活条目 = 盘上有目录 ∧ 账本无记录 ∧ 黑名单在案。对勾选的孤儿
+    # 一次做三件事：拉黑 → 移除 steamcmd 账本条目（断根）→ 删文件。
+    # 拉黑只登记不在名单的（已在 = 复活条目，跳过以保住原 note）；
+    # 断根对全部勾选生效（引信不分新旧）。steamcmd 运行中：账本
+    # 条目移除整体跳过（它退出时会覆盖账本，写了白写；清除残留
+    # 同边界），拉黑与删文件照常（R7 警告不拦截口径）。
+    black_actions: list[Action] = []
+    acf_actions: list[Action] = []
+    resurfaced_n = 0
+    acf_note = ""
+    if req.orphan_defense and req.orphan_ids:
+        orphan_set = set(req.orphan_ids)
+        already = repo.filter_purged(orphan_set)
+        resurfaced_n = len(orphan_set & already)
+        for mid in sorted(orphan_set - already):
+            black_actions.append(Action(
+                kind="orphan_blacklist", mod_id=mid,
+                game_id=report.game_id))
+        acf_path = _find_acf(report, req.steamcmd_path)
+        if acf_path is None:
+            acf_note = ("没找到 appworkshop 账本文件——这些目录多半"
+                        "本就没有 steamcmd 账本记录，无事可移。")
+        elif report.steamcmd_running:
+            acf_note = ("steamcmd 正在运行：本次跳过账本条目移除"
+                        "（它退出时会覆盖账本）——断根可事后到"
+                        "【已清账管理·清除残留】补做。")
+        else:
+            acf_actions.append(Action(
+                kind="orphan_acf", mod_id=0, path=str(acf_path),
+                ids=sorted(orphan_set)))
+    # ---- 定序：拉黑 → 账本条目移除 → 账面 → 备份文件 → 账内目录 →
+    # 孤儿文件。决定与断根放最前、重活最后：任何一处停下，残留方向
+    # 永远是"拦路闸已上、文件还在"（无害可续行）；反过来中途停下会
+    # 留下"文件没了、引信还在"的复活窗口 ----
     actions: list[Action] = []
+    actions.extend(black_actions)
+    actions.extend(acf_actions)
     for mid in soft_ids:
+
         actions.append(Action(kind="ledger_soft", mod_id=mid))
     for mid in purge_ids:
         actions.append(Action(kind="ledger_purge", mod_id=mid))
@@ -351,6 +418,24 @@ def build_plan(repo: ModRepository, report: InventoryReport,
             f"孤儿目录：删除 {len(orphan_actions)} 个"
             f"（约 {_fmt_size(orphan_bytes)}）——账本无记录，"
             "删了没有账面可回，这是删前的最后一道确认。")
+    if req.orphan_defense and req.orphan_ids:
+        lines = [f"孤儿·防复活 {len(req.orphan_ids)} 个：删除文件之外——"]
+        lines.append(f"· {len(black_actions)} 个列入已清账黑名单"
+                     "（本工具从此不自动入账；想反悔：【已清账管理】"
+                     "→ 允许录入）")
+        if resurfaced_n:
+            lines.append(f"· {resurfaced_n} 个已在名单（复活条目）："
+                         "跳过重复登记，其余处置照常")
+        if acf_actions:
+            lines.append(f"· steamcmd 账本条目移除 "
+                         f"{len(acf_actions[0].ids)} 个（写前自动备份）"
+                         "——条目不除，steamcmd 会反复把它们装配回来")
+        elif acf_note:
+            lines.append(f"· 账本条目移除跳过：{acf_note}")
+        lines.append("· 若这些编号有待认领提案，随拉黑一并撤销；"
+                     "执行收尾自动清一次 steamcmd 缓存（复活燃料）")
+        notes.append("\n".join(lines))
+
     if report.steamcmd_running and (content_actions or orphan_actions):
         notes.append("注意：steamcmd 正在运行——此刻删除可能与下载争用。"
                      "被误删的条目重跑下载命令即可回来（steamcmd 会自建条目）。")
@@ -365,9 +450,23 @@ def build_plan(repo: ModRepository, report: InventoryReport,
         notes.append(
             f"执行口径：本次共 {len(actions)} 条动作、涉及 "
             f"{len(involved)} 个 mod——「连账面一起处置」的条目各拆"
-            "「账面 + 文件」两步，带走备份文件的每份各一条；进度与"
+            "「账面 + 文件」两步，带走备份文件的每份各一条，孤儿防复活每条各拆「拉黑 + 账本 + 文件」（账本移除整批一条）；进度与"
             "完成数按动作条计，逐条日志写明是哪一步。")
     return CleanupPlan(actions=actions, notes=notes)
+def _find_acf(report: InventoryReport, steamcmd_path: str | None) -> Path | None:
+    """定位 appworkshop_<appid>.acf——单源走 steamPaths.locate_acf。
+    先按下载目录上两级（= workshop 层，第三口径直接命中），再按
+    steamcmd 根（第一口径）兜底。都找不到 = 这些孤儿多半本就没有
+    steamcmd 账本记录，无事可移。"""
+    dd = str(report.download_dir or "").strip()
+    if dd:
+        hit = steamPaths.locate_acf(Path(dd).parent, report.game_id)
+        if hit is not None:
+            return hit
+    return steamPaths.locate_acf(steamcmd_path, report.game_id)
+
+
+
 
 
 def execute_action(repo: ModRepository, action: Action) -> ActionResult:
@@ -421,8 +520,28 @@ def execute_action(repo: ModRepository, action: Action) -> ActionResult:
                    if action.kind == "content"
                    else "已删除（账本无记录，不可恢复）")
             return ActionResult(action.kind, action.mod_id, ok=True, detail=tip)
+        if action.kind == "orphan_blacklist":
+            repo.add_purged(action.mod_id, action.game_id,
+                            note="孤儿处置拉黑")
+            dropped = repo.drop_stale_claims(action.game_id,
+                                             [action.mod_id])
+            extra = (f"；撤销未确认认领提案 {dropped} 条"
+                     if dropped else "")
+            return ActionResult(
+                action.kind, action.mod_id, ok=True,
+                detail="已列入已清账黑名单（本工具永不自动入账；"
+                       "反悔走已清账管理·允许录入）" + extra)
+        if action.kind == "orphan_acf":
+            if not action.ids:
+                return ActionResult(action.kind, 0, ok=True,
+                                    detail="无编号可处理")
+            _, note = _acf_remove(Path(action.path), action.ids)
+            return ActionResult(action.kind, 0, ok=True, detail=note)
+
         return ActionResult(action.kind, action.mod_id, ok=False,
                             detail=f"未知动作类型：{action.kind}")
-    except (RuntimeError, OSError) as exc:
-        # R4 保险丝拒绝 / 权限 / 文件被占用等——逐条报告，不炸整批
+    except (RuntimeError, OSError, ValueError) as exc:
+        # R4 保险丝拒绝 / 权限 / 文件被占用 / repo 与 acf 层的
+        # 「操作不成立」（显式爆炸约定）——逐条报告，不炸整批
         return ActionResult(action.kind, action.mod_id, ok=False, detail=str(exc))
+

@@ -81,7 +81,14 @@ _KIND_ZH = {
     "backup_file": "备份文件",
     "content": "content 文件",
     "orphan": "孤儿目录",
+    "orphan_blacklist": "孤儿·拉黑",
+    "orphan_acf": "孤儿·账本条目移除",
+
 }
+def _who(mod_id: int) -> str:
+    """日志主语：批次级动作（孤儿·账本条目移除，mod_id=0 只是占位）
+    显示「（整批）」，其余显示 mod N。"""
+    return f"mod {mod_id}" if mod_id else "（整批）"
 
 _CLEAN_SORTS = (
     ("按编号（小→大）", lambda r: r.mod_id),
@@ -137,8 +144,7 @@ class _ExecuteWorker(QThread):
                     break
                 res = dmf.execute_action(self._repo, act)
                 results.append(res)
-                self.progress.emit(i, total,
-                                   f"{act.kind} mod {act.mod_id}: {res.detail}")
+                self.progress.emit(i, total, f"{act.kind} {_who(act.mod_id)}: {res.detail}")
         except Exception as exc:  # noqa: BLE001
             self.crashed.emit(str(exc))
             return
@@ -417,6 +423,10 @@ class DeletePage(QWidget):
             "认领（推荐先想这条路）：到【入账中心】点【扫描游戏目录】——"
             "盘点会把账外目录摆成待认领（盘面记了版本的带版本，没记的"
             "认成版本未知），确认后入账。\n"
+            "复活条目：编号旁标「（复活）」的，是你此前已彻底清账、"
+            "文件又被弄回来的——别只删文件：勾选后把下面的「删除同时"
+            "防复活」也勾上，一次做完拉黑+断根（只删文件的话 steamcmd "
+            "账本条目还在，会反复装配回来，打地鼠）。\n"
             "删除不可恢复，且多前端环境里别的工具（如 RimSort）清单里"
             "留着的 mod 会被它指挥下回来——悬浮此处可看多前端自查要点。",
             body)
@@ -445,6 +455,20 @@ class DeletePage(QWidget):
         self._sec_orphan = _Section("孤儿清单（0 个）", body)
         self._sec_orphan.set_content(self._tbl_orphan, 240)
         box4.addWidget(self._sec_orphan)
+        # 孤儿防复活复合开关（2026-10）：默认关（保守方向）。确认
+        # 弹窗全量列出各刀；只是想删文件、以后可能认领的不要勾
+        self._chk_orphan_defense = QCheckBox(
+            "删除同时防复活：列入已清账黑名单 + 移除 steamcmd 账本"
+            "条目（对确认不要的来路不明目录勾选）", body)
+        self._chk_orphan_defense.setToolTip(
+            "三个动作一次做完（确认弹窗逐条列出）：\n"
+            "① 列入已清账黑名单——本工具从此拦截其自动入账"
+            "（反悔走已清账管理·允许录入）；已在名单的自动跳过；\n"
+            "② 从 steamcmd 账本移除条目（写前自动备份）——条目不除，"
+            "steamcmd 会反复把它们装配回来；steamcmd 运行中本次自动"
+            "跳过，可事后到已清账管理·清除残留补做；\n"
+            "③ 执行收尾清一次 steamcmd 缓存（复活燃料）")
+        box4.addWidget(self._chk_orphan_defense)
 
         btn_row = QHBoxLayout()
         # 拍板③：统一指入账中心（导入页已撤，登记并入账中心④）
@@ -691,6 +715,8 @@ class DeletePage(QWidget):
         self._sec_orphan.set_title(f"孤儿清单（{n_orphan} 个）")
         self._sec_orphan.set_expanded(n_orphan > 0)
         self._bar_orphan.setVisible(n_orphan > 0)
+        self._chk_orphan_defense.setVisible(n_orphan > 0)
+
         self._btn_claim_scan.setVisible(n_orphan > 0)
 
 
@@ -796,16 +822,32 @@ class DeletePage(QWidget):
         # —— ④ 孤儿：勾选框，默认全不选（刻意不给批量全选——逐个确认）。
         # V2：OrphanRow 无 in_acf，"acf 认识?"列退役，认领路线统一指
         # 入账中心（见卡片说明与按钮）——
+        # 复活识别（2026-10）：孤儿里编号在黑名单的 = 复活条目
+        # （做过"彻底清账"决定、被别的指挥者推翻）——缀「（复活）」
+        # 黄字，tooltip 讲来历与去处；处置动作对所有孤儿开放
         rows = rep.orphans
         t = self._tbl_orphan
         t.setRowCount(len(rows))
+        purged_ids = (self._repo.filter_purged([o.mod_id for o in rows])
+                      if rows else set())
         for i, o in enumerate(rows):
+            resurfaced = o.mod_id in purged_ids
             chk = QCheckBox()
-            chk.setToolTip("勾选 = 执行时删除该目录（不可恢复）")
+            chk.setToolTip(
+                ("复活条目：你此前已彻底清账（黑名单在案），文件又被"
+                 "别的工具/steamcmd 弄回来了。\n勾选删除不会重复登记；"
+                 "完整断根请勾上面的「删除同时防复活」"
+                 "（含 steamcmd 账本条目移除）")
+                if resurfaced else
+                "勾选 = 执行时删除该目录（不可恢复）；确认不要的"
+                "可顺手勾上「删除同时防复活」")
             t.setCellWidget(i, O_CHK, chk)
             t.setItem(i, O_URL, self._make_url_item(o.mod_id))
-            it = QTableWidgetItem(str(o.mod_id))
+            it = QTableWidgetItem(
+                f"{o.mod_id}（复活）" if resurfaced else str(o.mod_id))
             it.setData(Qt.ItemDataRole.UserRole, o.mod_id)
+            if resurfaced:
+                it.setForeground(QBrush(QColor(_C_WARN)))
             t.setItem(i, O_ID, it)
             t.setItem(i, O_SIZE, QTableWidgetItem(fmt_size(o.dir_size)))
         self._apply_filters()
@@ -988,6 +1030,10 @@ class DeletePage(QWidget):
             if t.cellWidget(r, O_CHK).isChecked():
                 req.orphan_ids.append(int(t.item(r, O_ID).data(
                     Qt.ItemDataRole.UserRole)))
+        req.orphan_defense = (bool(req.orphan_ids)
+                              and self._chk_orphan_defense.isChecked())
+        req.steamcmd_path = self._settings.get("steamcmd_path")
+
         return req
 
     def _on_execute(self) -> None:
@@ -1051,22 +1097,22 @@ class DeletePage(QWidget):
         # 1 个 mod = 2 条 = 显示"完成 2 条"）。汇总补"涉及 N 个 mod"
         # 消解误读；逐条日志用 _KIND_ZH 写明是哪一步。涉及数按全部
         # 结果去重（成功+失败都算"动过了"），失败明细逐条列出
-        n_mods = len({r.mod_id for r in results})
+        n_mods = len({r.mod_id for r in results if r.mod_id})
         tail = "（已按要求停止，剩余动作未执行）" if stopped else ""
         summary = (
                 f"执行结束：完成 {len(ok)} 条动作（涉及 {n_mods} 个 mod），"
                 f"失败 {len(bad)} 条{tail}"
                 + ("\n" + "\n".join(f"· {_KIND_ZH.get(r.kind, r.kind)} "
-                                    f"{r.mod_id}：{r.detail}" for r in bad) if bad else ""))
+                                    f"{_who(r.mod_id)}：{r.detail}" for r in bad) if bad else ""))
         self._set_colored(self._lbl_progress, summary, _C_OK if (not bad and not stopped) else _C_WARN)
         if stopped:
             self._log.warn("处置已停止：停在条与条之间，完成的条目已生效")
         for r in ok:
             self._log.ok(f"清理·{_KIND_ZH.get(r.kind, r.kind)} "
-                         f"mod {r.mod_id}：{r.detail}")
+                         f"{_who(r.mod_id)}：{r.detail}")
         for r in bad:
             self._log.error(f"清理·{_KIND_ZH.get(r.kind, r.kind)} "
-                            f"mod {r.mod_id} 失败：{r.detail}")
+                            f"{_who(r.mod_id)} 失败：{r.detail}")
 
         # T4（2026-10 增补）：本轮有彻底清账 → 顺手清一次 steamcmd
         # 缓存（防复活断根的最后一步）：刚删完 content + acf 条目，
@@ -1074,7 +1120,7 @@ class DeletePage(QWidget):
         # 开关——它是清账手术的收尾，与 acf 自动移除同家族；代价仅为
         # 下次下载重拉 manifest。整批只清一次（引擎一次清全部，逐条清
         # 是浪费）。
-        if any(r.kind == "ledger_purge" for r in ok):
+        if any(r.kind in ("ledger_purge", "orphan_acf") for r in ok):
             cmd = str(self._settings.get("steamcmd_path") or "")
             try:
                 freed, cleared, skipped = steamPaths.clear_download_caches(cmd)

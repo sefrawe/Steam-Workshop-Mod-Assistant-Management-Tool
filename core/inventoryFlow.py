@@ -45,6 +45,9 @@ class ScanReport:
     stale_removed: list[int] = field(default_factory=list)   # 失效候选清除
     skipped_accounted: int = 0         # 已入账（只回填大小）
     skipped_other: int = 0             # 已删除 / 黑名单
+    skipped_purged: int = 0    # 其中黑名单成员（2026-10 细分：
+    # 复活条目拦截生效中，供日志点名）
+
     versions_from_acf: int = 0         # acf 带出盘面版本的候选数
     sizes_backfilled: int = 0
     acf_note: str = ""                 # acf 读取情况（找不到/读坏/正常）
@@ -105,9 +108,12 @@ def scan_game(repo, game, *, steamcmd_path: str | None = None) -> ScanReport:
         if mod is not None and mod.status == "deleted":
             report.skipped_other += 1            # 删除态：走恢复，不暗翻
             continue
+
         if mid in purged:
-            report.skipped_other += 1            # 黑名单（D11 同款）
+            report.skipped_other += 1  # 黑名单（D11 同款）
+            report.skipped_purged += 1
             continue
+
         if mid in pending_any:
             report.candidates_dup += 1           # 幂等：提案已在队列
             continue
