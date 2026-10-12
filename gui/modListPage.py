@@ -323,13 +323,17 @@ class ModListPage(QWidget):
         # 标题/备注/编号=页面内存过滤（repo 契约零改动）。
         # 首项叫"不筛选"不叫"全部"（2026-10 用户拍板）：与颜色下拉的
         # "不筛选"同一口径——"全部"读起来像主动筛了一遍
+        # 搜索范围下拉：首项"不筛选"= 真不做搜索（搜索框禁用，2026-10
+        # 用户拍板"不筛选就不让填"）；原首项的"标题+备注合查"语义
+        # 挪给"标题+备注"项（data 仍 "all"，_reload 分支原样兼容）
         self._search_field_combo = QComboBox(row)
-        for label, val in (("不筛选", "all"), ("标题", "title"),
-                           ("备注", "note"), ("编号", "id")):
+        for label, val in (("不筛选", None), ("标题+备注", "all"),
+                           ("标题", "title"), ("备注", "note"), ("编号", "id")):
             self._search_field_combo.addItem(label, val)
         self._search_field_combo.setToolTip(
             "搜索框查什么：\n"
-            "不筛选：标题和备注都查（默认）；\n"
+            "不筛选：不做搜索（搜索框禁用、不能输入）；\n"
+            "标题+备注：标题和备注一起查；\n"
             "标题 / 备注：只查对应字段；\n"
             "编号：按完整编号精确匹配（输非数字 = 0 命中）")
         self._search_field_combo.currentIndexChanged.connect(
@@ -337,8 +341,9 @@ class ModListPage(QWidget):
         h.addWidget(self._search_field_combo)
 
         self._search_edit = QLineEdit(row)
-        self._search_edit.setPlaceholderText("搜索标题 / 备注…")
+        self._search_edit.setPlaceholderText("（不筛选——选择搜索范围后可输入）")
         self._search_edit.setClearButtonEnabled(True)
+        self._search_edit.setEnabled(False)  # 首项"不筛选"：禁用（口径见 _on_search_field_changed）
         h.addWidget(self._search_edit, 1)
 
         # 状态下拉：显示中文，currentData 存库内原始值。
@@ -618,7 +623,7 @@ class ModListPage(QWidget):
 
         # 面板要查判决史，必须把账本仓库交给它——曾把分割器当 repo
         # 传进来，AttributeError 被 try/except 吞掉，"最近判决"永远暂无
-        self._detail = ModDetailPanel(self._repo, split)
+        self._detail = ModDetailPanel(self._repo, self._settings, split)
 
         self._detail.open_folder_requested.connect(self._open_folder_from_detail)
         self._detail.mod_link_requested.connect(self._locate_mod)
@@ -679,17 +684,30 @@ class ModListPage(QWidget):
         self._adv_dialog.activateWindow()
 
     # ---------- 查询 ----------
-
     def _on_search_field_changed(self, _index: int) -> None:
-        """搜索范围切换：换占位文案 + 立即按新范围重查（搜索词保留）。"""
+        """搜索范围切换：换占位文案 + 按范围开/关搜索框 + 立即重查。
+
+        "不筛选"（data=None）= 真不做任何搜索：搜索框禁用并清空——
+        防止"填了词却不生效"的假动作。原首项的"标题+备注合查"语义
+        挪给"标题+备注"项（data="all"），_reload 的
+        search_field == "all" 分支原样兼容零改动。
+        """
         field = self._search_field_combo.currentData()
-        self._search_edit.setPlaceholderText({
-                                                 "all": "搜索标题 / 备注…",
-                                                 "title": "搜索标题包含…",
-                                                 "note": "搜索备注包含…",
-                                                 "id": "输入完整编号（精确匹配）…",
-                                             }[field])
+        if field is None:
+            self._search_edit.setPlaceholderText("（不筛选——选择搜索范围后可输入）")
+            self._search_edit.setEnabled(False)
+            if self._search_edit.text():
+                self._search_edit.clear()  # 触发 textChanged → 防抖重查；词不残留
+        else:
+            self._search_edit.setPlaceholderText({
+                                                     "all": "搜索标题 / 备注…",
+                                                     "title": "搜索标题包含…",
+                                                     "note": "搜索备注包含…",
+                                                     "id": "输入完整编号（精确匹配）…",
+                                                 }[field])
+            self._search_edit.setEnabled(True)
         self._reload()
+
 
     def _apply_search(self) -> None:
         self._search = self._search_edit.text().strip()
@@ -1898,14 +1916,14 @@ class ModListPage(QWidget):
                 self, "下载选中项", "先在表格第一列勾选要下载的 mod。")
             return
         self.download_requested.emit(self._game.app_id, ids)
-
     def shutdown(self) -> None:
         """关窗收尾（MainWindow.closeEvent 的页面循环自动发现并调用）：
-        摘除高级筛选对话框 conditions_changed → _reload 的连接。
-        为什么必须摘：主窗口退出时本页持有的非模态对话框会被联动关闭，
-        done() 里的关窗清空会广播 conditions_changed——而退出路上数据库
-        已关闭，_reload 当场炸 ProgrammingError。摘信号即断链；正常使用
-        中的关窗清空不受影响。"""
+        ① 摘除高级筛选对话框 conditions_changed → _reload 的连接
+        （退出路上数据库已关闭，对话框关窗清空会广播 conditions_changed
+        ——_reload 当场炸 ProgrammingError，摘信号即断链）；
+        ② 详情面板「查远端信息」轮收尾（stop → wait 1.5 秒 → park）。"""
+        if getattr(self, "_detail", None) is not None:
+            self._detail.shutdown()
         try:
             self._adv_dialog.conditions_changed.disconnect(self._reload)
         except (RuntimeError, TypeError):

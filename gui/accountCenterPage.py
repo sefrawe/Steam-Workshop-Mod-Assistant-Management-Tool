@@ -64,6 +64,7 @@ from PySide6.QtWidgets import (
 )
 from gui.collapsibleSection import CollapsibleSection  # 固定高度+可折叠分区（单源共享件）
 from gui.theme import font_px  # 字号单源（D25）
+from PySide6.QtGui import QColor
 
 _C_MUTED = "#8a8a8f"   # 弱化：已在册 / 未验证 / 已确认（与确认清单同口径）
 _C_WARN = "#c8a03c"    # 黄：黑名单警示
@@ -981,8 +982,9 @@ class AccountCenterPage(QWidget):
             c1 = QTableWidgetItem(cat)
             c3 = QTableWidgetItem(note)
             if color is not None:
-                c1.setForeground(color)
-                c3.setForeground(color)
+                c1.setForeground(QColor(color))
+                c3.setForeground(QColor(color))
+
             t.setItem(i, 0, c1)
             t.setItem(i, 1, QTableWidgetItem(mid))
             t.setItem(i, 2, c3)

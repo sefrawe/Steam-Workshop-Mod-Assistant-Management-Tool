@@ -23,7 +23,7 @@ manifest / local_timeupdated / local_path 三个 acf 时代字段已随判决制
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
@@ -32,16 +32,17 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget, QAbstractItemView, QApplication, QHeaderView, QTableWidget, QTableWidgetItem, QHBoxLayout, QPushButton,
-    QMessageBox, QTabBar,
+    QMessageBox, QTabBar, QToolButton, QMenu,
 )
 
-
+from core import netGate
 from core.formatters import abs_time, fmt_size, relative_time, status_zh
 from core.urlParser import workshop_url
 from gui.theme import font_px  # 字号单源（D25）
 from core.constants import (CONFIRMED_SOURCE_ZH, STATUS_DELETED,
                             STATUS_DOWNLOADED, VERDICT_KIND_ZH)
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QDesktopServices, QAction
+
 # 未验证/旧账两档来源的灰色说明（一次性文案，留本模块——D37 准入）
 _SOURCE_NOTES = {
     "unverified": "这一版没有终端「下载成功」判决背书（批查失败但照常"
@@ -54,6 +55,15 @@ _SOURCE_NOTES = {
 _DIM = "#8a8a8a"      # 弱化信息统一灰（与列表模型同拍）
 _VERDICT_SHOW = 5     # 最近判决展示条数（D22）
 
+# 查远端信息 / 送登记 按钮共用说明（页 1 卡片与依赖子页两处按钮同文案）
+_FETCH_TIP = ("对依赖清单做一轮匿名批量查询（无需 key、不写账本）："
+              "账外与未下载的依赖补出「远端在架」（蓝）或「远端查无」"
+              "（灰），大小与远端更新时间一并补上。\n"
+              "回执只进显示、不入账本——账外编号想收录，送"
+              "【入账中心 · 登记】。与其它联网功能共用互斥闸")
+_SEND_TIP = ("把清单里「账外」的依赖编号直接送【入账中心 · 登记】："
+             "预填粘贴框、自动解析预览（不写库）——核对后点"
+             "【登记新编号】入账")
 
 class ModDetailPanel(QWidget):
     """详情面板。open_folder_requested(编号)：打开文件夹按钮发出，
@@ -125,11 +135,20 @@ class ModDetailPanel(QWidget):
         )),
     )
 
-    def __init__(self, repo, parent: QWidget | None = None) -> None:
+    def __init__(self, repo, settings=None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._repo = repo
+        # settings 只为「查远端信息」读请求间隔/重试次数；None = 用默认值
+        # （面板单独调试时不炸）。面板本体依旧零写操作，查询不碰库。
+        self._settings = settings
         self._mod = None
         self._download_dir: str | None = None
+        # 依赖远端信息回执（匿名批查，内存不入账——账外编号的归宿
+        # 是【入账中心 · 登记】，账内条目的账本数据照旧）
+        self._dep_meta: dict[int, dict] = {}
+        self._fetch_worker = None  # 查远端信息的批查询线程
+        self._meta_note = ""  # 查询回执信息（finished 里统一落 hint 行）
+        self._dep_graph = None  # 反向依赖图缓存：(game_id, 拉取戳) → 图
 
         self._build_ui()
 
@@ -193,7 +212,9 @@ class ModDetailPanel(QWidget):
         self._src_note.hide()
         bl.addWidget(self._src_note)
 
+
         bl.addWidget(self._hline())
+
         cap = QLabel("最近判决（本地版本每一次落账的凭据，新 → 旧）", body)
         cap.setStyleSheet("font-weight: 600;")
         bl.addWidget(cap)
@@ -247,7 +268,7 @@ class ModDetailPanel(QWidget):
                         Qt.TextInteractionFlag.TextSelectableByMouse
                         | Qt.TextInteractionFlag.LinksAccessibleByMouse)
                     val.linkActivated.connect(
-                        lambda _u: self._open_deps_page())
+                        lambda _u: self._open_deps_tab())
 
                 self._form.addRow(name, val)
                 self._vals[key] = val
@@ -258,15 +279,17 @@ class ModDetailPanel(QWidget):
         wrap.setWidget(body)
         pv.addWidget(wrap)
         self._stack.addWidget(page)
-        # —— 栈页 2：依赖子页（⑪：明细唯一形态）——描述、翻译将来
-        # 同模板各占一页：顶部返回+标题，中部内容区，底部操作行。
-        # 正文速览卡从此不再随内容膨胀；折叠方案随子页定稿退役
+        # —— 栈页 2：依赖页（与基本信息并列；明细唯一形态）——
+        # 2026-10 改判：页 1 折叠卡片撤出，全部能力迁到本页——
+        # ① 表格 6 列（勾选记编号不记行号）；② 状态五色；③ 右键
+        # 三段式菜单；④「被谁依赖」区块（反向路标，点 = 跳转）；
+        # ⑤ 速览折叠面板（单击行展开、再点同一行或「收起 ▲」收起）。
+        # 渲染走 _render_dep_table 单源。
         deps_page = QWidget(self)
         dv = QVBoxLayout(deps_page)
         dv.setContentsMargins(10, 8, 10, 8)
         dv.setSpacing(6)
         dep_head = QHBoxLayout()
-
         self._deps_title = QLabel("", deps_page)
         self._deps_title.setWordWrap(True)
         self._deps_title.setStyleSheet("font-weight: 600;")
@@ -277,9 +300,11 @@ class ModDetailPanel(QWidget):
         self._deps_hint.setStyleSheet(
             f"color: {_DIM}; font-size: {font_px(11)}px;")
         dv.addWidget(self._deps_hint)
-        self._deps_table = QTableWidget(0, 5, deps_page)
+        # 速览折叠面板（默认收起；单击表格行展开）
+        dv.addWidget(self._build_dep_mini(deps_page))
+        self._deps_table = QTableWidget(0, 6, deps_page)
         self._deps_table.setHorizontalHeaderLabels(
-            ["编号", "名称", "状态", "大小", "远端更新"])
+            ["勾", "编号", "名称", "状态", "大小", "远端更新"])
         self._deps_table.verticalHeader().setVisible(False)
         self._deps_table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -287,13 +312,40 @@ class ModDetailPanel(QWidget):
             QAbstractItemView.SelectionMode.NoSelection)
         self._deps_table.setWordWrap(False)
         _dh = self._deps_table.horizontalHeader()
-        _dh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        _dh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         _dh.setSectionsClickable(False)
-        for col, width in ((0, 100), (2, 70), (3, 80), (4, 90)):
+        for col, width in ((0, 34), (1, 100), (3, 90), (4, 80), (5, 90)):
             self._deps_table.setColumnWidth(col, width)
+        self._deps_table.itemClicked.connect(self._on_dep_row_clicked)
         self._deps_table.itemDoubleClicked.connect(self._on_dep_dclicked)
+        self._deps_table.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self._deps_table.customContextMenuRequested.connect(
+            self._on_deps_menu)
         dv.addWidget(self._deps_table, 1)
+        rev_head = QLabel("被以下 mod 依赖（账本内；点 = 跳过去）：",
+                          deps_page)
+        rev_head.setStyleSheet("font-weight: 600;")
+        dv.addWidget(rev_head)
+        # 被依赖区：一行一个依赖者（每行 = 可点链接 + 状态词着色），
+        # 装进滚动区并限高——Harmony 这类基础库会被上百个 mod 依赖，
+        # 不限高整页被撑爆、上方依赖表被挤没（2026-10 用户点破）
+        self._dependents_scroll = QScrollArea(deps_page)
+        self._dependents_scroll.setWidgetResizable(True)
+        self._dependents_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._dependents_box = QWidget(self._dependents_scroll)
+        self._dependents_lay = QVBoxLayout(self._dependents_box)
+        self._dependents_lay.setContentsMargins(12, 0, 0, 0)
+        self._dependents_lay.setSpacing(2)
+        self._dependents_lay.addStretch(1)  # 行少时内容靠上，不被拉伸
+        self._dependents_scroll.setWidget(self._dependents_box)
+        dv.addWidget(self._dependents_scroll)
+
         dep_acts = QHBoxLayout()
+        self._btn_deps_fetch = QPushButton("查远端信息…", deps_page)
+        self._btn_deps_fetch.setToolTip(_FETCH_TIP)
+        self._btn_deps_fetch.clicked.connect(self._on_fetch_dep_meta)
+        dep_acts.addWidget(self._btn_deps_fetch)
         self._btn_deps_copy = QPushButton("复制全部编号", deps_page)
         self._btn_deps_copy.setToolTip(
             "依赖清单的工坊编号逐行复制（每行一个）——可贴进"
@@ -301,16 +353,13 @@ class ModDetailPanel(QWidget):
         self._btn_deps_copy.clicked.connect(self._copy_dep_ids)
         dep_acts.addWidget(self._btn_deps_copy)
         self._btn_deps_send = QPushButton("送登记账外编号…", deps_page)
-        self._btn_deps_send.setToolTip(
-            "把清单里「账外」的依赖编号直接送【入账中心 · 登记】："
-            "预填粘贴框、自动解析预览（不写库）——核对后点"
-            "【登记新编号】入账")
+        self._btn_deps_send.setToolTip(_SEND_TIP)
         self._btn_deps_send.clicked.connect(self._send_outdeps_register)
         dep_acts.addWidget(self._btn_deps_send)
-
         dep_acts.addStretch(1)
         dv.addLayout(dep_acts)
         self._pg_deps = self._stack.addWidget(deps_page)  # 页号（=2）
+
         # 描述 / 翻译占位页：页签先架好，点过去见说明，不空指针
         ph_desc = QWidget(self)
         dv2 = QVBoxLayout(ph_desc)
@@ -427,13 +476,11 @@ class ModDetailPanel(QWidget):
             json.dumps(state, ensure_ascii=False) if state else "—")
 
         self._fill_verdicts(mod.mod_id)
-        # —— 依赖（必需物品）——入口行摘要；子页若开着原位重灌
+        # —— 依赖（必需物品）——入口行摘要；明细卡片与子页随时重灌
+        # （卡片可能正展开着：切 mod 原位刷新，数据不串档案）
         v["deps"].setText(self._deps_entry(mod))
+        self._fill_deps_page(mod)
         self._sync_tabs()
-        if staying:
-            self._fill_deps_page(mod)
-        self._sync_tabs()
-
 
     # ---------- 内部 ----------
     @staticmethod
@@ -471,19 +518,19 @@ class ModDetailPanel(QWidget):
     @staticmethod
     def _size(value) -> str:
         return f"{fmt_size(value)}（{value}）" if value else "—"
-    # ---------- 依赖（必需物品）：入口行 + 子页（⑪） ----------
+
+    # ---------- 依赖（必需物品）：入口行 + 折叠卡片 + 子页 ----------
 
     def _deps_state(self, mod) -> tuple[str, list[int]]:
-        """依赖三态判定（口径单源：入口行与子页共用）。契约口径
-        list_dependencies 对"从未拉取"与"确无依赖"同返 []（契约原文），
-        单靠它分不出两态——用全局拉取时间兜底（零契约改动）：
-        - "none" 未获取：全账本从没成功拉取过（latest_dependency_fetch
-          为 None）——此时任何 mod 都必然没拉过；查询异常同按未获取；
-        - "empty" 无依赖：全局拉取过而本条清单为空；
-        - "list"：有清单。
-        多档案下全局口径分不清哪个档案拉的：B 档案拉过后，没拉过的
-        A 档案条目会误报"无依赖"——子页空态里已披露；根治（每 mod
-        拉取戳）在改善项池。"""
+        """依赖三态判定（口径单源：入口行、卡片表与子页表共用）。
+        契约口径 list_dependencies 对"从未拉取"与"确无依赖"同返 []
+        （契约原文），单靠它分不出两态——用全局拉取时间兜底（零契约
+        改动）：- "none" 未获取：全账本从没成功拉取过
+        （latest_dependency_fetch 为 None）——此时任何 mod 都必然没拉
+        过；查询异常同按未获取；- "empty" 无依赖：全局拉取过而本条
+        清单为空；- "list"：有清单。多档案下全局口径分不清哪个档案拉
+        的：B 档案拉过后，没拉过的 A 档案条目会误报"无依赖"——子页
+        空态里已披露；根治（每 mod 拉取戳）在改善项池。"""
         try:
             deps = self._repo.list_dependencies(mod.mod_id)
         except Exception:
@@ -499,63 +546,482 @@ class ModDetailPanel(QWidget):
         return "list", deps
 
     def _build_dep_rows(self, deps: list[int]) -> list[tuple]:
-        """编号清单 → 行数据（单源：入口行的分布计数与子页表格都从
-        这份行数据取数，口径绝不两份）。行 = (编号, 名称, 状态词,
-        大小, 远端更新, 颜色, 账内?)。五色定稿：绿=已下载、红=账上
-        没下载、黄=已删除（可恢复）、灰=账外（远端状态本地无从
-        得知——依赖检测页点查询后蓝=远端在架）。"""
+        """编号清单 → 行数据（渲染单源：入口行计数、卡片表、子页表
+        三处都从这份行数据取数，口径绝不两份）。
+        行 = (编号, 名称, 状态词, 状态色, 大小, 远端更新, 账内?, 悬浮)。
+        状态五色：绿=已下载｜红=账上没下载｜黄=已删除（可恢复）｜
+        蓝=远端在架（查过回执）｜灰=账外未查/远端查无。
+        「查远端信息」回执（_dep_meta，内存不入账）补显示缺口：
+        账外条目以回执定蓝/灰并带上大小与远端更新；账内"未下载"
+        条目账本字段缺失（从没检测过）时用回执补大小/远端更新，
+        状态词仍按账本——回执是显示借的米，绝不冒充账本数据。"""
         rows: list[tuple] = []
+        meta = self._dep_meta
         for d in sorted(deps):
             m = self._repo.get_mod(d)
             if m is None:
-                rows.append((str(d), "—", "账外", "—", "—",
-                             QColor("#8a8a8f"), False))
-            elif m.status == STATUS_DOWNLOADED:
-                rows.append((str(d), m.title or "—", "已下载",
-                             fmt_size(m.local_size or m.file_size),
-                             relative_time(m.time_updated)
-                             if m.time_updated else "—",
-                             QColor("#46a758"), True))
+                it = meta.get(d)
+                if it is not None and it.get("result") == 1:
+                    rows.append((
+                        d, it.get("title") or "—", "远端在架",
+                        QColor("#5aa9ff"), fmt_size(it.get("file_size")),
+                        relative_time(it["time_updated"])
+                        if it.get("time_updated") else "—",
+                        False,
+                        "账外条目：远端在架（匿名批查回执，未入账）——"
+                        "要收录请送【入账中心 · 登记】"))
+                elif it is not None:
+                    rows.append((
+                        d, "—", "远端查无", QColor("#8a8a8f"),
+                        "—", "—", False,
+                        "账外条目：Steam 远端查无此条（可能已下架）——"
+                        "这是接口的正常回答，不是错误"))
+                else:
+                    rows.append((
+                        d, "—", "账外·未查", QColor("#8a8a8f"),
+                        "—", "—", False,
+                        "账外条目：本地无从得知远端状态——点"
+                        "【查远端信息】补查"))
+                continue
+            if m.status == STATUS_DOWNLOADED:
+                rows.append((
+                    d, m.title or "—", "已下载", QColor("#46a758"),
+                    fmt_size(m.local_size or m.file_size),
+                    relative_time(m.time_updated)
+                    if m.time_updated else "—",
+                    True, "已下载：双击跳到该 mod 的详情"))
             elif m.status == STATUS_DELETED:
-                rows.append((str(d), m.title or "—", "已删除",
-                             fmt_size(m.local_size or m.file_size),
-                             relative_time(m.time_updated)
-                             if m.time_updated else "—",
-                             QColor("#c8a03c"), True))
-            else:  # tracked / failed：账上在管、本地缺失
-                rows.append((str(d), m.title or "—", "未下载",
-                             fmt_size(m.file_size),
-                             relative_time(m.time_updated)
-                             if m.time_updated else "—",
-                             QColor("#e5484d"), True))
+                rows.append((
+                    d, m.title or "—", "已删除", QColor("#c8a03c"),
+                    fmt_size(m.local_size or m.file_size),
+                    relative_time(m.time_updated)
+                    if m.time_updated else "—",
+                    True, "已删除（可恢复）：双击跳到该 mod 的详情"))
+            else:
+                # tracked / failed：账上在管、本地缺失。账本没记的
+                # 远端信息用回执补显示（tooltip 标明来源）
+                it = meta.get(d)
+                live = it is not None and it.get("result") == 1
+                size = (fmt_size(m.file_size) if m.file_size
+                        else fmt_size(it.get("file_size")) if live else "—")
+                if m.time_updated:
+                    upd = relative_time(m.time_updated)
+                elif live and it.get("time_updated"):
+                    upd = relative_time(it["time_updated"])
+                else:
+                    upd = "—"
+                tip = "账上在管、本地缺失：双击跳到该 mod 的详情"
+                if m.time_updated is None and live:
+                    tip += "（远端更新时间来自匿名批查回执——账本还没检测过）"
+                rows.append((d, m.title or "—", "未下载",
+                             QColor("#e5484d"), size, upd, True, tip))
         return rows
 
     def _deps_entry(self, mod) -> str:
-        """页 1 依赖入口行（明细住子页，本行只做摘要+入口）。
-        未获取/无依赖 = 灰色短词无链接（详细说明在子页空态）。"""
+        """页 1 依赖入口行（明细、被谁依赖与速览都住「依赖」页签，
+        本行只做摘要+入口）。未获取/无依赖 = 灰色短词（详细说明在
+        依赖页空态）。被依赖数独立于正向清单——本条没拉过依赖 ≠
+        没人依赖它。查过远端后账外条目在摘要里拆出「在架/查无/未查」
+        三数。"""
         state, deps = self._deps_state(mod)
+        n_rev = len(self._dependents_map().get(mod.mod_id, []))
+        rev = f" · 被依赖 {n_rev}"
         if state == "none":
             return ('<span style="color:#8a8a8f">未获取——到'
-                    "【依赖检测】页拉取后入账</span>")
+                    f"【依赖检测】页拉取后入账{rev}</span>")
         if state == "empty":
-            return '<span style="color:#8a8a8f">无依赖</span>'
-        rows = self._build_dep_rows(deps)
+            return f'<span style="color:#8a8a8f">无依赖{rev}</span>'
         counts: dict[str, int] = {}
-        for x in rows:
+        for x in self._build_dep_rows(deps):
             counts[x[2]] = counts.get(x[2], 0) + 1
-        return (f"{len(rows)} 个"
-                f"（本地 {counts.get('已下载', 0)} · "
-                f"缺 {counts.get('未下载', 0)} · "
-                f"已删 {counts.get('已删除', 0)} · "
-                f"账外 {counts.get('账外', 0)}）　"
-                '<a href="deps">查看与操作 →</a>')
-    def _open_deps_page(self) -> None:
-        """入口行链接落点：灌表 + 切到依赖栈页。此前只灌表没切页
-        ——链接点了"没反应"，缺的就是第二行。"""
-        if self._mod is not None:
-            self._fill_deps_page(self._mod)
-            self._stack.setCurrentIndex(self._pg_deps)
-            self._sync_tabs()
+        parts = [f"本地 {counts.get('已下载', 0)}",
+                 f"缺 {counts.get('未下载', 0)}",
+                 f"已删 {counts.get('已删除', 0)}"]
+        n_live = counts.get('远端在架', 0)
+        n_dead = counts.get('远端查无', 0)
+        n_unk = counts.get('账外·未查', 0)
+        if n_live or n_dead or n_unk:
+            parts.append(f"账外 在架{n_live}/查无{n_dead}/未查{n_unk}")
+        return (f"{len(deps)} 个（{' · '.join(parts)}）{rev} "
+                '<a href="deps">打开依赖页 →</a>')
+
+    def _open_deps_tab(self) -> None:
+        """依赖入口行链接落点：切到与基本信息并列的「依赖」页签
+        （栈页 2）——明细、被谁依赖与速览折叠面板都住在那边；
+        页 1 只留摘要（2026-10 改判：卡片撤出页 1）。"""
+        self._stack.setCurrentIndex(self._pg_deps)
+        self._sync_tabs()
+    def _build_dep_mini(self, parent) -> QFrame:
+        """依赖页内置速览折叠面板（2026-10 从页 1 卡片迁来）：单击
+        依赖行展开 = 就地看该依赖的关键信息（含自身依赖与被谁依赖，
+        不跳页）；「收起 ▲」或再点同一行收起——折叠在整页高度下
+        终于有了正经用法。账内取账本字段，账外取【查远端信息】回执。"""
+        f = QFrame(parent)
+        self._dep_mini_frame = f  # 点击收展三处都引用它——上轮漏存，单击即炸
+
+        f.setFrameShape(QFrame.Shape.StyledPanel)
+        mv = QVBoxLayout(f)
+        mv.setContentsMargins(6, 4, 6, 6)
+        mv.setSpacing(4)
+        top = QHBoxLayout()
+        self._mini_title = QLabel("", f)
+        self._mini_title.setWordWrap(True)
+        self._mini_title.setStyleSheet("font-weight: 600;")
+        top.addWidget(self._mini_title, 1)
+        self._btn_mini_fold = QPushButton("收起 ▲", f)
+        self._btn_mini_fold.setToolTip("收起速览（依赖清单原位不动，"
+                                       "再点同一行可再展开）")
+        self._btn_mini_fold.clicked.connect(self._hide_dep_mini)
+        top.addWidget(self._btn_mini_fold)
+        mv.addLayout(top)
+        form_w = QWidget(f)
+        mf = QFormLayout(form_w)
+        mf.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        mf.setContentsMargins(2, 0, 2, 0)
+        self._mini_vals: dict[str, QLabel] = {}
+        for key, zh in (("mid", "编号"), ("status", "状态"),
+                        ("local", "本地版本"), ("remote", "远端版本"),
+                        ("size", "大小"), ("checked", "上次检测"),
+                        ("tags", "标签"), ("subs", "订阅 · 收藏"),
+                        ("subdeps", "自身依赖"), ("revdeps", "被谁依赖"),
+                        ("note", "备注")):
+            name = QLabel(zh, form_w)
+            val = QLabel("—", form_w)
+            val.setWordWrap(True)
+            if key in ("subdeps", "revdeps"):
+                # 依赖链接：点了转跳（href = 编号，绝不开浏览器）
+                val.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextSelectableByMouse
+                    | Qt.TextInteractionFlag.LinksAccessibleByMouse)
+                val.linkActivated.connect(self._on_dependent_link)
+            else:
+                val.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextSelectableByMouse)
+            mf.addRow(name, val)
+            self._mini_vals[key] = val
+        mv.addWidget(form_w)
+        acts2 = QHBoxLayout()
+        self._btn_mini_open = QPushButton("在库页打开 →", f)
+        self._btn_mini_open.setToolTip(
+            "真正跳到该 mod 的库页详情（左表定位选中）；"
+            "想沿依赖链连逛时用")
+        self._btn_mini_open.clicked.connect(self._on_mini_open)
+        acts2.addWidget(self._btn_mini_open)
+        self._btn_mini_web = QPushButton("打开工坊网页", f)
+        self._btn_mini_web.setToolTip("在浏览器打开该编号的工坊页面")
+        self._btn_mini_web.clicked.connect(self._on_mini_web)
+        acts2.addWidget(self._btn_mini_web)
+        self._btn_mini_send = QPushButton("送登记…", f)
+        self._btn_mini_send.setToolTip(_SEND_TIP)
+        self._btn_mini_send.clicked.connect(self._on_mini_send)
+        acts2.addWidget(self._btn_mini_send)
+        acts2.addStretch(1)
+        mv.addLayout(acts2)
+        f.setVisible(False)  # 默认收起：单击依赖行展开
+        return f
+
+
+    # ---- 被谁依赖（反向依赖；懒构建 + 缓存）----
+
+    def _dependents_map(self) -> dict[int, list[int]]:
+        """反向依赖图（缓存）：依赖编号 → [账本内依赖它的 mod 编号]。
+        repo 契约没有反向查询接口——GUI 层遍历当前档案全部条目的
+        依赖清单来建（零契约改动）；缓存键 = (档案,
+        latest_dependency_fetch)，依赖数据一变（任何一次拉取落库）
+        或切档案即重建，不会用旧图。成本：首次 ~每条一次轻查询
+        （几百条量级 <0.2s、一次性），之后 O(1)。根治（repo 一条
+        SQL 原生反向查询）在改善项池，档案量级上来再动账本。"""
+        mod = self._mod
+        if mod is None:
+            return {}
+        app_id = getattr(mod, "game_id", None)
+        if app_id is None:
+            return {}
+        try:
+            ts = self._repo.latest_dependency_fetch()
+        except Exception:
+            ts = None
+        key = (app_id, ts)
+        if self._dep_graph is not None and self._dep_graph[0] == key:
+            return self._dep_graph[1]
+        graph: dict[int, list[int]] = {}
+        try:
+            for m in self._repo.list_mods(app_id):
+                for d in self._repo.list_dependencies(m.mod_id):
+                    graph.setdefault(int(d), []).append(m.mod_id)
+        except Exception:
+            graph = {}  # 查不动就给空图：显示层缺米好过整页查死
+        self._dep_graph = (key, graph)
+        return graph
+
+    def _dependents_html(self, mid: int) -> str:
+        """被依赖清单 → 富文本（速览面板「被谁依赖」行用）：一行一个，
+        截前 6 行 + 总数——全表就在同一页下方「被以下 mod 依赖」
+        区块（Harmony 这类被上百条依赖的不至于把速览撑爆）。空态
+        如实披露：依赖数据只覆盖"拉取过依赖"的条目。"""
+        ids = sorted(self._dependents_map().get(mid, []))
+        if not ids:
+            return ('<span style="color:#8a8a8f">（账本内暂无条目依赖'
+                    "它——依赖数据只覆盖拉取过依赖的条目，没拉过的"
+                    "不算）</span>")
+        parts: list[str] = []
+        for d in ids[:6]:
+            m = self._repo.get_mod(d)
+            title = (m.title if m is not None and m.title else str(d))
+            parts.append(f'<a href="{d}">{title}（{d}）</a>')
+        if len(ids) > 6:
+            parts.append(f'<span style="color:{_DIM}">…共 {len(ids)} 个'
+                         "（全表见下方区块）</span>")
+        return "<br>".join(parts)
+
+    def _fill_dependents(self) -> None:
+        """被依赖区重灌（一行一个依赖者）。空态一行灰字如实披露：
+        依赖数据只覆盖"拉取过依赖"的条目——没拉过的 mod 的依赖
+        关系账本不知道，「暂无」不是「绝对没有」。行多（如 Harmony
+        被上百条依赖）= 滚动区封顶内部滚，整页留给依赖表。"""
+        lay = self._dependents_lay
+        while lay.count():
+            item = lay.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        mod = self._mod
+        if mod is None:
+            self._dependents_scroll.hide()
+            return
+        self._dependents_scroll.show()
+        ids = sorted(self._dependents_map().get(mod.mod_id, []))
+        if not ids:
+            empty = QLabel("（账本内暂无条目依赖它——依赖数据只覆盖"
+                           "拉取过依赖的条目，没拉过的不算）",
+                           self._dependents_box)
+            empty.setStyleSheet(f"color: {_DIM};")
+            empty.setWordWrap(True)
+            lay.addWidget(empty)
+        else:
+            for d in ids:
+                m = self._repo.get_mod(d)
+                title = (m.title if m is not None and m.title else str(d))
+                if m is not None:
+                    word = status_zh(m.status)
+                    color = self._mini_status_color(word)
+                else:
+                    word, color = "—", "#8a8a8f"
+                row = QLabel(
+                    f'<a href="{d}">{title}（{d}）</a>'
+                    f' · <span style="color:{color}">{word}</span>',
+                    self._dependents_box)
+                row.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextSelectableByMouse
+                    | Qt.TextInteractionFlag.LinksAccessibleByMouse)
+                # href 是编号不是网址：绝不 openExternalLinks
+                row.linkActivated.connect(self._on_dependent_link)
+                lay.addWidget(row)
+        lay.addStretch(1)  # 清空时连 stretch 一起被清了，补回
+        # 高度贴内容、有界 28~160px：行少不占冤枉地；行多封顶内部滚
+        content = 2 * self._dependents_scroll.frameWidth()
+        for i in range(lay.count()):
+            w = lay.itemAt(i).widget()
+            if w is not None:
+                content += w.sizeHint().height() + lay.spacing()
+        self._dependents_scroll.setFixedHeight(
+            min(max(content, 28), 160))
+
+    def _on_dependent_link(self, href: str) -> None:
+        """被依赖清单链接点击 → 库页定位选中。正向表 + 反向表 =
+        双向路标：跳到依赖者后，它卡片里的「被谁依赖」就是回程路。"""
+        try:
+            mid = int(href)
+        except ValueError:
+            return
+        self.mod_link_requested.emit(mid)
+    # ---- 依赖速览（详情页的详情页）：单击行就地看，不跳页 ----
+
+    @staticmethod
+    def _mini_status_color(word: str) -> str:
+        """速览状态词的配色（与 _build_dep_rows 五色同拍）。"""
+        if word in ("已下载", "远端在架"):
+            return "#46a758" if word == "已下载" else "#5aa9ff"
+        if word == "已删除":
+            return "#c8a03c"
+        if word == "远端查无":
+            return "#8a8a8f"
+        return "#e5484d"  # 未下载 / 账外·未查 一并红示（缺米的状态）
+    def _on_dep_row_clicked(self, item) -> None:
+        """单击依赖行 → 展开该依赖的速览折叠面板（不跳页）。
+        再点同一行 = 收起（折叠开关）；点别行 = 换内容；勾选列
+        （列 0）的点击只管勾选不展开；双击仍是转跳。"""
+        if item is None or item.column() == 0:
+            return
+        t = self.sender()
+        if not isinstance(t, QTableWidget):
+            return
+        it = t.item(item.row(), 1)
+        mid = it.data(Qt.ItemDataRole.UserRole) if it is not None else None
+        if not mid:
+            return
+        mid = int(mid)
+        if (self._dep_mini_frame.isVisible()
+                and getattr(self, "_mini_mid", None) == mid):
+            self._hide_dep_mini()  # 同一行再点 = 收起
+            return
+        self._show_dep_mini(mid)
+
+    def _dep_chain_html(self, deps: list[int]) -> str:
+        """依赖编号清单 → 前几个的可点链接串（速览「自身依赖」用；
+        点 = 转跳到该 mod 的库页详情——面板内依赖链接同一口径）。"""
+        names: list[str] = []
+        for d in sorted(deps)[:6]:
+            dm = self._repo.get_mod(d)
+            t = dm.title if dm is not None and dm.title else str(d)
+            names.append(f'<a href="{d}">{t}（{d}）</a>')
+        tail = f" …共 {len(deps)} 个" if len(deps) > 6 else ""
+        return ("、".join(names) + tail) if names else "—"
+
+    def _show_dep_mini(self, mid: int) -> None:
+        """速览装配（单击依赖行触发，不跳页）：账内取账本全字段，
+        并补「自身依赖」（它还要装什么——转跳前先知道这条链有多长，
+        2026-10 补上的缺口）与「被谁依赖」（双向路标）；账外取
+        【查远端信息】回执——没查过的给指路。"""
+        self._mini_mid = mid
+        v = self._mini_vals
+        m = self._repo.get_mod(mid)
+        if m is not None:
+            self._mini_title.setText(m.title or f"（无标题）· {mid}")
+            v["mid"].setText(str(mid))
+            word = status_zh(m.status)
+            v["status"].setText(word)
+            v["status"].setStyleSheet(
+                f"color: {self._mini_status_color(word)}; font-weight: 600;")
+            cv = getattr(m, "confirmed_version", None)
+            if cv:
+                src = getattr(m, "confirmed_source", "") or ""
+                w2 = CONFIRMED_SOURCE_ZH.get(src, src) or "—"
+                v["local"].setText(
+                    f"{relative_time(cv)}（{abs_time(cv)}）· {w2}")
+            else:
+                v["local"].setText("未知")
+            rt = getattr(m, "time_updated", None)
+            v["remote"].setText(
+                f"{relative_time(rt)}（{abs_time(rt)}）"
+                if rt else "从未检测")
+            v["size"].setText(
+                f"本地 {fmt_size(m.local_size) if m.local_size else '—'}"
+                f" · 远端 {fmt_size(m.file_size) if m.file_size else '—'}")
+            v["checked"].setText(self._ts(m.last_checked_at))
+            tags = getattr(m, "tags", None) or []
+            v["tags"].setText(" ".join(tags) if tags else "—")
+            sub = getattr(m, "subscriptions", None)
+            fav = getattr(m, "favorited", None)
+            v["subs"].setText(
+                f"{sub:,} · 收藏 {fav:,}"
+                if sub is not None and fav is not None else "—")
+            # —— 自身依赖（它自己还要装什么）——
+            st2, sub_deps = self._deps_state(m)
+            if st2 == "list":
+                v["subdeps"].setText(self._dep_chain_html(sub_deps))
+            elif st2 == "empty":
+                v["subdeps"].setText("无依赖")
+            else:
+                v["subdeps"].setText(
+                    '<span style="color:#8a8a8f">未拉取过它的依赖——'
+                    "到【依赖检测】页拉取后可见</span>")
+            # —— 被谁依赖（双向路标）——
+            v["revdeps"].setText(self._dependents_html(mid))
+            note = getattr(m, "note", "") or ""
+            v["note"].setText(
+                (note[:80] + "…") if len(note) > 80 else (note or "—"))
+            v["note"].setToolTip(note or "")
+            self._btn_mini_open.setEnabled(True)
+            self._btn_mini_send.setEnabled(False)  # 账内送登记=白送
+        else:
+            it = self._dep_meta.get(mid)
+            if it is not None and it.get("result") == 1:
+                self._mini_title.setText(
+                    it.get("title") or f"（账外条目）· {mid}")
+                v["status"].setText("远端在架（未入账）")
+                v["status"].setStyleSheet(
+                    "color: #5aa9ff; font-weight: 600;")
+                v["remote"].setText(
+                    relative_time(it["time_updated"])
+                    if it.get("time_updated") else "—")
+                v["size"].setText(
+                    f"远端 {fmt_size(it.get('file_size'))}"
+                    if it.get("file_size") else "远端 —")
+                v["note"].setText(
+                    "Steam 远端有此条、本地账本未收录——要收录点下方"
+                    "【送登记】，或回清单双击开工坊网页看看。")
+            elif it is not None:
+                self._mini_title.setText(f"（账外条目）· {mid}")
+                v["status"].setText("远端查无")
+                v["status"].setStyleSheet(
+                    "color: #8a8a8f; font-weight: 600;")
+                v["note"].setText(
+                    "Steam 远端查无此条（可能已下架）——接口的正常"
+                    "回答，不是错误。")
+            else:
+                self._mini_title.setText(f"（账外条目）· {mid}")
+                v["status"].setText("账外 · 未查")
+                v["status"].setStyleSheet(
+                    "color: #8a8a8f; font-weight: 600;")
+                v["note"].setText(
+                    "本地无远端信息——回清单点【查远端信息】补查，"
+                    "或双击开工坊网页看。")
+            v["local"].setText("—")
+            v["checked"].setText("—")
+            v["tags"].setText("—")
+            v["subs"].setText("—")
+            v["subdeps"].setText("—（账本没有它的依赖数据）")
+            v["revdeps"].setText(self._dependents_html(mid))
+            v["note"].setToolTip("")
+            self._btn_mini_open.setEnabled(False)
+            self._btn_mini_send.setEnabled(True)
+        self._dep_mini_frame.setVisible(True)
+
+    def _hide_dep_mini(self) -> None:
+        """速览收起：面板藏起，依赖清单原位不动（再点行可再展开）。"""
+        if getattr(self, "_dep_mini_frame", None) is not None:
+            self._dep_mini_frame.setVisible(False)
+
+    def _on_mini_open(self) -> None:
+        if getattr(self, "_mini_mid", None):
+            self.mod_link_requested.emit(self._mini_mid)
+
+    def _on_mini_web(self) -> None:
+        if getattr(self, "_mini_mid", None):
+            QDesktopServices.openUrl(QUrl(workshop_url(self._mini_mid)))
+
+    def _on_mini_send(self) -> None:
+        if getattr(self, "_mini_mid", None):
+            self.send_to_register_requested.emit([self._mini_mid])
+
+    def _render_dep_table(self, t: QTableWidget, deps: list[int]) -> None:
+        """依赖表渲染单源：卡片表与子页表共用（勾选记编号不记行号
+        ——重建表格后勾选不掉，站规）。行数据来自 _build_dep_rows。"""
+        t.setRowCount(0)
+        if not deps:
+            return
+        rows = self._build_dep_rows(deps)
+        t.setRowCount(len(rows))
+        for r, (mid, name, st, color, size, upd, in_ledger, tip) \
+                in enumerate(rows):
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable
+                         | Qt.ItemFlag.ItemIsEnabled)
+            chk.setCheckState(Qt.CheckState.Unchecked)
+            chk.setData(Qt.ItemDataRole.UserRole, mid)
+            c1 = QTableWidgetItem(str(mid))
+            c1.setData(Qt.ItemDataRole.UserRole, mid)
+            cells = (chk, c1, QTableWidgetItem(name),
+                     QTableWidgetItem(st), QTableWidgetItem(size),
+                     QTableWidgetItem(upd))
+            cells[3].setForeground(color)
+            for c, cell in enumerate(cells):
+                t.setItem(r, c, cell)
+            t.item(r, 0).setToolTip(tip)
+            t.item(r, 1).setToolTip(
+                ("双击跳到该 mod 的详情" if in_ledger
+                 else "账外条目：双击打开工坊网页") + "\n" + tip)
 
     def _on_tab_changed(self, idx: int) -> None:
         """页签点击 → 切栈页。"""
@@ -570,69 +1036,248 @@ class ModDetailPanel(QWidget):
         self._tabs.blockSignals(True)
         self._tabs.setCurrentIndex(tab)
         self._tabs.blockSignals(False)
-
-
     def _fill_deps_page(self, mod) -> None:
-        """依赖子页灌表。空态说明住这里（页 1 只留短词）；有清单时
-        提示行 = 颜色图例 + 双击说明。"""
+        """依赖页（栈页 2）重灌：表格 + 「被谁依赖」+ 按钮统一摆正；
+        速览面板顺手收起（切 mod / 查远端回执重灌都走这里，防旧
+        内容串档）。空态说明住这里；渲染走 _render_dep_table 单源。"""
+        self._hide_dep_mini()
         state, deps = self._deps_state(mod)
         title = mod.title or "（无标题）"
-        t = self._deps_table
+        self._deps_title.setText(
+            f"依赖 · {title}"
+            + (f"（{len(deps)} 个）" if state == "list" else ""))
+        self._render_dep_table(self._deps_table,
+                               deps if state == "list" else [])
+        self._fill_dependents()
+
         if state != "list":
-            self._deps_title.setText(f"依赖 · {title}")
             self._deps_hint.setText(
                 "还没拉取过依赖——到【依赖检测】页拉取一次，清单就会"
                 "记在这里。" if state == "none" else
                 "最近一次拉取时该 mod 没有必需物品。多档案账本里若"
                 "本档案还没拉取过（是别的档案拉的），这里可能是"
-                "「未拉取」——本档案拉取一遍即明确。已入账的条目双击可在mod库页内转跳。")
-            t.setRowCount(0)
-            self._btn_deps_copy.setEnabled(False)
-            self._btn_deps_send.setEnabled(False)
-
+                "「未拉取」——本档案拉取一遍即明确。已入账的条目双击"
+                "可在 mod 库页内转跳。")
+            self._sync_dep_actions(0, 0)
             return
-        rows = self._build_dep_rows(deps)
-        t.setRowCount(len(rows))
-        for r, (mid, name, st, size, upd, color, in_ledger) in enumerate(rows):
-            c0 = QTableWidgetItem(mid)
-            c0.setData(Qt.ItemDataRole.UserRole, int(mid))
-            cells = (c0, QTableWidgetItem(name), QTableWidgetItem(st),
-                     QTableWidgetItem(size), QTableWidgetItem(upd))
-            cells[2].setForeground(color)
-            for c, cell in enumerate(cells):
-                t.setItem(r, c, cell)
-            t.item(r, 0).setToolTip(
-                "双击跳到该 mod 的详情" if in_ledger else
-                "账外条目：双击打开工坊网页；复制编号到【入账中心 · "
-                "登记】可收录")
-        self._deps_title.setText(f"依赖 · {title}（{len(deps)} 个）")
         self._deps_hint.setText(
             "绿=本地有｜红=账上没下载｜黄=已删除（可恢复）｜"
-            "灰=账外未查。双击行：账内跳详情、账外开工坊网页。")
-        self._btn_deps_copy.setEnabled(bool(rows))
-        n_out = sum(1 for x in rows if not x[6])  # x[6] = 账内?
+            "蓝=远端在架（查过）｜灰=账外未查/远端查无。"
+            "单击行 = 就地速览（不跳页，再点同一行收起）；"
+            "双击行 = 转跳；右键更多动作；下方「被谁依赖」点 = 跳转。")
+        n_out = sum(1 for x in self._build_dep_rows(deps) if not x[6])
+        self._sync_dep_actions(len(deps), n_out)
+    def _sync_dep_actions(self, n_total: int, n_out: int) -> None:
+        """依赖页按钮的启用/文字统一口。查询进行中只禁查询按钮并
+        显示进行语——查询对象是"开始那一刻"的清单，切 mod 不打断
+        （回执按编号存，跨 mod 无害）。"""
+        has = n_total > 0
+        busy = self._fetch_worker is not None
+        self._btn_deps_fetch.setEnabled(has and not busy)
+        self._btn_deps_fetch.setText("查远端信息…" if not busy
+                                     else f"正在查询（{n_total} 个）…")
+        self._btn_deps_copy.setEnabled(has)
         self._btn_deps_send.setEnabled(n_out > 0)
-        if n_out:
-            self._btn_deps_send.setText(f"送登记账外编号（{n_out}）…")
+        self._btn_deps_send.setText(f"送登记账外编号（{n_out}）…" if n_out
+                                    else "送登记账外编号…")
 
+    # ---- 查远端信息（匿名批查；与依赖检测页【查远端信息】同哲学）----
+
+    @staticmethod
+    def _meta_item_to_entry(item) -> dict:
+        """匿名 WorkshopItem → 回执条目（RemoteQueryWorker 的
+        to_entry 注入点；只留显示要用的字段）。"""
+        return {"mod_id": item.mod_id, "result": item.result,
+                "title": item.title, "time_updated": item.time_updated,
+                "file_size": item.file_size}
+
+    def _on_fetch_dep_meta(self) -> None:
+        """【查远端信息】：对当前依赖清单做一轮匿名批查
+        （GetPublishedFileDetails，100/批无需 key）。复用
+        RemoteQueryWorker（分批/限流/取消全包）与
+        NET_GATE_DEPENDENCIES 一把闸（与依赖拉取互斥）；回执只进
+        内存 _dep_meta，不入账——账外编号的归宿是【入账中心 · 登记】，
+        账内条目的账本数据照旧（回执只补显示缺口，绝不冒充账本）。"""
+        if self._mod is None:
+            return
+        deps = self._deps_state(self._mod)[1]
+        if not deps:
+            return
+        if self._fetch_worker is not None:
+            QMessageBox.information(self, "查远端信息",
+                                    "上一轮查询还在进行——等它结束。")
+            return
+        if self._settings is not None:
+            interval = self._settings.get_int("api_request_interval_ms", 200)
+            retries = self._settings.get_int("api_max_retries", 3)
+        else:
+            interval, retries = 200, 3
+        from core import netGate
+        from core import constants
+        busy = netGate.try_acquire(constants.NET_GATE_DEPENDENCIES)
+        if busy is not None:
+            QMessageBox.information(
+                self, "查远端信息",
+                f"另有联网任务在进行（{busy}）：等它结束后再查。")
+            return
+
+        def make_query(cancel_event):
+            from core.steamApiClient import SteamApiClient
+            client = SteamApiClient(interval_ms=interval, max_retries=retries,
+                                    cancel_event=cancel_event)
+            return lambda batch: client.query_details(batch)
+
+        from gui.remoteQueryWorker import RemoteQueryWorker
+        self._fetch_worker = RemoteQueryWorker(
+            deps, make_query=make_query, to_entry=self._meta_item_to_entry,
+            interval_ms=interval, max_retries=retries, parent=self)
+        self._fetch_worker.succeeded.connect(self._on_dep_meta_succeeded)
+        self._fetch_worker.failed.connect(self._on_dep_meta_failed)
+        self._fetch_worker.stopped.connect(self._on_dep_meta_stopped)
+        self._fetch_worker.finished.connect(self._on_dep_meta_finished)
+        self._fetch_worker.start()
+        n_out = sum(1 for x in self._build_dep_rows(deps) if not x[6])
+        self._sync_dep_actions(len(deps), n_out)
+
+    def _on_dep_meta_succeeded(self, entries: list) -> None:
+        got = {e["mod_id"]: e for e in entries
+               if e.get("mod_id") is not None}
+        self._dep_meta.update(got)
+        n_live = sum(1 for e in got.values() if e.get("result") == 1)
+        self._meta_note = (f"远端信息已补：{len(got)} 条（在架 {n_live}、"
+                           f"查无 {len(got) - n_live}）——回执只进显示、"
+                           "不入账本；账外条目要收录请送【入账中心 · 登记】。")
+
+    def _on_dep_meta_failed(self, message: str) -> None:
+        self._meta_note = (f"远端信息查询失败：{message}\n"
+                           "（依赖清单不受影响，可稍后再查。）")
+
+    def _on_dep_meta_stopped(self) -> None:
+        self._meta_note = "已停止查询（本次回执未使用）。"
+
+    def _on_dep_meta_finished(self) -> None:
+        """收尾纪律（0xC0000409 家族口径）：finished 里摘引用 → 置
+        None → wait；闸归还挂 finished 必经处。随后统一重灌两表 +
+        落回执信息行。"""
+        w = self._fetch_worker
+        self._fetch_worker = None
+        if w is not None:
+            w.wait()
+        from core import netGate
+        from core import constants
+        netGate.release(constants.NET_GATE_DEPENDENCIES)
+        if self._mod is not None:
+            self._fill_deps_page(self._mod)
+        note = self._meta_note
+        self._meta_note = ""
+        if note:
+            self._deps_hint.setText(note)
+
+    def shutdown(self) -> None:
+        """关窗收尾：查远端信息轮请停（等 1.5 秒，等不到 park 保活
+        ——netGate 家族纪律）。由 mod 库页 shutdown 转调
+        （MainWindow.closeEvent 的页面循环会先到 modListPage）。"""
+        w = getattr(self, "_fetch_worker", None)
+        if w is not None:
+            w.stop()
+            if not w.wait(1500):
+                netGate.park(w)
+            self._fetch_worker = None
+
+    # ---- 双击 / 勾选 / 右键（D47 三段式）----
 
     def _on_dep_dclicked(self, item) -> None:
-        """依赖行双击：账内 → 发信号让库页定位选中（show_mod 在子页
-        原位重灌 = 沿依赖链连逛）；账外 → 开工坊网页。分支按双击
-        那一刻的库内现状态定。就地 import：本面板此前无浏览器动作，
-        免动文件头 import 区。"""
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QDesktopServices
-
-        it = self._deps_table.item(item.row(), 0)
-        mid = it.data(Qt.ItemDataRole.UserRole) \
-            if it is not None else None
+        """依赖行双击（卡片表与子页表共用，sender 取来源表）：账内 →
+        发信号让库页定位选中（show_mod 原位重灌 = 沿依赖链连逛）；
+        账外 → 开工坊网页。分支按双击那一刻的库内现状态定。"""
+        t = self.sender()
+        if not isinstance(t, QTableWidget) or item is None:
+            return
+        it = t.item(item.row(), 1)
+        mid = it.data(Qt.ItemDataRole.UserRole) if it is not None else None
         if not mid:
             return
         if self._repo.get_mod(mid) is None:
             QDesktopServices.openUrl(QUrl(workshop_url(mid)))
         else:
             self.mod_link_requested.emit(mid)
+
+    def _checked_dep_ids(self, t: QTableWidget) -> list[int]:
+        """勾选行的依赖编号（去重升序）——复制与送登记勾选两路共用。"""
+        ids: set[int] = set()
+        for r in range(t.rowCount()):
+            it = t.item(r, 0)
+            if it is not None and it.checkState() == Qt.CheckState.Checked:
+                rid = it.data(Qt.ItemDataRole.UserRole)
+                if rid is not None:
+                    ids.add(int(rid))
+        return sorted(ids)
+
+    def _set_all_checks(self, t: QTableWidget, checked: bool) -> None:
+        state = (Qt.CheckState.Checked if checked
+                 else Qt.CheckState.Unchecked)
+        for r in range(t.rowCount()):
+            it = t.item(r, 0)
+            if it is not None:
+                it.setCheckState(state)
+
+    def _copy_checked_dep_ids(self, t: QTableWidget) -> None:
+        ordered = self._checked_dep_ids(t)
+        if not ordered:
+            QMessageBox.information(self, "复制勾选行", "先勾选若干行。")
+            return
+        QApplication.clipboard().setText(
+            "\n".join(str(i) for i in ordered) + "\n")
+
+    def _send_checked_deps_register(self, t: QTableWidget) -> None:
+        """勾选行直接送【入账中心 · 登记】（预填+解析预览，不写库）。
+        勾了账内编号也无妨——入账中心五桶预览自会归入「已在册」。"""
+        ordered = self._checked_dep_ids(t)
+        if not ordered:
+            QMessageBox.information(self, "送登记", "先勾选若干行。")
+            return
+        self.send_to_register_requested.emit(ordered)
+
+    def _on_deps_menu(self, pos) -> None:
+        """依赖表右键（D47 三段式）：勾选总控 + 单行动作 + 勾选批
+        动作。卡片表与子页表共用（sender 取来源表）。"""
+        t = self.sender()
+        if not isinstance(t, QTableWidget):
+            return
+        row = t.rowAt(pos.y())
+        mid = None
+        if row >= 0:
+            it = t.item(row, 1)
+            mid = it.data(Qt.ItemDataRole.UserRole) \
+                if it is not None else None
+        menu = QMenu(self)
+        a_all = QAction("全选", menu)
+        a_all.triggered.connect(lambda: self._set_all_checks(t, True))
+        menu.addAction(a_all)
+        a_none = QAction("清空勾选", menu)
+        a_none.triggered.connect(lambda: self._set_all_checks(t, False))
+        menu.addAction(a_none)
+        if mid is not None:
+            menu.addSeparator()
+            act_url = QAction("打开工坊页面", menu)
+            act_url.triggered.connect(
+                lambda: QDesktopServices.openUrl(QUrl(workshop_url(mid))))
+            menu.addAction(act_url)
+            act_copy = QAction("复制编号", menu)
+            act_copy.triggered.connect(
+                lambda: QApplication.clipboard().setText(str(mid)))
+            menu.addAction(act_copy)
+        menu.addSeparator()
+        a3 = QAction("复制勾选行的编号", menu)
+        a3.setToolTip("先勾选若干行再点（每行一个）")
+        a3.triggered.connect(lambda: self._copy_checked_dep_ids(t))
+        menu.addAction(a3)
+        a4 = QAction("送登记勾选行…", menu)
+        a4.setToolTip("把勾选编号直接送【入账中心 · 登记】预填并解析"
+                      "预览（不写库）")
+        a4.triggered.connect(lambda: self._send_checked_deps_register(t))
+        menu.addAction(a4)
+        menu.exec(t.viewport().mapToGlobal(pos))
 
     def _copy_dep_ids(self) -> None:
         """复制依赖清单全部编号（每行一个）：送【入账中心 · 登记】
@@ -643,6 +1288,7 @@ class ModDetailPanel(QWidget):
         if deps:
             QApplication.clipboard().setText(
                 "\n".join(str(i) for i in sorted(deps)) + "\n")
+
     def _send_outdeps_register(self) -> None:
         """「送登记账外编号」：当前依赖清单里账外（不在账本）的编号
         直接送【入账中心 · 登记】——预填+解析预览不写库，登记决定权
