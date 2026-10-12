@@ -388,12 +388,12 @@ class DepCheckPage(QWidget):
         # ② 依赖边入账（本页唯一的写库动作）。入账与判定用同一把尺子
         # （num_children 仲裁，2026-10 探针实测：Steam 对零依赖条目
         # 省略空清单不回键，但 num_children 照发）：
-        #   children 是清单（可为空）→ 照写，空清单也写——记录
-        #   "已核实无依赖"，下次拉取才有基线可比，不会永远停在未判定；
-        #   children 键缺席且 num_children=0 → Steam 官方盖章的零依赖，
-        #   同样写空清单；
-        #   说有依赖却拿不到清单（num_children>0）或数据不全 → 继续绝不
-        #   写——没拿到的东西不冒充"无依赖"，保守桶不污染账本。
+        # children 是清单（可为空）→ 照写，空清单也写——记录
+        # "已核实无依赖"，下次拉取才有基线可比，不会永远停在未判定；
+        # children 键缺席且 num_children=0 → Steam 官方盖章的零依赖，
+        # 同样写空清单；
+        # 说有依赖却拿不到清单（num_children>0）或数据不全 → 继续绝不
+        # 写——没拿到的东西不冒充"无依赖"，保守桶不污染账本。
         # 逐条原子，中途失败下次拉取全量覆盖
         written = 0
         for e in entries:
@@ -403,13 +403,35 @@ class DepCheckPage(QWidget):
                     children = []
                 else:
                     continue
+
             try:
                 self._repo.replace_dependencies(e["mod_id"], children)
                 written += 1
             except ValueError as exc:
                 self._log.error(
                     f"依赖入账失败（mod {e.get('mod_id')}）：{exc}")
-
+        # ②′ 描述原文顺手落库（刀1，2026-10）：keyed 回执里的
+        # description（BBCode 全文）随依赖拉取进 mods 表——零额外请求，
+        # 与更新检测同为零成本正门。时间戳用账内 mod 的 time_updated
+        # （keyed 接口不回 time_updated；账内条目大多检测过有值，
+        # 没检测过的留 NULL——显示侧 None 比对不误报）。拉取期间
+        # 条目被处置 → update_api_metadata 报不存在，跳过不拦流程。
+        # 缺失依赖的匿名补查（_on_meta_succeeded）刻意不入库：
+        # 账外编号维持"回执只进显示"的既有豁免。
+        n_desc = 0
+        for e in entries:
+            desc = (e.get("description") or "").strip() or None
+            if not desc or e.get("mod_id") is None:
+                continue
+            mod = self._mods_by_id.get(int(e["mod_id"]))
+            try:
+                self._repo.update_api_metadata(
+                    int(e["mod_id"]), description=desc,
+                    description_ts=(mod.time_updated
+                                    if mod is not None else None))
+                n_desc += 1
+            except ValueError:
+                pass  # 条目已被处置：描述下次检测再补
         # ③ 渲染
         self._render_missing(deps.missing, offline=False)
         chg_rows = []
@@ -446,19 +468,15 @@ class DepCheckPage(QWidget):
                 stat += f" · 未判定 {len(deps.undetermined)}"
             self._summary.setText(head + stat)
             self._summary.setStyleSheet(f"color: {_C_WARN};")
-
         # 补充说明行
         last_fetch = self._repo.latest_dependency_fetch()
         notes = []
-
         if deps.undetermined:
             notes.append(
                 f"未判定 {len(deps.undetermined)} 条（Steam 说这些条目"
                 "有依赖，但清单没随响应给出，或数据不全）——保守起见"
                 "本次不入账、不冒充「无依赖」。重拉一次；持续出现把"
-                "日志发给开发者。"
-                + self._ids_text(deps.undetermined))
-
+                "日志发给开发者。" + self._ids_text(deps.undetermined))
         if deps.skipped:
             notes.append(f"另有 {deps.skipped} 条远端失效/查询失败，"
                          "无从判依赖（见【异常处置】页桶④⑤）。")
@@ -470,6 +488,7 @@ class DepCheckPage(QWidget):
         self._note.setText("\n".join(notes))
         self._log.ok(
             "依赖拉取完成：" + f"{written} 个 mod 清单入账"
+            + (f"，描述落库 {n_desc} 条" if n_desc else "")
             + (f"，缺依赖 {len(deps.missing)} 个 mod" if deps.missing else "")
             + (f"，依赖变化 {len(deps.changed)}" if deps.changed else "")
             + (f"，未判定 {len(deps.undetermined)}"

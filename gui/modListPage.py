@@ -88,6 +88,7 @@ from gui.modListModel import (
     COLOR_CHOICES, ModListModel, _SORT_MAP, _color_name, _color_qcolor,
 )
 
+import time
 
 from core.commandBuilder import build_copy_text  # 下载命令文本单源（core 纯函数，不碰库不弹窗）
 
@@ -629,6 +630,7 @@ class ModListPage(QWidget):
         self._detail.mod_link_requested.connect(self._locate_mod)
         self._detail.send_to_register_requested.connect(
             self.deps_send_to_register)  # 信号转信号：跨页路由住主窗口
+        self._detail.translation_ready.connect(self._on_translation_ready)
 
         split.addWidget(self._table)
         split.addWidget(self._detail)
@@ -1168,6 +1170,23 @@ class ModListPage(QWidget):
                 return
         self._log.info(f"编号 {mod_id} 在账本但不在当前清单"
                        "（可能被筛选/搜索挡住了——清一下筛选再点）")
+    def _on_translation_ready(self, mod_id, segments) -> None:
+        """详情面板描述翻译完成 → 译文分段数组落库（写口 A 唯一落点）。
+        译文 = 显示派生缓存（modRepository.save_translation 契约）：
+        不进判决/确认链、重复翻译直接覆盖。翻译与清账竞态 →
+        ValueError 跳过（译文只留面板会话内存，不炸不拦）；刻意不
+        触发 _reload——译文不进清单任何一列，整表重载纯属浪费。"""
+        try:
+            self._repo.save_translation_segments(int(mod_id),
+                                                 segments=list(segments),
+                                                 at=int(time.time()))
+
+            self._log.info(f"mod {mod_id} 译文已落库（{len(segments)} 段）")
+        except ValueError:
+            self._log.warn(f"mod {mod_id} 译文落库跳过：条目已不在账本"
+                           "（清账竞态——译文仅本次会话可见）")
+        except Exception as exc:
+            self._log.error(f"mod {mod_id} 译文落库失败：{exc}")
 
     def _pick_color(self, m) -> None:
         names = [*COLOR_CHOICES.keys(), "（自定义颜色…）", "（清除标记）"]

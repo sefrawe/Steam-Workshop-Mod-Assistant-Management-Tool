@@ -155,9 +155,18 @@ class ModRepository(ABC):
                             views: int | None = None,
                             tags: list[str] | None = None,
                             preview_url: str | None = None,
+                            description: str | None = None,
+                            description_ts: int | None = None,
+
                             last_checked_at: int | None = None) -> None:
         """检测三路写库之一（D2：沿用旧口径，判定字段换 confirmed_version）。
         只动远端侧；confirmed_* 三件套本方法绝不触碰（R17）。"""
+    @abstractmethod
+    def save_translation_segments(self, mod_id: int, *, segments: list,
+                         at: int) -> None:
+        """刀3：描述译文分段数组落库（JSON 数组；null=该段失败）。
+        显示派生缓存——不进判决/确认链；重复翻译直接覆盖。
+        mod 不存在 → ValueError。"""
 
     @abstractmethod
     def touch_checked(self, mod_ids: Iterable[int], *,

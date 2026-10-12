@@ -56,6 +56,13 @@ CREATE TABLE mods (
                       tags TEXT,                         -- JSON 字符串数组
                       last_checked_at INTEGER,
                       preview_url TEXT,
+    -- 刀1（2026-10）：描述与译文（显示派生缓存；旧库迁移兜底在
+    -- sqliteRepository._ensure_description_columns，两处同构）
+                      description TEXT,             -- 工坊描述原文（BBCode）
+                      description_ts INTEGER,       -- 落库时的 time_updated（原文版本戳）
+                      description_trans TEXT,       -- 译文分段 JSON 数组（null=该段失败）
+                      translation_at INTEGER,       -- 译文落库时间
+
                       is_special INTEGER NOT NULL DEFAULT 0 CHECK (is_special IN (0,1)),
                       note TEXT,
                       color_tag TEXT,

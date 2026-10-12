@@ -57,6 +57,11 @@ class Mod:
     tags: list[str] | None = None
     last_checked_at: int | None = None
     preview_url: str | None = None
+    description: str | None = None   # 工坊描述原文（BBCode，含内嵌图片/链接标签；检测/依赖批查回执顺手落库）
+    description_ts: int | None = None  # 落库时的 time_updated（原文版本戳；变动检测=与 mod.time_updated 比对）
+    description_trans: str | None = None  # 译文分段 JSON 数组（刀3 使用；null=该段翻译失败）
+    translation_at: int | None = None  # 译文落库时间（刀3 使用）
+
     is_special: bool = False
     note: str | None = None
     color_tag: str | None = None

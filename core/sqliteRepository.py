@@ -137,6 +137,10 @@ class SQLiteRepository(ModRepository):
                 f"{self._path} 的数据库结构版本（v{version}）本工具读不懂："
                 "旧世系库请走「换机迁移」的旧账迁移；更新版本的库请先"
                 "升级本工具再打开")
+        # 刀1（2026-10）：描述四列迁移——旧库 ALTER 补列、新库兜底，
+        # 必须在任何查询之前跑完（_mod 转换器按列名取值，缺列即炸）
+        self._ensure_description_columns()
+
 
     @contextmanager
     def transaction(self):
@@ -171,6 +175,22 @@ class SQLiteRepository(ModRepository):
             raise
         else:
             self._conn.execute("COMMIT")
+    def _ensure_description_columns(self) -> None:
+        """刀1：mods 表补描述四列，幂等可重复跑。刻意不动 user_version
+        ——避开新世系/旧世系鉴别与 import_all 的版本闸两处逻辑；
+        列级检查足够安全（列存在即跳过）。已列的库零开销（一次
+        PRAGMA）。schema.sql 里的 mods 定义可顺手加同名列（新库建表
+        即含），不加也行——这里兜底。"""
+        have = {r["name"] for r in self._conn.execute(
+            "PRAGMA table_info(mods)").fetchall()}
+        for col, ddl in (
+                ("description", "TEXT"),
+                ("description_ts", "INTEGER"),
+                ("description_trans", "TEXT"),
+                ("translation_at", "INTEGER"),
+        ):
+            if col not in have:
+                self._conn.execute(f"ALTER TABLE mods ADD COLUMN {col} {ddl}")
 
     def close(self) -> None:
         self._conn.close()
@@ -247,11 +267,9 @@ class SQLiteRepository(ModRepository):
                     game_mod_dir=row["game_mod_dir"],
                     backup_dir=row["backup_dir"],
                     created_at=row["created_at"])
-
     @staticmethod
     def _mod(row) -> Mod:
-        # v2：本地版本读 confirmed_* 三件套；旧版的
-        # local_timeupdated / manifest / local_path 已随判决制移除
+        # v2：本地版本读 confirmed_* 三件套；刀1：+描述四列
         return Mod(
             mod_id=row["mod_id"],
             game_id=row["game_id"],
@@ -273,6 +291,10 @@ class SQLiteRepository(ModRepository):
             tags=json.loads(row["tags"]) if row["tags"] is not None else None,
             last_checked_at=row["last_checked_at"],
             preview_url=row["preview_url"],
+            description=row["description"],
+            description_ts=row["description_ts"],
+            description_trans=row["description_trans"],
+            translation_at=row["translation_at"],
             is_special=bool(row["is_special"]),
             note=row["note"],
             color_tag=row["color_tag"],
@@ -509,6 +531,11 @@ class SQLiteRepository(ModRepository):
             "tags": None if mod.tags is None else _dumps(mod.tags),
             "last_checked_at": mod.last_checked_at,
             "preview_url": mod.preview_url,
+            "description": mod.description,
+            "description_ts": mod.description_ts,
+            "description_trans": mod.description_trans,
+            "translation_at": mod.translation_at,
+
             "is_special": int(mod.is_special),
             "note": mod.note,
             "color_tag": mod.color_tag,
@@ -617,10 +644,8 @@ class SQLiteRepository(ModRepository):
             if limit is not None:
                 mods = mods[:limit]
         return mods
-
     def update_api_metadata(self, mod_id: int, *, title: str | None = None,
-                            creator: str | None = None,
-                            url: str | None = None,
+                            creator: str | None = None, url: str | None = None,
                             time_created: int | None = None,
                             time_updated: int | None = None,
                             last_time_updated: int | None = None,
@@ -630,24 +655,40 @@ class SQLiteRepository(ModRepository):
                             views: int | None = None,
                             tags: list[str] | None = None,
                             preview_url: str | None = None,
+                            description: str | None = None,
+                            description_ts: int | None = None,
                             last_checked_at: int | None = None) -> None:
         """Steam API 查询结果回写（检测三路写库之一）。只动远端侧数据；
         确认三件套（confirmed_*）本方法绝不触碰——那是确认门的领地（R17）。
         tags=[] 会写成 "[]"（不是 None），所以"空列表=清空标签"与
-        "None=不修改"的语义同时成立。"""
+        "None=不修改"的语义同时成立。
+        刀1：+description / description_ts——沿用 None=不修改契约：
+        回执里没拉到描述就绝不动已存的（旧值+旧戳保持自洽）。"""
         raw = {"title": title, "creator": creator, "url": url,
                "time_created": time_created, "time_updated": time_updated,
                "last_time_updated": last_time_updated,
                "file_size": file_size, "subscriptions": subscriptions,
                "favorited": favorited, "views": views,
                "tags": None if tags is None else _dumps(tags),
-               "preview_url": preview_url,
+               "preview_url": preview_url, "description": description,
+               "description_ts": description_ts,
                "last_checked_at": last_checked_at}
         fields = {k: v for k, v in raw.items() if v is not None}
         if not fields:
             return
         self._require(self._dynamic_update("mods", "mod_id", mod_id, fields),
                       f"mod {mod_id} 不存在")
+
+    def save_translation_segments(self, mod_id: int, *, segments: list,
+                                  at: int) -> None:
+        """刀3：描述译文分段数组落库（description_trans=JSON 数组，
+        null=该段失败；translation_at=落库时间）。译文 = 显示派生
+        缓存，不进判决/确认链；重复翻译直接覆盖（单条当前值）。"""
+        self._require(self._dynamic_update(
+            "mods", "mod_id", mod_id,
+            {"description_trans": _dumps(list(segments)),
+             "translation_at": int(at)}),
+            f"mod {mod_id} 不存在")
 
     def touch_checked(self, mod_ids: Iterable[int], *,
                       checked_at: int | None = None) -> None:

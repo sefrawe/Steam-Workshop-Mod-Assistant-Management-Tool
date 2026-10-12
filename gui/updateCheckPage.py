@@ -443,34 +443,31 @@ class UpdateCheckPage(QWidget):
                 and m.time_updated > m.confirmed_version):
             return "需更新"
         return "已最新"
-
     def _apply_results(self, ok_items: list[WorkshopItem],
                        suspected_ids: set[int],
                        failed: dict[int, int]) -> tuple[int, dict, int]:
         """把查询结果写入数据库，返回 (需更新个数, 触发值映射, 本次新建
-        失效归档条数)。
-
-        判定 = D2 唯一公式：仅 downloaded 且 confirmed_version 非空且
-        远端 time_updated > confirmed_version 计入需更新，并记下触发值
-        （mod_id → 远端 time_updated）随 updates_found 交主窗口随批携带。
-        检测只写远端侧三路（元数据 / 版本快照 / 特别关注提醒）+ 查过
-        时间 + result=9 失效归档；confirmed_version / confirmed_source
-        一个不碰——那是确认门的地盘（R17）。
-
-        写入三路与判定无关，各管各的账：first_fill = 第一次拿到远端
-        信息（last_time_updated 记为当前值 = 没有上一版）；changed =
-        远端真变了（旧远端值挪进 last_time_updated 作间隔基准 + 拍
-        版本快照 + 特别关注记提醒，同一远端版本只提醒一次）；其余只
+        失效归档条数)。 判定 = D2 唯一公式：仅 downloaded 且
+        confirmed_version 非空且远端 time_updated > confirmed_version
+        计入需更新，并记下触发值（mod_id → 远端 time_updated）随
+        updates_found 交主窗口随批携带。 检测只写远端侧三路（元数据 /
+        版本快照 / 特别关注提醒）+ 查过时间 + result=9 失效归档；
+        confirmed_version / confirmed_source 一个不碰——那是确认门的
+        地盘（R17）。 写入三路与判定无关，各管各的账：first_fill =
+        第一次拿到远端信息（last_time_updated 记为当前值 = 没有上一版）；
+        changed = 远端真变了（旧远端值挪进 last_time_updated 作间隔基准
+        + 拍版本快照 + 特别关注记提醒，同一远端版本只提醒一次）；其余只
         刷新标题等元数据。"复遇版本相同按已最新"（分钟级缓存容忍）
-        由 changed 的不等式天然覆盖。
-
-        失效归档：result=9 且条目已被用过（downloaded / failed）且尚无
-        归档时建档；状态逐条现查（防检测进行中条目被处置后误翻状态）；
-        tracked 刻意跳过（接口看不见≠下载不了，先验证再处置）；已有
-        归档跳过。全部包在一个事务里，失败整体回滚。
-        """
+        由 changed 的不等式天然覆盖。 失效归档：result=9 且条目已被用过
+        （downloaded / failed）且尚无归档时建档；状态逐条现查（防检测
+        进行中条目被处置后误翻状态）；tracked 刻意跳过（接口看不见≠
+        下载不了，先验证再处置）；已有归档跳过。全部包在一个事务里，
+        失败整体回滚。 刀1（2026-10）：描述原文随回执顺手落库（meta
+        里 description / description_ts 两键，三路写入自动带上）——
+        零额外请求，谁先检测谁落库。"""
         now = int(time.time())
         updates_found = 0
+        n_desc = 0  # 刀1：本轮描述落库条数（日志用，不进返回值）
         triggers: dict[int, int] = {}
         # 已有归档的编号（防重复建档）：归档量小，一次读回毫秒级
         archived: set[int] = set()
@@ -479,8 +476,8 @@ class UpdateCheckPage(QWidget):
                         self._repo.list_failed(self._check_game.app_id)}
         # 先整体记"检测过"（包括失败和疑似合集的）——"查过了"这个事实
         # 本身就值得记，否则"上次检测时间"的展示会骗人
-        all_ids = ([i.mod_id for i in ok_items]
-                   + sorted(suspected_ids) + sorted(failed))
+        all_ids = ([i.mod_id for i in ok_items] + sorted(suspected_ids)
+                   + sorted(failed))
         n_archived = 0
         with self._repo.transaction():
             self._repo.touch_checked(all_ids, checked_at=now)
@@ -489,8 +486,7 @@ class UpdateCheckPage(QWidget):
                 if code != 9 or mid in archived:
                     continue
                 row = self._repo.get_mod(mid)
-                if row is None or row.status not in ("downloaded",
-                                                     "failed"):
+                if row is None or row.status not in ("downloaded", "failed"):
                     continue
                 self._repo.mark_failed(
                     mid, "接口返回 result=9（删除/下架/转私有等）")
@@ -521,43 +517,45 @@ class UpdateCheckPage(QWidget):
                     "views": item.views,
                     "tags": item.tags,
                     "preview_url": item.preview_url,
+                    # 刀1：描述原文顺手落库；戳=本条的远端更新时间
+                    #（描述没拉到就两个都 None → repo 不写，旧值自洽）
+                    "description": item.description,
+                    "description_ts": (item.time_updated
+                                       if item.description else None),
                 }
+                if item.description:
+                    n_desc += 1
                 if first_fill:
                     self._repo.update_api_metadata(
-                        item.mod_id,
-                        time_updated=item.time_updated,
-                        last_time_updated=item.time_updated,
-                        **meta)
+                        item.mod_id, time_updated=item.time_updated,
+                        last_time_updated=item.time_updated, **meta)
                 elif changed:
                     self._repo.update_api_metadata(
-                        item.mod_id,
-                        time_updated=item.time_updated,
-                        last_time_updated=row.time_updated,
-                        **meta)
-                    # 拍版本快照（远端观测史，滚动保留）
+                        item.mod_id, time_updated=item.time_updated,
+                        last_time_updated=row.time_updated, **meta)
                     # 拍版本快照（远端观测史，滚动保留）。
                     # v2 签名在 * 之后只收带名参数；这里沿用旧版的位置
                     # 传参会报 "takes 2 positional arguments but 3 were
                     # given"，触发检测结果整体回滚——改成带名即愈
                     self._repo.add_snapshot(item.mod_id,
                                             time_updated=item.time_updated)
-
                     if row.is_special:
                         # 特别关注：同一远端版本只提醒一次
                         last = self._repo.get_last_alert(item.mod_id)
                         if last is None or \
                                 last.remote_time_updated != item.time_updated:
-                            diff = ((item.time_updated
-                                     - row.last_time_updated)
+                            diff = ((item.time_updated - row.last_time_updated)
                                     if row.last_time_updated else None)
                             self._repo.add_alert(
                                 item.mod_id, item.time_updated,
                                 diff_seconds=diff,
-                                was_downloaded=(row.status
-                                                == "downloaded"))
+                                was_downloaded=(row.status == "downloaded"))
                 else:
                     # 远端没变：只刷新其余元数据，时间字段一个不动
                     self._repo.update_api_metadata(item.mod_id, **meta)
+        if n_desc:
+            self._log.info(f"顺手落库 {n_desc} 条工坊描述原文"
+                           "（详情页描述/翻译功能的数据底座）")
         return updates_found, triggers, n_archived
 
     def _show_results(self, suspected_ids: set[int], failed: dict[int, int],

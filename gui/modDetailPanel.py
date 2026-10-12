@@ -24,6 +24,7 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QAction
 from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
@@ -32,16 +33,19 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget, QAbstractItemView, QApplication, QHeaderView, QTableWidget, QTableWidgetItem, QHBoxLayout, QPushButton,
-    QMessageBox, QTabBar, QToolButton, QMenu,
+    QMessageBox, QTabBar, QMenu,
+    QTextBrowser,
+
 )
 
 from core import netGate
+from core.bbcodeParser import blocks_to_html, parse_description, text_segments
+from core.constants import (CONFIRMED_SOURCE_ZH, NET_GATE_TRANSLATE,
+                            STATUS_DELETED, STATUS_DOWNLOADED, VERDICT_KIND_ZH)
 from core.formatters import abs_time, fmt_size, relative_time, status_zh
 from core.urlParser import workshop_url
 from gui.theme import font_px  # 字号单源（D25）
-from core.constants import (CONFIRMED_SOURCE_ZH, STATUS_DELETED,
-                            STATUS_DOWNLOADED, VERDICT_KIND_ZH)
-from PySide6.QtGui import QColor, QDesktopServices, QAction
+from gui.translateWorker import TranslateWorker
 
 # 未验证/旧账两档来源的灰色说明（一次性文案，留本模块——D37 准入）
 _SOURCE_NOTES = {
@@ -82,10 +86,17 @@ class ModDetailPanel(QWidget):
     # 依赖子页「送登记」→ 主窗口转接入账中心（只送账外编号——账内
     # 的已在册，登记解析只会回"已在册"，送了也白送）
     send_to_register_requested = Signal(list)
-    # 页签 ↔ 栈页映射（栈页：0=无选中占位 1=基本信息 2=依赖
-    # 3=描述占位 4=翻译占位；页签：0基本信息 1描述 2翻译 3依赖）
-    _TAB_TO_PAGE = {0: 1, 1: 3, 2: 4, 3: 2}
-    _PAGE_TO_TAB = {1: 0, 3: 1, 4: 2, 2: 3}
+    # 描述翻译完成 → 译文分段数组（与 bbcodeParser.text_segments 的
+    # text 块同序，None=该段失败）交接收方落库（写口 A：面板零写
+    # 操作，repo 写入住 mod 库页/主窗）。mid 用 object（超 32 位）
+    translation_ready = Signal(object, object)  # 双 object：list 过
+    # QVariant 转换时 None 段有被整形的风险，object 直传 Python 原对象
+    # 零转换（踩坑 79 同精神：跨件传复杂东西一律 object）
+
+    # 页签 ↔ 栈页映射（栈页：0=无选中占位 1=基本信息 2=依赖 3=描述；
+    # 页签：0基本信息 1描述 2依赖。翻译/描述合一页签，页内三态切换）
+    _TAB_TO_PAGE = {0: 1, 1: 3, 2: 2}
+    _PAGE_TO_TAB = {1: 0, 3: 1, 2: 2}
 
     # 分区与字段清单（单源：构建与赋值都按它走；键 = _vals 索引）
     _SECTIONS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
@@ -149,6 +160,13 @@ class ModDetailPanel(QWidget):
         self._fetch_worker = None  # 查远端信息的批查询线程
         self._meta_note = ""  # 查询回执信息（finished 里统一落 hint 行）
         self._dep_graph = None  # 反向依赖图缓存：(game_id, 拉取戳) → 图
+        self._trans_worker = None   # 翻译线程（刀3）
+        self._desc_blocks: list = []   # 当前 mod 描述块序列（解析缓存）
+        self._desc_segs = None      # 译文分段（list[str|None] | None）
+        self._desc_mode = "original"
+        self._trans_mid = None      # 进行中翻译的归属 mod（防切 mod 串档）
+        self._trans_done = 0
+        self._trans_total = 0
 
         self._build_ui()
 
@@ -161,8 +179,11 @@ class ModDetailPanel(QWidget):
         # 页签导航（基本信息/描述/翻译/依赖）：点页签切下方内容区；
         # 描述/翻译 = 占位页（模块冻结中），依赖 = 原子页
         self._tabs = QTabBar(self)
-        for _n in ("基本信息", "描述", "翻译", "依赖"):
+        # 页签导航（基本信息/描述/依赖）：点页签切下方内容区；
+        # 描述 = 三态渲染+翻译正身页，依赖 = 原子页
+        for _n in ("基本信息", "描述", "依赖"):
             self._tabs.addTab(_n)
+
         self._tabs.currentChanged.connect(self._on_tab_changed)
         self._tabs.setEnabled(False)  # show_mod 按有无选中开/关
         _tabs_wrap = QWidget(self)
@@ -360,25 +381,9 @@ class ModDetailPanel(QWidget):
         dv.addLayout(dep_acts)
         self._pg_deps = self._stack.addWidget(deps_page)  # 页号（=2）
 
-        # 描述 / 翻译占位页：页签先架好，点过去见说明，不空指针
-        ph_desc = QWidget(self)
-        dv2 = QVBoxLayout(ph_desc)
-        lbl_desc = QLabel("描述子页：规划中（拉取、展示与翻译联动待定）。",
-                          ph_desc)
-        lbl_desc.setWordWrap(True)
-        lbl_desc.setStyleSheet(f"color: {_DIM};")
-        dv2.addWidget(lbl_desc)
-        dv2.addStretch(1)
-        self._pg_desc = self._stack.addWidget(ph_desc)  # 页号（=3）
-        ph_trans = QWidget(self)
-        tv2 = QVBoxLayout(ph_trans)
-        lbl_trans = QLabel("翻译子页：规划中（与描述同模板，另行评审）。",
-                           ph_trans)
-        lbl_trans.setWordWrap(True)
-        lbl_trans.setStyleSheet(f"color: {_DIM};")
-        tv2.addWidget(lbl_trans)
-        tv2.addStretch(1)
-        self._pg_trans = self._stack.addWidget(ph_trans)  # 页号（=4）
+        # 描述页（栈页 3）：刀2/刀3 正身——原文/译文/对照三态 + 翻译
+        # 按钮（翻译/描述合一页签，页内切换；原「翻译」页签撤销）
+        self._pg_desc = self._stack.addWidget(self._build_desc_page())
 
         self._stack.setCurrentIndex(0)
         self.setMinimumWidth(240)
@@ -407,8 +412,8 @@ class ModDetailPanel(QWidget):
         # 切 mod 时若正停在子页（依赖/描述/翻译）→ 原位重灌：依赖行
         # 双击 → 库页定位选中 → show_mod 回到这里，形成"沿依赖链
         # 连逛"；页签随时切换
-        staying = self._stack.currentIndex() in (
-            self._pg_deps, self._pg_desc, self._pg_trans)
+        staying = self._stack.currentIndex() in (self._pg_deps, self._pg_desc)
+
         if not staying:
             self._stack.setCurrentIndex(1)
         self._tabs.setEnabled(True)
@@ -480,6 +485,10 @@ class ModDetailPanel(QWidget):
         # （卡片可能正展开着：切 mod 原位刷新，数据不串档案）
         v["deps"].setText(self._deps_entry(mod))
         self._fill_deps_page(mod)
+        self._fill_description(mod)
+
+
+
         self._sync_tabs()
 
     # ---------- 内部 ----------
@@ -1183,6 +1192,13 @@ class ModDetailPanel(QWidget):
             if not w.wait(1500):
                 netGate.park(w)
             self._fetch_worker = None
+        w2 = getattr(self, "_trans_worker", None)
+        if w2 is not None:
+            w2.stop()
+            if not w2.wait(1500):
+                netGate.park(w2)
+            self._trans_worker = None
+
 
     # ---- 双击 / 勾选 / 右键（D47 三段式）----
 
@@ -1333,6 +1349,249 @@ class ModDetailPanel(QWidget):
                 line += f" {note}"
             lines.append(line)
         self._verdicts.setText("\n".join(lines))
+    # ---------- 描述页（刀2/刀3）：三态渲染 + 翻译 ----------
+    # 数据源 = mods 表描述四列（刀1 落库）；本页零联网只读账本，唯一
+    # 联网动作是「翻译本条」（TranslateWorker + NET_GATE_TRANSLATE 闸）。
+    # description_trans 是 JSON 数组（与 text_segments 的 text 块顺序
+    # 对齐，null=该段翻译失败），面板只读不写——落库走 translation_ready
+    # 信号（写口 A）。
+
+    def _build_desc_page(self) -> QWidget:
+        page = QWidget(self)
+        v = QVBoxLayout(page)
+        v.setContentsMargins(10, 8, 10, 8)
+        v.setSpacing(6)
+        bar = QHBoxLayout()
+        bar.setContentsMargins(0, 0, 0, 0)
+        self._desc_mode_btns: dict[str, QPushButton] = {}
+        for key, label, tip in (
+                ("original", "原文",
+                 "只看工坊描述原文（BBCode 已转链接行——图片/视频不下载，"
+                 "点开浏览器看）"),
+                ("translated", "译文", "只看翻译（未翻译时不可用）"),
+                ("compare", "对照",
+                 "一段原文一段译文对照着看（未翻译时不可用）"),
+        ):
+            btn = QPushButton(label, page)
+            btn.setCheckable(True)
+            btn.setAutoExclusive(True)  # 同父互斥 → 单选钮手感
+            btn.setToolTip(tip)
+            btn.clicked.connect(
+                lambda _=False, k=key: self._set_desc_mode(k))
+            bar.addWidget(btn)
+            self._desc_mode_btns[key] = btn
+        bar.addStretch(1)
+        self._btn_translate = QPushButton("翻译本条", page)
+        self._btn_translate.setToolTip(
+            "把描述里的文本段打包发给翻译引擎（微软 Edge 内置通道，无需 "
+            "key，通常一两次请求完成；Bing 网页通道降为备选）。BBCode "
+            "骨架不动——图片/视频/链接行不参与翻译、原位保留。"
+            "与其它联网功能共用互斥闸；翻译中再点一次 = 停止。")
+
+        self._btn_translate.clicked.connect(self._on_translate_clicked)
+        bar.addWidget(self._btn_translate)
+        v.addLayout(bar)
+        # 黄条：原文版本戳落后于远端观测且已有译文（文案静态，一次设死）
+        self._desc_stale = QLabel(page)
+        self._desc_stale.setWordWrap(True)
+        self._desc_stale.setStyleSheet(
+            "color: #f5a623; background: rgba(245,166,35,0.12);"
+            "border-radius: 4px; padding: 6px 8px;")
+        self._desc_stale.setText(
+            "⚠ 原文可能已变动——译文基于旧版原文（bump 也可能只更新了"
+            "文件没动描述）。【重新翻译】只重译已存的这版原文；要更新"
+            "原文本身，跑一轮【更新检测】或【拉取依赖】。")
+        self._desc_stale.setVisible(False)
+        v.addWidget(self._desc_stale)
+        # 一次性事件行（翻译进度 / 结果 / 失败原因），空 = 隐藏
+        self._desc_note = QLabel(page)
+        self._desc_note.setWordWrap(True)
+        self._desc_note.setStyleSheet(
+            f"color: {_DIM}; font-size: {font_px(11)}px;")
+        self._desc_note.hide()
+        v.addWidget(self._desc_note)
+        self._desc_browser = QTextBrowser(page)
+        # 链接行点开浏览器：显式走 anchorClicked → QDesktopServices
+        # 单一路径。setOpenLinks(False) 保证点击一定发信号，不被
+        # QTextBrowser 的内部导航吞掉——原 setOpenExternalLinks(True)
+        # 依赖属性行为，合并/版本差异下有"看着是链接点了没反应"的坑
+        self._desc_browser.setOpenLinks(False)
+        self._desc_browser.anchorClicked.connect(self._open_desc_link)
+
+        v.addWidget(self._desc_browser, 1)
+        return page
+    def _open_desc_link(self, url: QUrl) -> None:
+        """描述页链接行点击 → 系统默认浏览器打开。打不开在事件行
+        留痕，不再出现"点了没任何反应"的无声失败。"""
+        u = url
+        if not u.scheme():  # 少见的相对形态，兜成 https
+            u = QUrl("https://" + u.toString())
+        if not QDesktopServices.openUrl(u):
+            self._set_desc_note(
+                f"链接打不开：{u.toString()}"
+                "（系统没有可用的默认浏览器？）")
+
+    def _set_desc_note(self, text: str) -> None:
+        self._desc_note.setText(text)
+        self._desc_note.setVisible(bool(text))
+
+    def _desc_stale_state(self, mod) -> bool:
+        """黄条判据单源：description_ts ≠ time_updated 且已有译文。
+        宁误报勿漏报（bump 未必改了描述）；重译不改原文版本戳，黄条
+        在下一轮检测把 description_ts 追上之前一直在——正确语义。"""
+        return (mod is not None and bool(self._desc_segs)
+                and mod.description_ts is not None
+                and mod.time_updated is not None
+                and mod.description_ts != mod.time_updated)
+
+    def _fill_description(self, mod) -> None:
+        """切 mod 重灌描述页：解析一次缓存，三态切换只是换渲染。
+        默认态 = 有译文给「对照」（合一页签的本意），没译文给「原文」。
+        坏 JSON 当没翻译，绝不炸面板。"""
+        self._set_desc_note("")
+        self._desc_blocks = (parse_description(mod.description)
+                             if mod is not None else [])
+        segs = None
+        if mod is not None and mod.description_trans:
+            try:
+                loaded = json.loads(mod.description_trans)
+                segs = loaded if isinstance(loaded, list) else None
+            except Exception:
+                segs = None
+        self._desc_segs = segs
+        self._desc_stale.setVisible(self._desc_stale_state(mod))
+        has_desc = bool(self._desc_blocks)
+        for key, btn in self._desc_mode_btns.items():
+            btn.setEnabled(has_desc
+                           and (key == "original" or segs is not None))
+        self._set_desc_mode(
+            "compare" if (has_desc and segs is not None) else "original")
+        self._sync_translate_actions()
+
+    def _set_desc_mode(self, mode: str) -> None:
+        """三态切换（纯渲染，不重解析）。译文/对照在没译文时守卫回
+        原文——按钮禁用之外再拦一道，状态永不自相矛盾。"""
+        btn = self._desc_mode_btns.get(mode)
+        if btn is not None:
+            btn.setChecked(True)
+        blocks = getattr(self, "_desc_blocks", [])
+        segs = getattr(self, "_desc_segs", None)
+        if not blocks:
+            self._desc_mode = "original"
+            self._desc_browser.setHtml(
+                '<span style="color:#8a8a8f">（本条还没有描述原文——'
+                "跑一轮【更新检测】或【拉取依赖】后自动带上；本页只读"
+                "账本，不联网。）</span>")
+            return
+        if mode in ("translated", "compare") and segs is None:
+            mode = "original"
+            self._desc_mode_btns["original"].setChecked(True)
+        self._desc_mode = mode
+        if mode == "compare":
+            self._desc_browser.setHtml(
+                blocks_to_html(blocks, translations=segs, compare=True))
+        elif mode == "translated":
+            self._desc_browser.setHtml(
+                blocks_to_html(blocks, translations=segs))
+        else:
+            self._desc_browser.setHtml(blocks_to_html(blocks))
+
+    # ---- 翻译（刀3）：按钮 = 启动/停止，worker 收尾纪律照旧 ----
+
+    def _sync_translate_actions(self) -> None:
+        """翻译按钮统一口：空闲 = 翻译本条/重新翻译…；进行中 = 停止 ⏹
+        （再点即停）。描述里真有文本段（text 块）才可译。"""
+        has = bool(text_segments(getattr(self, "_desc_blocks", [])))
+        if self._trans_worker is not None:
+            self._btn_translate.setText("停止 ⏹")
+            self._btn_translate.setEnabled(True)
+            return
+        self._btn_translate.setText(
+            "重新翻译…" if self._desc_segs is not None else "翻译本条")
+        self._btn_translate.setEnabled(has)
+
+    def _on_translate_clicked(self) -> None:
+        if self._trans_worker is not None:  # 进行中再点 = 停止
+            self._trans_worker.stop()
+            return
+        if self._mod is None:
+            return
+        segs_src = text_segments(self._desc_blocks)
+        if not segs_src:
+            QMessageBox.information(
+                self, "翻译", "这条描述没有可翻译的文本段（只有链接行）。")
+            return
+        if self._settings is not None:
+            interval = self._settings.get_int("api_request_interval_ms", 200)
+            retries = self._settings.get_int("api_max_retries", 3)
+        else:
+            interval, retries = 200, 3
+        busy = netGate.try_acquire(NET_GATE_TRANSLATE)
+        if busy is not None:
+            QMessageBox.information(
+                self, "翻译",
+                f"另有联网任务在进行（{busy}）：等它结束后再翻译。")
+            return
+        self._trans_mid = self._mod.mod_id  # 归属：回执只对这条 mod 生效
+        self._trans_total = len(segs_src)
+        self._trans_done = 0
+        self._trans_worker = TranslateWorker(
+            segs_src, provider_name="edge", interval_ms=interval,
+            max_retries=retries, parent=self)
+        self._trans_worker.progress.connect(self._on_trans_progress)
+        self._trans_worker.succeeded.connect(self._on_trans_succeeded)
+        self._trans_worker.failed.connect(self._on_trans_failed)
+        self._trans_worker.stopped.connect(self._on_trans_stopped)
+        self._trans_worker.finished.connect(self._on_trans_finished)
+        self._trans_worker.start()
+        self._sync_translate_actions()
+        self._set_desc_note(
+            f"翻译中（{self._trans_total} 段，Edge 通道）…")
+
+    def _on_trans_progress(self, done: int, total: int) -> None:
+        self._trans_done, self._trans_total = done, total
+        self._set_desc_note(f"翻译中（{done}/{total}，Edge 通道）…")
+
+    def _on_trans_succeeded(self, segments: list) -> None:
+        """回执落位：内存先行（还是这条 mod 就地重灌），落库交信号
+        （写口 A）。emit 无条件发——用户切走了 mod 也照存，译文
+        归属发翻译时那条，绝不串到当前显示的条目上。
+        三态按钮当场重开 + 自动落对照态：按钮 enable 此前只在
+        _fill_description（切 mod 重灌）里做，就地翻译完成时按钮
+        仍是灰的（2026-10 用户实测点不动），补在这里。走到本槽
+        = 至少一段成功（全灭走 failed 信号），放心全开。"""
+        mid = getattr(self, "_trans_mid", None)
+        if mid is not None and self._mod is not None \
+                and self._mod.mod_id == mid:
+            self._desc_segs = list(segments)
+            for btn in self._desc_mode_btns.values():
+                btn.setEnabled(True)
+            self._desc_stale.setVisible(self._desc_stale_state(self._mod))
+            self._set_desc_mode("compare")  # 完成即对照——效果最直观
+        if mid is not None:
+            self.translation_ready.emit(mid, list(segments))
+        n_fail = sum(1 for s in segments if s is None)
+        self._set_desc_note(
+            f"翻译完成：{len(segments)} 段"
+            + (f"（{n_fail} 段失败，显示「⚠ 该段翻译失败」+原文）"
+               if n_fail else "。"))
+        self._sync_translate_actions()
+
+    def _on_trans_failed(self, message: str) -> None:
+        self._set_desc_note(f"翻译失败：{message}")
+
+    def _on_trans_stopped(self) -> None:
+        self._set_desc_note("已停止翻译（本次未产生译文）。")
+
+    def _on_trans_finished(self) -> None:
+        """收尾纪律（netGate 家族）：finished 必发 → 摘引用 → 置 None
+        → wait → 闸归还。"""
+        w = self._trans_worker
+        self._trans_worker = None
+        if w is not None:
+            w.wait()
+        netGate.release(NET_GATE_TRANSLATE)
+        self._sync_translate_actions()
 
     def _on_open_folder(self) -> None:
         if self._mod is not None:

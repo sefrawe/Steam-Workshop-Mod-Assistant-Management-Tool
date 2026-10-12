@@ -93,17 +93,15 @@ def _to_int(value) -> int | None:
     except (TypeError, ValueError):
         return None
 
-
 @dataclass
 class WorkshopItem:
     """一条工坊条目的远端信息（GetPublishedFileDetails 单条解析结果）。
-
     任何字段都可能为 None——本类只忠实转存，不做任何"这像不像合集"
     的判断。"正常条目 / 疑似合集 / 查询失败"的三桶分类在上层做，
     依据：result 是否为 1、file_size 是否缺失或为 0。
     """
     mod_id: int | None
-    result: int | None        # 1=成功；非 1=该条目失效/私有/查无此条
+    result: int | None  # 1=成功；非 1=该条目失效/私有/查无此条
     title: str | None
     creator: str | None
     time_created: int | None
@@ -112,8 +110,12 @@ class WorkshopItem:
     subscriptions: int | None
     favorited: int | None
     views: int | None
-    tags: list[str]           # 无标签时为空列表（与库里"空列表=清空"语义对齐）
+    tags: list[str]  # 无标签时为空列表（与库里"空列表=清空"语义对齐）
     preview_url: str | None
+    # 工坊描述原文——BBCode 一整段（图片/视频/链接以标签内嵌在正文
+    # 里，不是独立字段）。刀1（2026-10）：随检测/批查回执顺手落库，
+    # 是详情页描述展示与翻译功能的数据底座
+    description: str | None = None
     # 条目所属游戏（GetPublishedFileDetails 的 consumer_app_id 字段）。
     # 快速命令查询（决策 105）用它给每条命令配正确的 AppID——
     # 此前"匿名接口不返回所属游戏"的说法是错的，本字段一直都在
@@ -122,13 +124,10 @@ class WorkshopItem:
     # 本来就带这个字段，此前只是没解析——补上即可，接口行为零变化
     banned: int | None = None
 
-
-
     @classmethod
     def from_api(cls, d: dict) -> "WorkshopItem":
         raw_tags = d.get("tags")
-        tags = [t["tag"] for t in raw_tags
-                if isinstance(t, dict) and t.get("tag")] \
+        tags = [t["tag"] for t in raw_tags if isinstance(t, dict) and t.get("tag")] \
             if isinstance(raw_tags, list) else []
         return cls(
             mod_id=_to_int(d.get("publishedfileid")),
@@ -142,13 +141,12 @@ class WorkshopItem:
             favorited=_to_int(d.get("favorited")),
             views=_to_int(d.get("views")),
             tags=tags,
-
             preview_url=(str(d["preview_url"])
-
-            if d.get("preview_url") is not None else None),
+                         if d.get("preview_url") is not None else None),
+            description=(str(d["description"])
+                         if d.get("description") is not None else None),
             consumer_app_id=_to_int(d.get("consumer_app_id")),
             banned=_to_int(d.get("banned")),
-
         )
 @dataclass
 class KeyedItem:
@@ -163,6 +161,9 @@ class KeyedItem:
     title: str | None
     children: list[int] | None
     num_children: int | None = None  # Steam 原文多为字符串，_to_int 归一
+    # 工坊描述原文（BBCode）——keyed 接口同样回传。刀1：依赖拉取
+    # 顺手落库的第二正门；拿不到 = None，绝不冒充
+    description: str | None = None
 
     @classmethod
     def from_api(cls, d: dict) -> "KeyedItem":
@@ -181,8 +182,9 @@ class KeyedItem:
             result=_to_int(d.get("result")),
             title=str(d["title"]) if d.get("title") is not None else None,
             children=children,
-            num_children=_to_int(d.get("num_children")))
-
+            num_children=_to_int(d.get("num_children")),
+            description=(str(d["description"])
+                         if d.get("description") is not None else None))
 
 class SteamApiClient:
     """两个接口的统一入口。
