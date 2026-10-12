@@ -1,4 +1,4 @@
-"""core/acfParser.py · Steam workshop ACF 解析（盘点轮新写件）。
+"""Steam workshop ACF 解析
 
 ACF 是 Valve 的类 VDF 文本格式。steamcmd 下载的 mod 在
 …/steamapps/workshop/content/<appid>/ 下的同时，workshop 目录

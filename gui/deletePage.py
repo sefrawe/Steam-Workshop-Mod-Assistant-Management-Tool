@@ -419,7 +419,9 @@ class DeletePage(QWidget):
             root, "orphan", "④ 孤儿目录：盘上有、账本完全不认识")
         olbl = QLabel(
             "来源：steamcmd 账本被换过、别的工具留下的残骸、或彻底清账后"
-            "的文件。默认全部不选——来路不明的目录要逐个确认。\n"
+            "的文件。默认全部不选——来路不明的目录逐个确认后再勾；确认"
+            "整批都不要时，用过滤条上的「全选可见行」一次勾上（执行前"
+            "确认弹窗仍会全量列出）。\n"
             "认领（推荐先想这条路）：到【入账中心】点【扫描游戏目录】——"
             "盘点会把账外目录摆成待认领（盘面记了版本的带版本，没记的"
             "认成版本未知），确认后入账。\n"
@@ -430,6 +432,7 @@ class DeletePage(QWidget):
             "删除不可恢复，且多前端环境里别的工具（如 RimSort）清单里"
             "留着的 mod 会被它指挥下回来——悬浮此处可看多前端自查要点。",
             body)
+
         olbl.setWordWrap(True)
         olbl.setToolTip(_MULTIFRONTEND_NOTE)   # V2：文案内联（见文件顶部）
         box4.addWidget(olbl)
@@ -446,6 +449,25 @@ class DeletePage(QWidget):
             "只隐藏显示，不改任何数据；勾选状态不受过滤影响")
         self._filter_orphan.textChanged.connect(self._apply_filters)
         h3.addWidget(self._filter_orphan, 1)
+        # 勾选总控（2026-10，用户拍板加全选）：全选只勾可见行——勾选
+        # 就是背书，点按钮的人看得见要动什么（备份总览/已清账管理同
+        # 一纪律）；清除作用全部行（保守方向可以放宽）。按钮住工具条
+        # 内，随空桶显隐（_refresh_buckets 管的是 _bar_orphan 本体）
+        self._btn_orphan_all = QPushButton("全选可见行", self._bar_orphan)
+        self._btn_orphan_all.setToolTip(
+            "只勾选当前显示（未被过滤隐藏）的孤儿行——点按钮的人看得见"
+            "要动的是什么。\n勾选 = 执行时删除该目录（不可恢复）：全选后"
+            "逐行过一眼，确认整批不要的顺手勾上「删除同时防复活」；\n"
+            "执行前确认弹窗仍会全量列出，那是最后一道闸")
+        self._btn_orphan_all.clicked.connect(
+            lambda: self._orphan_set_checks(True))
+        h3.addWidget(self._btn_orphan_all)
+        self._btn_orphan_none = QPushButton("清除勾选", self._bar_orphan)
+        self._btn_orphan_none.setToolTip(
+            "取消孤儿清单全部勾选（含被过滤隐藏的行——重置是保守方向）")
+        self._btn_orphan_none.clicked.connect(
+            lambda: self._orphan_set_checks(False))
+        h3.addWidget(self._btn_orphan_none)
         box4.addWidget(self._bar_orphan)
 
         self._tbl_orphan = self._make_table(4, O_SIZE)
@@ -1006,6 +1028,19 @@ class DeletePage(QWidget):
         可以放宽；激进方向（推荐/执行）才限定在看得见的行。"""
         for r in range(table.rowCount()):
             table.cellWidget(r, act_col).setCurrentIndex(0)
+    def _orphan_set_checks(self, on: bool) -> None:
+        """孤儿勾选总控。全选只勾当前显示（未被过滤隐藏）的行——
+        勾选 = 背书，点按钮的人看得见要动什么（与备份总览「全选当前
+        显示」同一纪律）；清除勾选作用全部行（保守方向，可以放宽）。
+        已显式选好的勾选不受过滤影响，照常被 _collect_request 收集。"""
+        t = self._tbl_orphan
+        for r in range(t.rowCount()):
+            chk = t.cellWidget(r, O_CHK)
+            if chk is None:
+                continue
+            if on and t.isRowHidden(r):
+                continue
+            chk.setChecked(on)
 
     # ---------- 收集与执行 ----------
     def _collect_request(self) -> dmf.PlanRequest:

@@ -1480,7 +1480,7 @@ class ModDetailPanel(QWidget):
             self._desc_mode = "original"
             self._desc_browser.setHtml(
                 '<span style="color:#8a8a8f">（本条还没有描述原文——'
-                "跑一轮【更新检测】或【拉取依赖】后自动带上；本页只读"
+                "跑一轮【更新检测】后自动带上；本页只读"
                 "账本，不联网。）</span>")
             return
         if mode in ("translated", "compare") and segs is None:

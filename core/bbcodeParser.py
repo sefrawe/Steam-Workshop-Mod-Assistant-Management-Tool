@@ -1,4 +1,4 @@
-"""core/bbcodeParser.py · 工坊描述 BBCode → 块序列 → HTML。
+"""工坊描述 BBCode → 块序列 → HTML。
 
 为什么有这个文件：
     Steam 工坊描述是一整段 BBCode（图片/视频/链接以标签内嵌正文，

@@ -1,5 +1,7 @@
 """已清账管理页
 """
+import os
+
 r"""gui/purgedPage.py · 已清账黑名单的跨档案管理台（V2 消费版）。
 
 「已清账」= 从账本物理删除并登记进黑名单的编号（彻底清账的终结态）。
@@ -45,6 +47,8 @@ from gui.logBus import LogBus  # V2：LogBus 独立成文件
 from gui.theme import font_px  # 字号单源（D25）
 import shutil
 from pathlib import Path
+from PySide6.QtCore import Qt, QTimer, QSettings, QUrl
+from gui.collapsibleSection import CollapsibleSection as _Section
 
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
@@ -60,6 +64,7 @@ COL_RESIDUE = 6
 COL_NOTE = 7
 _COL_HEADERS = ["选", "游戏", "Mod 编号", "标题快照", "↗", "清账时间",
                 "残留", "备注"]
+_SES_TIP_FOLD = "session/purged_tip_fold"  # 说明区收展状态（沿备份页先例）
 
 class PurgedPage(QWidget):
     """已清账黑名单管理台。refresh() 供主窗口切到本页时调用
@@ -103,7 +108,16 @@ class PurgedPage(QWidget):
         title = QLabel("已清账管理", self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
-
+        # 说明改可折叠（2026-10）：长文收进分区、内部滚动；收展状态
+        # 记会话（沿备份页 session/backup_tip_fold 先例同款口径）。
+        # set_content 固定高度契约 → QLabel 包 QScrollArea；页面总
+        # 高度仍交给本页已有的整页滚动条管
+        self._tip_sec = _Section(
+            "名词与操作说明：黑名单拦什么 / 毒 mod 是什么 / "
+            "三个动作的分工（点箭头收起）", self)
+        tip_scroll = QScrollArea(self._tip_sec)
+        tip_scroll.setWidgetResizable(True)
+        tip_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         tip = QLabel(
             "这里是「彻底清账」登记的黑名单：名单里的编号，入账中心"
             "【扫描游戏目录】时一律拦截复活入库（steamcmd 把删掉的 mod "
@@ -112,7 +126,6 @@ class PurgedPage(QWidget):
             "（如 RimSort）清单里还留着这些编号、主动指挥 steamcmd 重新"
             "下载时，文件照样回到硬盘——要彻底断根，先把那边清单清掉"
             "（详见欢迎页「一个游戏一个管家」）。\n"
-
             "名词·毒 mod：一类下载永远超时的条目。steamcmd 尝试下载它"
             "时，会对本游戏的工坊状态做整体校验装配，把缓存里的旧数据块"
             "重新装配成内容文件夹并写回 steamcmd 的账本文件——这是"
@@ -127,7 +140,6 @@ class PurgedPage(QWidget):
             "从 steamcmd 账本里移除（写前自动备份、失败只记日志）；"
             "本按钮 = 不等退出、现在就做一遍——马上要用别的前端、"
             "或不想等下次关软件时用。steamcmd 运行中会拒绝执行。\n"
-
             "「清除残留…」：黑名单编号可能残留在三个地方——①内容目录"
             "（复活产物或别的前端下回来后没入账的文件夹）、②steamcmd "
             "账本条目（steamcmd 还认得它，会反复校验装配；退出软件时"
@@ -143,10 +155,19 @@ class PurgedPage(QWidget):
             "【扫描游戏目录】。\n"
             "软件外手动删过文件夹、或从没入过账的\"毒 mod\"：用"
             "【手动拉黑…】登记。",
-            self)
+            tip_scroll)
+        tip.setWordWrap(True)
+        tip.setStyleSheet("color: gray; background: transparent;")
+        tip_scroll.setWidget(tip)
+        self._tip_sec.set_content(tip_scroll, 240)
+        root.addWidget(self._tip_sec)
+        self._tip_qset = QSettings()
+        self._tip_sec.set_expanded(
+            str(self._tip_qset.value(_SES_TIP_FOLD, "1")) == "1")
+        self._tip_sec.expand_changed.connect(
+            lambda on: self._tip_qset.setValue(_SES_TIP_FOLD,
+                                               "1" if on else "0"))
 
-        tip.setStyleSheet("color: gray;")
-        root.addWidget(tip)
 
         # ---- 筛选行 ----
         frow = QWidget(self)

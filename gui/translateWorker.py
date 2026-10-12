@@ -1,4 +1,4 @@
-"""gui/translateWorker.py · 描述翻译工作线程（刀3，2026-10 批量化）。
+"""描述翻译工作线程
 
 职责边界（与 RemoteQueryWorker 同家族、同纪律）：
     - 按 provider.plan_batches 分组发请求：支持批量的通道（Edge）
