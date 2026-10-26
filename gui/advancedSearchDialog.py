@@ -66,25 +66,35 @@ _BAD_INPUT = "QLineEdit { border: 1px solid #e5484d; }"
 
 _DAY = 86400  # 一天的秒数（滚动时间窗用）
 
-
 @dataclass(frozen=True)
 class AdvancedFilter:
     """一组高级筛选条件。全字段默认"不限"（None/空元组）；
     is_active() 全空时为 False，页面据此跳过传参。
     core 层不 import 本类——页面负责摊平（部分进 SQL、部分内存过滤）。
+
+    update_status（⑨b）：更新状态，"need_update"/"up_to_date"/
+    "unknown"；None=不限。计算值不是库列，不进 SQL——mod 库页
+    取数后内存过滤（颜色筛选同一哲学）。
+
+    confirmed_source（⑨d）：本地版本来源，"verified"/"unverified"/
+    "manual"/"claim"/"inherited_acf" 精确匹配；"" 哨兵 = 未确认
+    （还没有确认版本）；None = 不限。★ 空串是合法值，is_active
+    与页面过滤都必须用 is not None 判，不能用真值。
     """
 
     title_contains: str | None = None
     note_contains: str | None = None
-    mod_id: int | None = None        # 精确编号
-    creator_id: str | None = None    # 作者 SteamID64（精确；内存侧过滤）
-    size_min: int | None = None      # 字节
-    size_max: int | None = None      # 字节
-    updated_from: int | None = None  # 远端更新 epoch 秒（含当天 00:00:00）
-    updated_to: int | None = None    # 远端更新 epoch 秒（含当天 23:59:59）
-    local_from: int | None = None    # 确认版本时间下限（内存侧过滤）
-    local_to: int | None = None      # 确认版本时间上限（内存侧过滤）
-    tags_all: tuple[str, ...] = ()   # 须同时带有的标签（精确名）
+    mod_id: int | None = None          # 精确编号
+    creator_id: str | None = None      # 作者 SteamID64（精确；内存侧过滤）
+    size_min: int | None = None        # 字节
+    size_max: int | None = None        # 字节
+    updated_from: int | None = None    # 远端更新 epoch 秒（含当天 00:00:00）
+    updated_to: int | None = None      # 远端更新 epoch 秒（含当天 23:59:59）
+    local_from: int | None = None      # 确认版本时间下限（内存侧过滤）
+    local_to: int | None = None        # 确认版本时间上限（内存侧过滤）
+    tags_all: tuple[str, ...] = ()     # 须同时带有的标签（精确名）
+    update_status: str | None = None   # ⑨b：更新状态（内存侧过滤）
+    confirmed_source: str | None = None  # ⑨d：本地版本来源（内存侧过滤）
 
     def is_active(self) -> bool:
         return any((
@@ -98,7 +108,9 @@ class AdvancedFilter:
             self.updated_to is not None,
             self.local_from is not None,
             self.local_to is not None,
-            self.tags_all))
+            self.tags_all,
+            self.update_status,
+            self.confirmed_source is not None))
 
     def describe(self) -> str:
         """给人看的一句话摘要（筛选指示按钮的悬浮说明用）。"""
@@ -133,8 +145,16 @@ class AdvancedFilter:
             parts.append(f"本地版本：近 {days} 天")
         if self.tags_all:
             parts.append("标签同时含 " + "、".join(self.tags_all))
+        if self.update_status:
+            parts.append({"need_update": "需更新", "up_to_date": "最新",
+                          "unknown": "版本未知"}[self.update_status])
+        if self.confirmed_source is not None:
+            word = {"": "未确认", "verified": "已验证",
+                    "unverified": "未验证", "manual": "手动设定",
+                    "claim": "认领", "inherited_acf": "旧账"}.get(
+                self.confirmed_source, self.confirmed_source)
+            parts.append(f"本地版本来源：{word}")
         return " · ".join(parts) if parts else "（无生效条件）"
-
 
 class AdvancedSearchDialog(QDialog):
     """非模态高级筛选窗。mod 库页持有实例、连 conditions_changed，
@@ -142,24 +162,27 @@ class AdvancedSearchDialog(QDialog):
 
     conditions_changed = Signal()  # 防抖后的"条件变了"，页面收到就 _reload
     go_to_results = Signal()       # 「到 mod 库查看结果」：MainWindow 负责跳页
-
     def __init__(self, parent: QWidget | None = None,
                  settings: AppSettings | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("mod 库高级筛选")
+        # 可最小化（任务⑨a）：非模态窗主打"开着边查边改"，暂时不用时
+        # 给个最小化按钮收进任务栏——不占屏幕也不丢条件（最小化不走
+        # 关闭路径，done() 的关窗清空不会被触发，还原后条件原样在）
+        self.setWindowFlags(self.windowFlags()
+                            | Qt.WindowType.WindowMinimizeButtonHint)
 
         # 关窗清空开关（决策 97）：现读现判不缓存——设置页改完保存，
         # 下一次关窗即按新值执行。None（未注入）按开处理 = 原行为
         self._settings = settings
-
         # 防抖定时器：任何改动先等 300ms，停手才广播——
         # 连续打字不会一连串触发重查（与顶栏搜索框同一手感）
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(300)
         self._debounce.timeout.connect(self.conditions_changed.emit)
-
         self._build_ui()
+
 
     # ---------- UI ----------
 
@@ -294,6 +317,40 @@ class AdvancedSearchDialog(QDialog):
         lh.addStretch(1)
         form.addRow("", ldates)
         self._on_local_changed()   # 按默认档（不限）把日期框置灰
+        # 更新状态（⑨b）：计算值不进 SQL——mod 库页取数后内存过滤
+        # （颜色筛选同一哲学）；口径与列表「更新」列同一条公式
+        self._update_combo = QComboBox(self)
+        for label, data in (("不限", None), ("需更新", "need_update"),
+                            ("最新", "up_to_date"),
+                            ("版本未知", "unknown")):
+            self._update_combo.addItem(label, data)
+        self._update_combo.setToolTip(
+            "需更新 = 远端版本比本地确认版本新；\n"
+            "最新 = 远端不比本地新（含还没检测过远端的条目）；\n"
+            "版本未知 = 本地版本还没确认过。\n"
+            "与 mod 库列表「更新」列同一套口径")
+        self._update_combo.currentIndexChanged.connect(self._poke)
+        form.addRow("更新状态", self._update_combo)
+        # 本地版本来源（⑨d）：confirmed_source 是真实列，但 repo
+        # 契约没有该参数——内存侧过滤（颜色筛选同一哲学）；
+        # "" 哨兵 = 未确认（还没有确认版本的条目）
+        self._source_combo = QComboBox(self)
+        for label, data in (("不限", None),
+                            ("已验证（终端判决）", "verified"),
+                            ("未验证", "unverified"),
+                            ("手动设定", "manual"),
+                            ("认领", "claim"),
+                            ("旧账（ACF 迁移）", "inherited_acf"),
+                            ("未确认（版本未知）", "")):
+            self._source_combo.addItem(label, data)
+        self._source_combo.setToolTip(
+            "本地版本是怎么确认的（与详情面板「本地版本」来源词同一套口径）：\n"
+            "已验证 = 终端「下载成功」判决背书；未验证 = 批查失败但照常"
+            "确认（建议重新认定）；\n手动设定 = 右键手工认定；认领 = 盘点"
+            "发现盘上已有、确认收录；\n旧账 = 一次性迁移继承；未确认 = "
+            "还没有本地版本（版本未知）")
+        self._source_combo.currentIndexChanged.connect(self._poke)
+        form.addRow("本地版本来源", self._source_combo)
 
         # 标签：勾选式多选（精确匹配）。清单来自当前列表出现过的标签；
         # 已勾选的标签在清单重建时保留（哪怕它暂时没出现在列表里）
@@ -492,6 +549,8 @@ class AdvancedSearchDialog(QDialog):
             local_from=local_from,
             local_to=local_to,
             tags_all=self._checked_tags(),
+            update_status=self._update_combo.currentData(),
+            confirmed_source=self._source_combo.currentData(),
         )
         return f if f.is_active() else None
 
@@ -541,6 +600,8 @@ class AdvancedSearchDialog(QDialog):
             QDateTime.currentDateTime().date().addDays(-7))
         self._to_date.setDate(QDateTime.currentDateTime().date())
         self._local_combo.setCurrentIndex(0)
+        self._update_combo.setCurrentIndex(0)
+        self._source_combo.setCurrentIndex(0)
         self._local_from.setDate(
             QDateTime.currentDateTime().date().addDays(-30))
         self._local_to.setDate(QDateTime.currentDateTime().date())

@@ -161,13 +161,14 @@ def is_idle_prompt(line: str) -> bool:
     否（包括命令回显行 Steam>workshop_…）→ 继续等。
     """
     return _IDLE_PROMPT.match(line.strip()) is not None
-
-
 def describe(v: Verdict) -> str:
     """结论 → 一句人话（控制台日志与步骤卡片共用，一处算清别处只读）。
-
     字节数在这里只报原始数字，"392 KiB" 那种格式化归显示层的
     formatters.fmt_size——core 不 import gui，层不倒挂。
+
+    任务③：下载超时的人话带上处置建议——「下载前后清理缓存」
+    与超时相关（删除 mod 后的场景更易复现），建议随超时当场
+    可见，不必等用户来问。其余结论文案一字未动。
     """
     if v.kind == KIND_DOWNLOAD_STARTED:
         return f"开始下载 mod {v.mod_id}"
@@ -181,9 +182,11 @@ def describe(v: Verdict) -> str:
             base += "（该游戏名下没有此条目：AppID 与编号多半不匹配，" \
                     "或条目已不存在）"
         return base
-
     if v.kind == KIND_DOWNLOAD_TIMEOUT:
-        return f"mod {v.mod_id} 下载超时（steamcmd 判定）"
+        # 任务③：按需求原文带提示，设置名加「」与设置页对齐
+        return (f"mod {v.mod_id} 下载超时（steamcmd 判定）。提示："
+                "如果是在删除 mod 后出现下载超时现象，建议关闭"
+                "「下载前、后清理缓存」，全部下载成功后再开启")
     if v.kind == KIND_NOT_LOGGED_ON:
         return "尚未登录：请先执行登录命令再下载"
     if v.kind == KIND_DISCONNECTED:
@@ -194,8 +197,8 @@ def describe(v: Verdict) -> str:
             # 批次全程无碍）
             return ("会话提示（result 1 OK）：旧登录会话被本次登录"
                     "挤掉，无害，无需处理")
-        return f"与 Steam 断开连接（result {v.code}：{v.note}），steamcmd 会自动重试"
-
+        return (f"与 Steam 断开连接（result {v.code}：{v.note}），"
+                "steamcmd 会自动重试")
     if v.kind == KIND_COMMAND_NOT_FOUND:
         return f"steamcmd 不认识这条命令：{v.note}"
     if v.kind == KIND_LOGIN_OK:
@@ -203,7 +206,7 @@ def describe(v: Verdict) -> str:
     if v.kind == KIND_READY:
         return "steamcmd 就绪"
     if v.kind == KIND_FULL_VALIDATION:
-        return ("steamcmd 正在做工坊全量校验（例行对账，不是卡死；"
-                "千条级实测约 25 分钟），请耐心等它走完")
+        return ("steamcmd 正在做工坊全量校验（例行对账，不是卡死"
+                "），请耐心等它走完")
     return v.kind  # 未知种类原样返回，不吞（与 formatters.status_zh 同款口径）
 

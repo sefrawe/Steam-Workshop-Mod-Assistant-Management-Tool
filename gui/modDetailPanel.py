@@ -321,8 +321,6 @@ class ModDetailPanel(QWidget):
         self._deps_hint.setStyleSheet(
             f"color: {_DIM}; font-size: {font_px(11)}px;")
         dv.addWidget(self._deps_hint)
-        # 速览折叠面板（默认收起；单击表格行展开）
-        dv.addWidget(self._build_dep_mini(deps_page))
         self._deps_table = QTableWidget(0, 6, deps_page)
         self._deps_table.setHorizontalHeaderLabels(
             ["勾", "编号", "名称", "状态", "大小", "远端更新"])
@@ -344,6 +342,12 @@ class ModDetailPanel(QWidget):
         self._deps_table.customContextMenuRequested.connect(
             self._on_deps_menu)
         dv.addWidget(self._deps_table, 1)
+        # 速览折叠面板（默认收起；单击表格行展开）——放表格【下方】
+        # （任务⑤）：展开时表格顶端不动、只从底部收空间，鼠标底下的
+        # 行不位移，"单击展开把行顶走、双击点不中"从布局上根除；
+        # 速览内容与收展记忆不受影响
+        dv.addWidget(self._build_dep_mini(deps_page))
+
         rev_head = QLabel("被以下 mod 依赖（账本内；点 = 跳过去）：",
                           deps_page)
         rev_head.setStyleSheet("font-weight: 600;")
@@ -1253,10 +1257,11 @@ class ModDetailPanel(QWidget):
             QMessageBox.information(self, "送登记", "先勾选若干行。")
             return
         self.send_to_register_requested.emit(ordered)
-
     def _on_deps_menu(self, pos) -> None:
         """依赖表右键（D47 三段式）：勾选总控 + 单行动作 + 勾选批
-        动作。卡片表与子页表共用（sender 取来源表）。"""
+        动作。卡片表与子页表共用（sender 取来源表）。
+        任务⑤：单行动作首位加「转跳到库页详情」——双击的可靠替身
+        （速览展开会挪行，右键永远点得中）。"""
         t = self.sender()
         if not isinstance(t, QTableWidget):
             return
@@ -1275,6 +1280,14 @@ class ModDetailPanel(QWidget):
         menu.addAction(a_none)
         if mid is not None:
             menu.addSeparator()
+            act_jump = QAction("转跳到库页详情", menu)
+            act_jump.setToolTip(
+                "在左侧 mod 列表定位并选中这一条（与双击同效；"
+                "单击展开速览会挪行时，用这个最稳）")
+            act_jump.setEnabled(self._repo.get_mod(mid) is not None)
+            act_jump.triggered.connect(
+                lambda: self.mod_link_requested.emit(mid))
+            menu.addAction(act_jump)
             act_url = QAction("打开工坊页面", menu)
             act_url.triggered.connect(
                 lambda: QDesktopServices.openUrl(QUrl(workshop_url(mid))))

@@ -45,6 +45,7 @@ from core.formatters import abs_time, fmt_size, status_zh
 from core.urlParser import workshop_url
 from gui.theme import font_px  # 字号单源（D25）
 from core import steamPaths  # 档案未设备份目录时的推导兜底
+from gui.collapsibleSection import make_guide  # 先读我单源（共享件内）
 
 # 与设置页核对过的真键名（与 backupPage 相同三件；改键名两处一起动）
 _KEY_KEEP_PER_MOD = "backup_keep_per_mod"
@@ -168,21 +169,19 @@ class BackupOverviewPage(QWidget):
         title = QLabel("备份总览", self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
+        root.addWidget(make_guide(
+            "先读我：盘上三态 · 软删除的备份照列 · 与备份页的分工",
+            ("跨档案查看全部备份登记；删不删、删账还是连文件一起删，"
+             "在这里看清楚再决定。",
+             "「盘上」三态：✓ 在盘上｜失联 盘上已找不到（多半备份目录"
+             "改过位置或已手动删除）｜— 该档案未设备份目录（不算失联）。",
+             "软删除、失效 mod 名下的备份也照列在这里——清账不等于备份"
+             "消失，想找回旧版本时正需要它们。",
+             "与备份管理页的分工：备份/恢复/重定位/搬家在备份页（按当前"
+             "档案）；这里是跨档案的大盘与批量清理。操作对象来自「选」列"
+             "勾选框（表格上点右键是同一组动作）；点表头可排序。"),
+            self, 180))
 
-        tip = QLabel(
-            "跨档案查看全部备份登记；删不删、删账还是连文件一起删，"
-            "在这里看清楚再决定。\n"
-            "「盘上」三态：✓ 在盘上｜失联 盘上已找不到（多半备份目录改过位置"
-            "或已手动删除）｜— 该档案未设备份目录（不算失联）。\n"
-            "软删除、失效 mod 名下的备份也照列在这里——清账不等于备份消失，"
-            "想找回旧版本时正需要它们。\n"
-            "与备份管理页的分工：备份/恢复/重定位/搬家在备份页（按当前档案）；"
-            "这里是跨档案的大盘与批量清理。操作对象来自「选」列勾选框"
-            "（表格上点右键是同一组动作）；点表头可排序。",
-            self)
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color: gray;")
-        root.addWidget(tip)
 
         # ---- 筛选行：档案 / 只看失联 / 刷新 ----
         filter_row = QWidget(self)

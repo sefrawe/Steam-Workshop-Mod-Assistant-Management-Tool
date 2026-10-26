@@ -31,6 +31,7 @@ from PySide6.QtGui import QAction, QColor, QDesktopServices
 from core.formatters import abs_time, fmt_size, relative_time
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from gui.tableSort import SortItem  # 表头数值排序（单源共享件）
+from gui.collapsibleSection import make_guide  # 先读我单源（共享件内）
 
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
@@ -80,16 +81,15 @@ class DepCheckPage(QWidget):
         self._game_label = QLabel(self)
         root.addWidget(self._game_label)
 
-        tip = QLabel(
-            "mod 的「必需物品」清单由带 key 的官方接口拉取（key 现场粘贴、"
-            "用完即弃，注册方法见【Steam API 密钥】页）：清单里编号不在"
-            "账本 = 缺依赖（红，一键复制编号到【入账中心 · 登记】补进"
-            "账本）；与上次拉取有差 = 依赖变化（黄，作者增删了依赖，"
-            "以最新为准）。",
-            self)
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color: gray;")
-        root.addWidget(tip)
+        root.addWidget(make_guide(
+            "先读我：key 现场粘贴用完即弃 · 缺依赖 / 依赖变化的含义",
+            ("mod 的「必需物品」清单由带 key 的官方接口拉取（key 现场"
+             "粘贴、用完即弃，注册方法见【Steam API 密钥】页）。",
+             "清单里编号不在账本 = 缺依赖（红，一键复制编号到"
+             "【入账中心 · 登记】补进账本）；与上次拉取有差 = 依赖变化"
+             "（黄，作者增删了依赖，以最新为准）。"),
+            self, 130))
+
         # key 管理页直链：已申请过的用户点开就能查看/复制自己的 key，
         # 不用再去【Steam API 密钥】页翻注册步骤
         key_link = QLabel(
@@ -221,21 +221,6 @@ class DepCheckPage(QWidget):
         self._dep_detail.setVisible(False)
         self.root_layout.addWidget(self._dep_detail)
 
-        self._dep_detail.setEditTriggers(
-            QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._dep_detail.setSelectionMode(
-            QAbstractItemView.SelectionMode.NoSelection)
-        self._dep_detail.setWordWrap(False)
-        _mh = self._dep_detail.horizontalHeader()
-        _mh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        _mh.setSectionsClickable(True)  # 表头可点排序（原 False 关死）
-
-        for col, width in ((0, 100), (2, 80), (3, 100), (4, 130), (5, 220)):
-            self._dep_detail.setColumnWidth(col, width)
-        self._dep_detail.itemDoubleClicked.connect(
-            self._on_detail_dclicked)
-        self._dep_detail.setVisible(False)
-        self.root_layout.addWidget(self._dep_detail)
         # 表头点击排序（SortItem 机构）：排序搬条目、行隐藏挂行号
         # ——排完重滤一次对齐（两表同一落点）
         self._miss_table.horizontalHeader().sortIndicatorChanged.connect(

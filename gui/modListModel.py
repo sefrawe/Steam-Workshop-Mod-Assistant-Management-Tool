@@ -122,6 +122,21 @@ def _zebra_alt() -> QColor | None:
     except Exception:
         return None
 
+def update_status_code(m) -> str:
+    """更新状态三值码（D2 公式的纯函数形态，判定单源）：
+    "need_update" = 远端比本地确认版本新（需更新）；
+    "up_to_date"  = 远端不比本地新（含从未检测过远端——没有观测
+                    就不报需更新）；
+    "unknown"     = 本地版本未知（没确认过）。
+    「更新」列六态文字（_update_state）与 mod 库页高级筛选
+    （update_status 过滤）都从这里取判定，改口径只改这一份。"""
+    cv = getattr(m, "confirmed_version", None)
+    if cv is None:
+        return "unknown"
+    rt = getattr(m, "time_updated", None)
+    if rt is not None and rt > cv:
+        return "need_update"
+    return "up_to_date"
 
 class ModListModel(QStandardItemModel):
     """mod 库表格模型。
@@ -337,19 +352,22 @@ class ModListModel(QStandardItemModel):
             relative_time(rt), bg,
             tooltip=f"远端最近更新：{relative_time(rt)}"
                     f"（工坊更新时间，Unix {rt}）")
-
     @staticmethod
     def _update_state(m) -> str:
         """「更新」列六态文字（V1 口径、判定字段换判决制）。
-        需更新 = D2 唯一公式：已下载 且 远端比确认版本新。"""
+        判定核心 = 模块级 update_status_code（单源）：已删除直接判；
+        unknown 按状态落「版本未知/未下载」；有确认版本后先看有没
+        有远端观测（无 = 远端未知），有则按码给需更新/最新。"""
         if m.status == "deleted":
             return "已删除"
-        if m.version_unknown:
+        code = update_status_code(m)
+        if code == "unknown":
             return "版本未知" if m.status == STATUS_DOWNLOADED else "未下载"
         rt = getattr(m, "time_updated", None)
         if rt is None:
             return "远端未知"
-        return "需更新" if rt > m.confirmed_version else "最新"
+        return "需更新" if code == "need_update" else "最新"
+
 
     def _mk_update_item(self, mod, bg: QBrush | None) -> QStandardItem:
         state = self._update_state(mod)
@@ -392,17 +410,6 @@ class ModListModel(QStandardItemModel):
 
     # ---------- 判定与事件 ----------
 
-    @staticmethod
-    def _needs_update(mod) -> bool:
-        """D2 唯一公式的显示侧：已下载 且 远端比本地确认版本新。
-        公式全项目只此一份实现（显示侧），检测/入账各层各有自己的
-        消费点但都引用同一判据，改口径先改这里。"""
-        if mod.status != STATUS_DOWNLOADED:
-            return False
-        cv = getattr(mod, "confirmed_version", None)
-        rt = getattr(mod, "time_updated", None)  # 修复：字段实名 time_updated
-
-        return bool(cv and rt and rt > cv)
 
     def _on_item_changed(self, item: QStandardItem) -> None:
         """勾选框变化 → 维护集合 → 广播。幂等保护：集合没实际变化的

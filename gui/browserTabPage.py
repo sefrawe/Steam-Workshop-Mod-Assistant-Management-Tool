@@ -39,7 +39,7 @@ from core import tabCollector
 from core.urlParser import extract_mod_id
 from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
-
+from gui.collapsibleSection import make_guide  # 先读我单源（共享件内）
 
 class BrowserTabPage(QWidget):
     """实时采集 Edge 标签页挑工坊网址。档案无关页（网址不挑游戏，
@@ -77,15 +77,14 @@ class BrowserTabPage(QWidget):
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
-        tip = QLabel(
-            "实时采集 Edge 当前打开的标签页：点下方按钮后，程序自己"
-            "逐个切换标签读取网址（期间占用鼠标键盘，请勿操作；要中断"
-            "按 Esc）。工坊条目自动预勾选——勾好后【送到「加入新 "
-            "mod」】继续入库，或【复制选中网址】粘贴到【入账中心 · "
-            "登记】。", self)
-        tip.setWordWrap(True)  # 可能变长的提示一律开换行
-        tip.setStyleSheet("color: gray;")
-        root.addWidget(tip)
+        root.addWidget(make_guide(
+            "先读我：怎么采 · 怎么中断 · 出口两条",
+            ("实时采集 Edge 当前打开的标签页：点下方按钮后，程序自己"
+             "逐个切换标签读取网址（期间占用鼠标键盘，请勿操作；要中断"
+             "按 Esc）。工坊条目自动预勾选——勾好后【送到「加入新 "
+             "mod」】继续入库，或【复制选中网址】粘贴到【入账中心 · "
+             "登记】。"),
+            self, 110))
 
         # 空态引导（决策 22④）：有结果就藏起来
         self._empty = QLabel(

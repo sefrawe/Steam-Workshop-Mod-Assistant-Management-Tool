@@ -234,13 +234,23 @@ class StepCardList(QWidget):
 
     def _append_row(self, text: str, color: str,
                     mod_id: int | None = None) -> QListWidgetItem:
-        """追加一行结果；mod_id 不为空时挂到 UserRole（行右键靠它）。"""
+        """追加一行结果；mod_id 不为空时挂到 UserRole（行右键靠它）。
+
+        任务⑥折中版（拍板）：人本来就在底部才跟着滚到底，往上翻过
+        就不打扰——判据 = 加行前滚动条已贴底（4px 容差吸掉取整误差，
+        必须在加行【前】读：加完行 maximum 变了就不是用户的位置了）。
+        盯最新就停在底部自动跟；想看中间某条失败就往上翻、新消息
+        不再拽走视野；滚回底部后自动跟随恢复。右键动作不受影响。
+        """
+        sb = self._items.verticalScrollBar()
+        at_bottom = sb.value() >= sb.maximum() - 4
         item = QListWidgetItem(text)
         if mod_id is not None:
             item.setData(Qt.ItemDataRole.UserRole, mod_id)
         item.setForeground(QColor(color))
         self._items.addItem(item)
-        self._items.scrollToBottom()
+        if at_bottom:
+            self._items.scrollToBottom()
         return item
 
     def _finish_current_row(self, text: str, color: str) -> None:

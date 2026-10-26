@@ -26,6 +26,7 @@ from gui.logBus import LogBus
 from gui.remoteQueryWorker import RemoteQueryWorker, workshop_item_to_entry
 from gui.theme import font_px  # 字号单源（D25）
 from workflows import exceptionFlow
+from gui.collapsibleSection import make_guide  # 先读我单源（共享件内）
 
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
@@ -68,16 +69,15 @@ class RemoteHealthPage(QWidget):
 
         self._game_label = QLabel(self)
         root.addWidget(self._game_label)
+        root.addWidget(make_guide(
+            "先读我：三类远端信号 · 都是提醒不是损坏",
+            ("与账本记录对不上的三类远端信号（匿名接口可判，无需 API "
+             "key）：标题不符 = 作者改名或上传内容被顶替的信号（黄）；"
+             "标题含弃坑关键词 = 作者明示不再维护（红）；banned=1 = 被 "
+             "Steam 封禁（红）。",
+             "都是提醒不是损坏——动作是打开工坊页面看一眼，再决定去留。"),
+            self, 120))
 
-        tip = QLabel(
-            "与账本记录对不上的三类远端信号（匿名接口可判，无需 API "
-            "key）：标题不符 = 作者改名或上传内容被顶替的信号（黄）；"
-            "标题含弃坑关键词 = 作者明示不再维护（红）；banned=1 = 被 "
-            "Steam 封禁（红）。都是提醒不是损坏——动作是打开工坊页面"
-            "看一眼，再决定去留。", self)
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color: gray;")
-        root.addWidget(tip)
 
         row = QWidget(self)
         h = QHBoxLayout(row)

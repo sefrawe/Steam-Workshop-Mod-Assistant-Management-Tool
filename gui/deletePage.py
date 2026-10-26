@@ -44,17 +44,17 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from core import constants, steamPaths
+from core import steamPaths
 from core.appSettings import AppSettings
+from core.formatters import fmt_size, status_zh  # V2：formatters 住 core
 from core.models import Game
-from core.formatters import fmt_size, status_zh   # V2：formatters 住 core
-from gui.collapsibleSection import CollapsibleSection as _Section
-from gui.logBus import LogBus                     # V2：LogBus 独立成文件
+from core.urlParser import workshop_url
+from gui.collapsibleSection import CollapsibleSection as _Section, make_guide
+from gui.logBus import LogBus  # V2：LogBus 独立成文件
+from gui.theme import font_px  # 字号单源（D25）
 from workflows import deleteManageFlow as dmf
 from workflows.exceptionFlow import MULTIFRONTEND_NOTE as _MULTIFRONTEND_NOTE
 
-from gui.theme import font_px  # 字号单源（D25）
-from core.urlParser import workshop_url
 # 状态色（与日常更新页/备份页同一套语义）
 _C_OK = "#46a758"      # 完成 / 一切正常
 _C_WARN = "#f5a623"    # 需要注意
@@ -190,37 +190,23 @@ class DeletePage(QWidget):
         title = QLabel("清理与删除", body)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
+        # 说明块折叠化（决策 34③）：页顶大段介绍默认收起，点开即读
+        root.addWidget(make_guide(
+            "先读我：流程 · 为什么这么做 · 术语与关系",
+            ("流程：① 确认档案 → ② 点【开始盘点】对照账本与 content 目录"
+             "（只读，不动任何东西）→ ③ 在三节清单里逐行选动作（默认全部"
+             "「不动」，可先筛选、排序缩小范围）→ ④ 点【执行所选处置】，"
+             "确认弹窗列出将删什么，默认「否」→ 执行完自动重新盘点。",
+             "为什么这么做：删除最怕删错——先盘点、后动手；每行默认"
+             "「不动」、确认默认「否」；执行逐条进行、可中途停止（停在条"
+             "与条之间）；steamcmd 正在下载时只警告不拦（误删的条目重跑"
+             "下载命令就能回来）。",
+             "术语与关系：「账有盘无」= 账本记着已下载、盘上文件夹没了；"
+             "「盘上可清」= 账内 mod 还占着 content 目录；「孤儿目录」= "
+             "盘上有、账本完全不认识。已删除记录的恢复在【mod 库】页右键；"
+             "备份的逐份增删在【备份管理】页；失效条目的处置在【异常处理】页。"),
+            self, 190))
 
-        # —— 说明块（日常更新页同款三行，决策 34③）——
-        note = QFrame(body)
-        note.setObjectName("delete_note")
-        note.setStyleSheet(
-            "QFrame#delete_note { border: 1px solid #3a3a3a;"
-            " border-radius: 6px; }")
-        nb = QVBoxLayout(note)
-        nb.setContentsMargins(8, 6, 8, 6)
-        nb.setSpacing(2)
-        for text in (
-                "流程：① 确认档案 → ② 点【开始盘点】对照账本与 content 目录"
-                "（只读，不动任何东西）→ ③ 在三节清单里逐行选动作（默认全部"
-                "「不动」，可先筛选、排序缩小范围）→ ④ 点【执行所选处置】，"
-                "确认弹窗列出将删什么，默认「否」→ 执行完自动重新盘点。",
-
-                "为什么这么做：删除最怕删错——先盘点、后动手；每行默认"
-                "「不动」、确认默认「否」；执行逐条进行、可中途停止（停在条"
-                "与条之间）；steamcmd 正在下载时只警告不拦（误删的条目重跑"
-                "下载命令就能回来）。",
-
-                "术语与关系：「账有盘无」= 账本记着已下载、盘上文件夹没了；"
-                "「盘上可清」= 账内 mod 还占着 content 目录；「孤儿目录」= "
-                "盘上有、账本完全不认识。已删除记录的恢复在【mod 库】页右键；"
-                "备份的逐份增删在【备份管理】页；失效条目的处置在【异常处理】页。",
-        ):
-            lbl = QLabel(text, note)
-            lbl.setWordWrap(True)  # 可能变长的标签一律开换行
-            lbl.setStyleSheet(f"border:none; color:#8a8a8f; font-size: {font_px(12)}px;")
-            nb.addWidget(lbl)
-        root.addWidget(note)
 
         # steamcmd 运行横幅（备份页同款：在跑时只警告不拦截）
         self._banner = QLabel(body)

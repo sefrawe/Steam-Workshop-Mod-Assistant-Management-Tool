@@ -1,5 +1,8 @@
-"""core/translateProvider.py · 翻译引擎适配层（刀3，2026-10 改版）。
+"""翻译引擎适配层
+"""
+from __future__ import annotations
 
+"""
 为什么有这个文件：
     翻译通道会换（Edge → Bing → Azure F0 → 将来 LLM），调用方
     （TranslateWorker）只认一个动词。通道差异——会话、鉴权、批量、
@@ -19,7 +22,6 @@
     - 一切失败抛 TranslateProviderError（文案直接给用户看）；
     - 重试/退避/段间限流住 worker，本文件只管单次翻译。
 """
-from __future__ import annotations
 
 import http.cookiejar
 import json

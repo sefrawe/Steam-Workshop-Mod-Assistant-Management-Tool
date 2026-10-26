@@ -35,9 +35,10 @@ from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QHBoxLayout, QHeaderView, QLabel,
-    QMessageBox, QProgressBar, QPushButton, QTableWidget,
+    QMessageBox, QProgressBar, QPushButton, QScrollArea, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
+
 
 from core import constants, netGate
 from core.formatters import fmt_size, relative_time
@@ -47,6 +48,7 @@ from core.steamApiClient import (
 from core.urlParser import workshop_url
 from gui.consolePanel import LogBus
 from gui.theme import font_px  # 字号单源（D25）
+from gui.collapsibleSection import make_guide  # 先读我单源（共享件内）
 
 # 「发现更新后自动开始下载」的设置键（D16：唯一保留的就地开关——
 # 界面勾选即时保存，不进设置页）
@@ -202,22 +204,21 @@ class UpdateCheckPage(QWidget):
         root.addWidget(title)
         self._game_label = QLabel(self)
         root.addWidget(self._game_label)
-        tip = QLabel(
-            "点【开始检测】查询当前档案全部 mod 的远端信息：自动补全标题"
-            "等字段、判定需不需要更新；特别关注的 mod 出新版本时会记一条"
-            "提醒。\n"
-            "判定基准 = 你在批次收尾确认过的本地版本：检测只记远端观测、"
-            "从不改它——所以检测到但还没确认下载的条目，下次检测会再次"
-            "报出，确认入账对齐后才消音。\n"
-            "文件大小缺失的条目列为「疑似合集」，确认后可展开入库；"
-            "查询失败的条目会列出原因——其中 result=9 = Steam 已看不见"
-            "该条目（作者删除/下架/转私有），已下载过的会自动建立失效"
-            "归档，处置见【异常处置】页。\n"
-            "已删除的 mod 不查询；版本未知的 mod 照常查询，但无法判定"
-            "新旧，结果里单独列出。")
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color: gray;")
-        root.addWidget(tip)
+        root.addWidget(make_guide(
+            "先读我：检测做什么 · 判定基准 · 疑似合集与失效归档",
+            ("点【开始检测】查询当前档案全部 mod 的远端信息：自动补全标题"
+             "等字段、判定需不需要更新；特别关注的 mod 出新版本时会记一条"
+             "提醒。",
+             "判定基准 = 你在批次收尾确认过的本地版本：检测只记远端观测、"
+             "从不改它——所以检测到但还没确认下载的条目，下次检测会再次"
+             "报出，确认入账对齐后才消音。",
+             "文件大小缺失的条目列为「疑似合集」，确认后可展开入库；"
+             "查询失败的条目会列出原因——其中 result=9 = Steam 已看不见"
+             "该条目（作者删除/下架/转私有），已下载过的会自动建立失效"
+             "归档，处置见【异常处置】页。",
+             "已删除的 mod 不查询；版本未知的 mod 照常查询，但无法判定"
+             "新旧，结果里单独列出。"),
+            self, 230))
 
         btn_row = QWidget(self)
         h = QHBoxLayout(btn_row)
@@ -557,7 +558,6 @@ class UpdateCheckPage(QWidget):
             self._log.info(f"顺手落库 {n_desc} 条工坊描述原文"
                            "（详情页描述/翻译功能的数据底座）")
         return updates_found, triggers, n_archived
-
     def _show_results(self, suspected_ids: set[int], failed: dict[int, int],
                       n_archived: int = 0) -> None:
         """结果表只显示有信息量的行：需更新/版本未知/疑似合集/查询失败
@@ -566,21 +566,30 @@ class UpdateCheckPage(QWidget):
         重新从库里读一遍（展示写入后的最新状态）。
 
         行底色分栏（⑩极简版）：不重排、不插组头行，只上色——
-        特别关注=琥珀、长时间未更新=灰、两者兼有=红。阈值直接沿用
-        设置页「慢更新提醒阈值（天）」（slow_update_days，默认 180），
-        改阈值去设置页改完重测即可。实色叠画（半透明版会被交替行 QSS
-        盖掉——mod 库页同款坑，modListPage._build_ui 有案底）。
+        特别关注=琥珀、长时间未更新=灰、两者兼有=红、查询失败=紫。
+        阈值直接沿用设置页「慢更新提醒阈值（天）」（slow_update_days，
+        默认 30），改阈值去设置页改完重测即可。实色叠画（半透明版会
+        被交替行 QSS 盖掉——mod 库页同款坑，modListPage._build_ui
+        有案底）。
+
+        查询失败行有专属紫底（2026-10 改判）：底色分栏的本意是远端
+        健康度概览，失败行远端状态未知——此前沿用 stale 判据会把旧
+        观测恰好很旧的失败行误涂灰、混进「长时间未更新」筛选（实证：
+        result=9 的条目出现在该筛选里）。改判后失败行不再参与
+        special/stale 判定（紫优先）：失败是这行唯一该被看见的状态，
+        特别关注旗让位——关注中的条目失联恰恰最该引起注意，紫色
+        比琥珀更重。筛选下拉同步多一档「查询失败（紫）」。
 
         筛选下拉（⑩配套）：按底色类别筛行——setRowHidden 纯显隐，
         不重查库、不重画表，瞬间生效；行类别记进 _row_categories
         （与表行一一对应），重新检测后自动套用当前筛选。汇总计数
         仍按全量口径（筛选只藏行，不改数字）。
+
         纯显示层：零写库（R17）。
         """
         self._ensure_result_filter()
         threshold = self._settings.get_int("slow_update_days", 30)
         visible = [m for m in self._mods_at_start if m.status != "deleted"]
-
         # 第一遍：分拣 + 顺带取 fresh（第二遍不重查库）
         rows = []  # (m, fresh, title, kind) 有信息量的
         n_normal = 0
@@ -598,22 +607,22 @@ class UpdateCheckPage(QWidget):
                 rows.append((m, fresh, title, kind))
             else:
                 n_normal += 1
-
-        counts = {"需更新": 0, "版本未知": 0, "疑似": len(suspected_ids),
-                  "失败": len(failed)}
+        counts = {"需更新": 0, "版本未知": 0,
+                  "疑似": len(suspected_ids), "失败": len(failed)}
         self._table.setRowCount(len(rows))
         red = QColor("#e5484d")
         # 实色（半透明版被交替行盖掉+深底太淡，见 modListPage 同款坑）：
         # 琥珀=特别关注、灰=长时间未更新（沉底语义，不抢眼）、
-        # 红=两者兼有（关注着但作者可能弃坑，最该斟酌的）
+        # 红=两者兼有（关注着但作者可能弃坑，最该斟酌的）、
+        # 紫=查询失败（远端没答上来，状态未知——专属档，不与灰混）
         amber = QColor("#b45309")
         gray = QColor("#3f3f46")
         overlap = QColor("#991b1b")
+        purple = QColor("#5b21b6")
         stale_cutoff = int(time.time()) - threshold * 86400
         # 行类别表：与表行一一对应，筛选下拉按它显隐（plain=无底色）
         self._row_categories = []
         n_special = n_stale = n_both = 0
-
         for r, (m, fresh, title, kind) in enumerate(rows):
             # 行是复用的：上次检测若该行是疑似合集，「展开合集…」按钮
             # 会残留（setCellWidget 只换不删）——先摘掉再画
@@ -663,15 +672,18 @@ class UpdateCheckPage(QWidget):
             if m.mod_id in suspected_ids:
                 btn = QPushButton("展开合集…", self._table)
                 btn.clicked.connect(
-                    lambda _=False, mid=m.mod_id:
-                    self._expand_collection(mid))
+                    lambda _=False, mid=m.mod_id: self._expand_collection(mid))
                 self._table.setCellWidget(r, 6, btn)
-
-            # ——底色分栏：两旗独立判，重叠给第三色；行序不动——
-            special = bool(fresh.is_special)
+            # ——底色分栏：失败行紫优先，不参与 special/stale 判定
+            # （2026-10 改判，理由见 docstring）；行序不动——
+            is_failed = m.mod_id in failed
+            special = bool(fresh.is_special) and not is_failed
             stale = (fresh.time_updated is not None
-                     and fresh.time_updated <= stale_cutoff)
-            if special and stale:
+                     and fresh.time_updated <= stale_cutoff
+                     and not is_failed)
+            if is_failed:
+                bg = purple
+            elif special and stale:
                 bg = overlap
             elif special:
                 bg = amber
@@ -687,11 +699,13 @@ class UpdateCheckPage(QWidget):
             n_special += special
             n_stale += stale
             n_both += special and stale
-            self._row_categories.append(
-                "both" if special and stale else
-                "special" if special else
-                "stale" if stale else "plain")
-
+            if is_failed:
+                self._row_categories.append("failed")
+            else:
+                self._row_categories.append(
+                    "both" if special and stale
+                    else "special" if special
+                    else "stale" if stale else "plain")
         # 底色图例进汇总行：有上色的组才出现，没上色不加噪声
         bits = []
         if n_special:
@@ -700,8 +714,9 @@ class UpdateCheckPage(QWidget):
             bits.append(f"灰=长时间未更新 {n_stale}（≥{threshold} 天）")
         if n_both:
             bits.append(f"红=两者兼有 {n_both}")
+        if failed:
+            bits.append(f"紫=查询失败 {len(failed)}")
         color_tail = ("｜底色：" + "，".join(bits)) if bits else ""
-
         arch_tail = f"（result=9 建档 {n_archived}）" if n_archived else ""
         self._summary_base = (
             f"检测完成：需更新 {counts['需更新']}｜版本未知 "
@@ -717,22 +732,24 @@ class UpdateCheckPage(QWidget):
     def _ensure_result_filter(self) -> None:
         """结果筛选下拉（⑩配套）：运行时惰性创建一次，插在汇总行上方
         ——不动 _build_ui（就地 import 与 modListPage._on_open_pages_paste
-        同款家规：本页唯一用点，免动文件头 import 区）。"""
+        同款家规：本页唯一用点，免动文件头 import 区）。
+        2026-10：+「查询失败（紫）」档——失败行有自己的底色（紫），
+        按类别一档筛出，不再混进「长时间未更新」。"""
         if getattr(self, "_result_filter", None) is not None:
             return
         from PySide6.QtWidgets import QComboBox
         combo = QComboBox(self)
-        for text, key in (("不筛选", None),
-                          ("★ 特别关注", "special"),
-                          ("长时间未更新", "stale"),
-                          ("两者兼有（红）", "both"),
+        for text, key in (("不筛选", None), ("★ 特别关注", "special"),
+                          ("长时间未更新", "stale"), ("两者兼有（红）", "both"),
+                          ("查询失败（紫）", "failed"),
                           ("其他（无底色）", "plain")):
             combo.addItem(text, key)
         combo.setToolTip(
             "按结果表的底色类别筛行（纯显隐，不重查库）：\n"
             "★ 特别关注 = 琥珀底；长时间未更新 = 灰底（远端最后更新"
-            "距今超过慢更新阈值）；\n两者兼有 = 红底；其他 = 没上色的"
-            "行。\n换筛选瞬间生效；重新检测后仍保持当前选择")
+            "距今超过慢更新阈值）；\n两者兼有 = 红底；查询失败 = 紫底"
+            "（接口没答上来，远端状态未知）；其他 = 没上色的行。\n"
+            "换筛选瞬间生效；重新检测后仍保持当前选择")
         combo.currentIndexChanged.connect(self._apply_result_filter)
         try:
             lay = self._summary.parentWidget().layout()
@@ -745,28 +762,24 @@ class UpdateCheckPage(QWidget):
                 log.warn(f"结果筛选下拉未能挂进布局：{exc}")
             return
         self._result_filter = combo
-
     def _sync_result_filter_options(self) -> None:
         """筛选下拉的空档置灰（⑩配套收尾）：本次结果里没出现的类别，
         对应选项禁用（灰字、点不开）——躺着筛不出任何行的档位只会让
         人多点一次再疑惑。类别表 _row_categories 由 _show_results 填，
-        每次检测完重算；「不筛选」永远可用。
-        当前选中的档位若因重新检测变空，自动退回「不筛选」——不留
-        一个筛不出任何行的死选择（重置会触发 _apply_result_filter，
-        全量行随即恢复显示）。
-
+        每次检测完重算；「不筛选」永远可用。当前选中的档位若因重新
+        检测变空，自动退回「不筛选」——不留一个筛不出任何行的死选择
+        （重置会触发 _apply_result_filter，全量行随即恢复显示）。
         model 的声明类型是基类 QAbstractItemModel（没有 .item()，
         IDE 报"未解析"），运行时实为 QStandardItemModel——用
         isinstance 收窄类型既让 IDE 闭嘴，也兜住模型类型意外变化
         （那种情况不置灰、全可用，功能照常）。"""
         from PySide6.QtGui import QStandardItemModel
-
         combo = getattr(self, "_result_filter", None)
         if combo is None:
             return
         cats = getattr(self, "_row_categories", [])
         counts = {c: cats.count(c)
-                  for c in ("special", "stale", "both", "plain")}
+                  for c in ("special", "stale", "both", "failed", "plain")}
         model = combo.model()
         if not isinstance(model, QStandardItemModel):
             return  # 意料外的模型类型：不置灰（全可用），照常工作

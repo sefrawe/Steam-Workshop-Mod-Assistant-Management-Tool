@@ -83,9 +83,10 @@ from gui.consolePanel import LogBus
 from gui.modDetailPanel import ModDetailPanel
 from gui.modFolderOpener import open_mod_folder
 from gui.modListModel import (
-    COL_COLOR, COL_ID, COL_LOCAL, COL_NOTE, COL_REMOTE, COL_SIZE,
-    COL_SPECIAL, COL_STATUS, COL_TAGS, COL_TITLE, COL_UPDATE,
-    COLOR_CHOICES, ModListModel, _SORT_MAP, _color_name, _color_qcolor,
+    COL_COLOR, COL_ID, COL_LOCAL, COL_NOTE, COL_REMOTE, COL_SIZE, COL_SPECIAL,
+    COL_STATUS, COL_TAGS, COL_TITLE, COL_UPDATE, COLOR_CHOICES, ModListModel,
+    _SORT_MAP, _color_name, _color_qcolor,
+    update_status_code as _update_status_of,  # ⑨b 单源：更新状态判定
 )
 
 import time
@@ -278,6 +279,10 @@ class ModListPage(QWidget):
     backup_requested = Signal(int, list)
     # 高级筛选对话框【到 mod 库查看结果】→ MainWindow 跳到本页
     advanced_results_requested = Signal()
+    # ⑨c：高级筛选生效状态变化（True=生效）——MainWindow 接住给
+    # 菜单栏顶级项加/摘 ＊ 星标
+    advanced_active_changed = Signal(bool)
+
     # 详情面板依赖子页「送登记」的转发口（MainWindow 接这里）：
     # 面板发 → 本页转出，跨页路由仍单源住主窗口
     deps_send_to_register = Signal(list)
@@ -304,6 +309,7 @@ class ModListPage(QWidget):
         self._adv_dialog.conditions_changed.connect(self._reload)
         self._adv_dialog.go_to_results.connect(
             self.advanced_results_requested.emit)
+        self._adv_active = False  # ⑨c：上次广播的生效状态（变了才发）
 
         self._build_ui()
 
@@ -328,12 +334,13 @@ class ModListPage(QWidget):
         # 用户拍板"不筛选就不让填"）；原首项的"标题+备注合查"语义
         # 挪给"标题+备注"项（data 仍 "all"，_reload 分支原样兼容）
         self._search_field_combo = QComboBox(row)
-        for label, val in (("不筛选", None), ("标题+备注", "all"),
-                           ("标题", "title"), ("备注", "note"), ("编号", "id")):
+        for label, val in (("不筛选（搜索）", None), ("标题+备注", "all"),
+                           ("标题", "title"), ("备注", "note"),
+                           ("编号", "id")):
             self._search_field_combo.addItem(label, val)
         self._search_field_combo.setToolTip(
             "搜索框查什么：\n"
-            "不筛选：不做搜索（搜索框禁用、不能输入）；\n"
+            "不筛选（搜索）：不做搜索（搜索框禁用、不能输入）；\n"
             "标题+备注：标题和备注一起查；\n"
             "标题 / 备注：只查对应字段；\n"
             "编号：按完整编号精确匹配（输非数字 = 0 命中）")
@@ -352,7 +359,7 @@ class ModListPage(QWidget):
         # "不筛选"同一口径；currentData 仍是 None，查询逻辑零变化
         self._status_combo = QComboBox(row)
         for label, val in (
-                ("不筛选", None),
+                ("不筛选（状态）", None),
                 ("待下载", STATUS_TRACKED),
                 ("已下载", STATUS_DOWNLOADED),
                 ("已删除", "deleted"),
@@ -360,21 +367,22 @@ class ModListPage(QWidget):
         ):
             self._status_combo.addItem(label, val)
         self._status_combo.setToolTip(
-            "不筛选 = 不按状态过滤（全部状态都显示）；\n"
+            "不筛选（状态） = 不按状态过滤（全部状态都显示）；\n"
             "待下载 = 账上有编号、还没下载；已下载 = 你确认过下载成功")
+        self._status_combo.currentIndexChanged.connect(self._reload)
         h.addWidget(self._status_combo)
 
         # 颜色筛选四态：不筛选 / 全部颜色 / 无标记 / 具体颜色。
         # 颜色不是库查询条件，页面内存过滤；比对值 = 色名
         #（_color_name 归一，旧账 hex 也能对上）
         self._color_combo = QComboBox(row)
-        self._color_combo.addItem("不筛选", None)
+        self._color_combo.addItem("不筛选（颜色）", None)
         self._color_combo.addItem("全部颜色", "any")
         self._color_combo.addItem("无标记", "none")
         for _name in COLOR_CHOICES:
             self._color_combo.addItem(_name, _name)
         self._color_combo.setToolTip(
-            "不筛选：不做颜色过滤；\n"
+            "不筛选（颜色）：不做颜色过滤；\n"
             "全部颜色：只看上过色的条目；\n"
             "无标记：只看没上色的条目；\n"
             "选具体颜色：只看该颜色的条目")
@@ -794,6 +802,24 @@ class ModListPage(QWidget):
                         if (getattr(m, "confirmed_version", None) is not None
                             and getattr(m, "confirmed_version")
                             <= _adv.local_to)]
+            if _adv.update_status:
+                # ⑨b：更新状态是计算值不进 SQL——取数后内存过滤
+                # （颜色筛选同一哲学）；判定谓词 = 模块级 _update_status_of
+                rows = [m for m in rows
+                        if _update_status_of(m) == _adv.update_status]
+            if _adv.confirmed_source is not None:
+                # ⑨d：本地版本来源——真实列但 repo 契约无此参数，
+                # 内存侧过滤（颜色筛选同一哲学）；"" 哨兵 = 未确认
+                #（判据用确认版本为空，比来源列空更稳）
+                if _adv.confirmed_source == "":
+                    rows = [m for m in rows
+                            if getattr(m, "confirmed_version", None)
+                            is None]
+                else:
+                    rows = [m for m in rows
+                            if (getattr(m, "confirmed_source", None)
+                                or "") == _adv.confirmed_source]
+
 
         # 标签池：当前清单出现过的标签并集（对话框内部保留已勾选项）
         tag_pool = sorted({t for m in rows
@@ -806,6 +832,12 @@ class ModListPage(QWidget):
         if adv_now is not None:
             self._adv_indicator.setToolTip(
                 "高级筛选生效中，点击全部清除：\n" + adv_now.describe())
+        # ⑨c：生效状态变化才广播——指示按钮清空、关窗自动清空走
+        # _reload 都会到这里，星标两条路都能摘下
+        if (adv_now is not None) != self._adv_active:
+            self._adv_active = adv_now is not None
+            self.advanced_active_changed.emit(self._adv_active)
+
         self._adv_dialog.set_hit_count(
             len(rows) if adv_now is not None else None)
 
@@ -1001,12 +1033,22 @@ class ModListPage(QWidget):
         self._sort_col = col
         self._save_sort()
         self._reload()
-
-    def _on_current_row(self, current: QModelIndex,
-                        _prev: QModelIndex) -> None:
-        m = (self._row_mods[current.row()]
-             if current.isValid() and current.row() < len(self._row_mods)
-             else None)
+    def _on_current_row(self, current: QModelIndex, _prev: QModelIndex) -> None:
+        m = (self._row_mods[current.row()] if current.isValid()
+                                              and current.row() < len(self._row_mods) else None)
+        if m is not None:
+            # 选中即现查库（2026-10 修复"译文切走再切回就消失"）：
+            # 清单行是上次 _reload 时的快照，翻译落库这类"只写字段、
+            # 不触发整表重载"的写操作之后，快照里的 description_trans
+            # 还是旧值——详情面板按快照渲染，译文看起来"没保存"，
+            # 实际库里好好的（运行日志"译文已落库"为证）。每次选中
+            # 现取一行（SQLite 毫秒级），取到就同步回缓存（后续按
+            # 行号取行的路径——右键菜单等——也拿到新值）；取不到
+            # （极端竞态）退回快照，详情照常显示。
+            fresh = self._repo.get_mod(m.mod_id)
+            if fresh is not None:
+                m = fresh
+                self._row_mods[current.row()] = fresh
         self._selected_mod_id = m.mod_id if m is not None else None
         self._detail.show_mod(m)
 

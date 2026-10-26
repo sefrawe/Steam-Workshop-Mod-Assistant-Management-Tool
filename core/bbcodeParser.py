@@ -1,5 +1,8 @@
-"""工坊描述 BBCode → 块序列 → HTML。
+"""工坊描述 BBCode → 块序列 → HTML
+"""
+from __future__ import annotations
 
+"""
 为什么有这个文件：
     Steam 工坊描述是一整段 BBCode（图片/视频/链接以标签内嵌正文，
     不是独立字段）。详情页要三种看法（原文/译文/对照），翻译要把
@@ -21,7 +24,6 @@
     出现顺序一一对齐——对照态"第 N 段原文贴第 N 段译文"靠这个序，
     谁也不许私自重排。
 """
-from __future__ import annotations
 
 import html
 import re
@@ -53,6 +55,8 @@ _RE_LISTITEM = re.compile(r"\[\*\]")
 # 与参数不含空格/方括号）——纯文本里偶然的方括号短语不受影响
 _RE_TAG = re.compile(r"\[/?[a-zA-Z][a-zA-Z0-9_\-]*(?:=[^\[\]\n]*)?\]")
 _RE_SENTINEL = re.compile("\x00(\\d+)\x00")
+_RE_SENTINEL_ANY = re.compile("\x00\\d*\x00|\x00")  # 净化兜底：残留哨兵（含不成对的孤立占位符）
+
 _RE_BLANK3 = re.compile(r"\n{3,}")
 _RE_TAIL_WS = re.compile(r"[ \t]+\n")
 _YT_ID = re.compile(r"^[A-Za-z0-9_\-]{11}$")
@@ -76,18 +80,21 @@ def _youtube_url(content: str) -> str | None:
     if low.startswith("www."):
         return "https://" + c
     return None
-
-
 def parse_description(raw: str | None) -> list[DescBlock]:
     """BBCode 原文 → 块序列。空描述/剥完是空的 → 空列表。
-
-    两段策略：先 stash 再归位——认识的内嵌标签换成 \\x00序号\\x00 哨兵
+    两段策略：先 stash 再归位——认识的内嵌标签换成 \x00序号\x00 哨兵
     混进正文流，等文本清洗（[*]→圆点、剥壳留肉、压空行）按空行切段
     后，再按哨兵原位插回链接块。顺序全程不乱。
+
+    嵌套修复（2026-10 实证"□13□"方块 + 内容缺失）：[url=X][img]U[/img]
+    [/url]（工坊常见的"图片带超链接"）在 on_url 里拆解——内层图片块
+    就地接管外层链接的点击目标，绝不让哨兵残留在任何显示文案里。
+    出口另有净化兜底：任何未知路径漏进块文本的哨兵就地剥除——
+    内部占位符永远不该抵达用户眼前。只动 link 块与残留净化，
+    text 块序稳定——已落库译文（按 text 块序对齐）不受影响。
     """
     if not raw:
         return []
-
     s = raw.replace("\r\n", "\n").replace("\r", "\n")
     links: list[DescBlock] = []
 
@@ -107,8 +114,7 @@ def parse_description(raw: str | None) -> list[DescBlock]:
         u = m.group(1).strip()
         if u.lower().startswith(("http://", "https://")):
             img_n += 1
-            return stash(DescBlock("link", f"🖼 图片 {img_n} · 点击打开",
-                                   u))
+            return stash(DescBlock("link", f"🖼 图片 {img_n} · 点击打开", u))
         return u  # 不是网址的 [img] 内容当正文留下
 
     def on_url(m: re.Match) -> str:
@@ -122,10 +128,37 @@ def parse_description(raw: str | None) -> list[DescBlock]:
         elif target.lower().startswith("www."):
             url = "https://" + target
         if url is None:
-            return label or target  # 不是网址：留正文
+            return label or target  # 不是网址：留正文（内含哨兵也照留，
+            # 交给正文流正常消费）
         if not label:
             label = url
         label = _RE_TAG.sub("", label).strip() or url
+        # 嵌套修复：处理顺序 img/youtube 先于 url，嵌套写法
+        # [url=X][img]U[/img][/url] 在 label 里留下内层图片的哨兵
+        # ——不拆则哨兵残留进链接行文案（渲染成"□N□"方块），
+        # 内层图片块也被吞掉不再渲染。拆法：内层块改点外层链接
+        # （点图 = 跳 [url] 的目标，与工坊网页行为一致），以哨兵
+        # 形式追加回正文流正常渲染；label 纯文字部分非空时另出一行。
+        if "\x00" in label:
+            parts = _RE_SENTINEL.split(label)
+            text_bits: list[str] = []
+            inner: list[int] = []
+            for i, piece in enumerate(parts):
+                if i % 2 == 1:
+                    inner.append(int(piece))
+                elif piece.strip():
+                    text_bits.append(piece.strip())
+            if inner:
+                for idx in inner:
+                    if 0 <= idx < len(links) and links[idx].url:
+                        links[idx] = DescBlock(
+                            "link", links[idx].text, url)
+                tail = "".join(f"\x00{i}\x00" for i in inner)
+                if text_bits:
+                    head = stash(DescBlock(
+                        "link", " ".join(text_bits), url))
+                    return head + tail
+                return tail  # 纯图链：只渲染图片行，点图跳外层链接
         return stash(DescBlock("link", label, url))
 
     s = _RE_YT.sub(on_yt, s)
@@ -151,11 +184,24 @@ def parse_description(raw: str | None) -> list[DescBlock]:
                     blk = links[idx]
                     if blk.url is not None:
                         blocks.append(blk)
-                continue
+                    continue
             text = piece.strip()
             if text:
                 blocks.append(DescBlock("text", text))
-    return blocks
+
+    # 净化兜底（显示保险丝）：任何路径漏进块文本的内部哨兵
+    # （\x00N\x00——Qt 富文本显示为"□N□"方块）就地剥除；
+    # 剥空的 text 块丢弃（原"非空才收"口径的自然延伸），
+    # link 块剥空退回 url——占位符绝不抵达用户眼前
+    final: list[DescBlock] = []
+    for b in blocks:
+        t = _RE_SENTINEL_ANY.sub("", b.text).strip()
+        if not t and b.kind == "link" and b.url:
+            t = b.url
+        if not t:
+            continue
+        final.append(b if t == b.text else DescBlock(b.kind, t, b.url))
+    return final
 
 
 # ---------- 渲染 ----------

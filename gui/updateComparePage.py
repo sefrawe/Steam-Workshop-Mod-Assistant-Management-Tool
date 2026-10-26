@@ -30,8 +30,9 @@ r"""gui/updateComparePage.py · 当前档案的版本对照与更新历史。
 打开文件夹走 gui/modFolderOpener 单源（与 mod 库页共用）。
 """
 
+import html
 import time
-from gui.modFolderOpener import open_mod_folder
+
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QBrush, QAction, QColor, QDesktopServices
 from PySide6.QtWidgets import (
@@ -55,16 +56,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.models import Game
-from gui.collapsibleSection import CollapsibleSection
-from gui.logBus import LogBus
 from core.formatters import abs_time, status_zh
+from core.models import Game
+from gui.collapsibleSection import CollapsibleSection, make_guide
+from gui.logBus import LogBus
+from gui.modFolderOpener import open_mod_folder
 from gui.theme import font_px  # 字号单源（D25）
 
 # 状态色（备份/删除页同源口径）
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
 _C_FAIL = "#e5484d"
+_C_MUTED = "#8a8a8f"  # 沉灰（与备份/删除页同源）
 
 _SEC_MIN_H = 150          # 分区高度下限（只设下限不设上限：快照条数用户可调）
 _ROW_H = 26               # 快照小表每行
@@ -135,6 +138,10 @@ class _SortItem(QTableWidgetItem):
             return self._key < other._key
         return super().__lt__(other)
 
+def _short_date(ts: int | None) -> str:
+    """卡头用短日期（yyyy-MM-dd 定宽）：行行对齐好扫读——abs_time 的
+    相对文案长短不一，放卡头里扫读会跳。ts 空 = "—"。"""
+    return time.strftime("%Y-%m-%d", time.localtime(ts)) if ts else "—"
 
 class UpdateComparePage(QWidget):
     """更新对照页：除备注外只读；set_game 即重算，refresh 供进页钩子。"""
@@ -288,29 +295,11 @@ class UpdateComparePage(QWidget):
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(_DEBOUNCE_MS)
         self._debounce.timeout.connect(self._reload)
-
     def _make_guide(self) -> CollapsibleSection:
-        """先读我折叠卡（importPage 同款契约：set_content 一次、高度
-        固定、内容包 QScrollArea 卡内滚动）。默认收起。"""
-        body = QWidget(self)
-        bv = QVBoxLayout(body)
-        bv.setContentsMargins(4, 4, 4, 4)
-        bv.setSpacing(6)
-        for text in _GUIDE_PARAS:
-            lbl = QLabel(text, body)
-            lbl.setWordWrap(True)
-            lbl.setStyleSheet(f"color: #8a8a8f; font-size: {font_px(12)}px;")
-            bv.addWidget(lbl)
-        bv.addStretch(1)
-        wrap = QScrollArea(self)
-        wrap.setWidgetResizable(True)
-        wrap.setFrameShape(QScrollArea.Shape.NoFrame)
-        wrap.setWidget(body)
-        sec = CollapsibleSection(
-            "先读我：两种视图 · 更新=整个替换 · 落后天数 · 动作与备注", self)
-        sec.set_content(wrap, 250)
-        sec.set_expanded(False)
-        return sec
+        """先读我折叠卡：形态收进 collapsibleSection.make_guide 单源。"""
+        return make_guide(
+            "先读我：两种视图 · 更新=整个替换 · 落后天数 · 动作与备注",
+            _GUIDE_PARAS, self, 250)
 
     # ---------- 对外 ----------
 
@@ -450,25 +439,36 @@ class UpdateComparePage(QWidget):
             h = 30 + 24 + 26 + 20
         return max(_SEC_MIN_H, h)
     def _make_section(self, m, snaps) -> None:
+        """分组卡片（2026-10 美化版）。卡头 = 富文本：彩色状态点＋加粗
+        标题＋沉灰元数据——状态点与「落后」同色（最新=绿 / ≤30 天=琥珀 /
+        >30 天=红 / 版本未知=灰，与平铺视图「落后」列同一套色义），日期
+        用定宽短日期（_short_date）行行对齐，分隔统一全角「｜」。五段
+        信息固定：标题（编号）｜落后｜远端｜本地｜N 条快照，缺值「—」。
+        富文本得以渲染靠 collapsibleSection 2026-10 的标题 QLabel 化
+        （按钮家族不吃富文本）。"""
         days = self._lag_days(m)
         if days is None:
-            lag_txt = ""
+            sev, lag_txt = _C_MUTED, "版本未知"
         elif days == 0:
-            lag_txt = "· 最新 "
+            sev, lag_txt = _C_OK, "最新"
+        elif days <= 30:
+            sev, lag_txt = _C_WARN, f"落后 {days} 天"
         else:
-            lag_txt = f"· 落后 {days} 天 "
-        remote_txt = abs_time(m.time_updated) if m.time_updated else "—"
-        local_txt = (abs_time(m.confirmed_version)
-                     if m.confirmed_version else "—")
-        head_txt = (f"{m.title or '（无标题）'}（{m.mod_id}）· {lag_txt}"
-                    f" · 远端 {remote_txt} · 本地 {local_txt}"
-                    f" · {len(snaps)} 条快照")
-
+            sev, lag_txt = _C_FAIL, f"落后 {days} 天"
+        title_esc = html.escape(m.title or "（无标题）")
+        head_txt = (
+            f"<span style='color:{sev};'>●</span> "
+            f"<b>{title_esc}</b>"
+            f"<span style='color:{_C_MUTED};'>（{m.mod_id}）</span>"
+            f" ｜ <b style='color:{sev};'>{lag_txt}</b>"
+            f"<span style='color:{_C_MUTED};'>"
+            f" ｜ 远端 {_short_date(m.time_updated)}"
+            f" ｜ 本地 {_short_date(m.confirmed_version)}"
+            f" ｜ {len(snaps)} 条快照</span>")
         content = QWidget(self)
         cv = QVBoxLayout(content)
         cv.setContentsMargins(4, 4, 4, 4)
         cv.setSpacing(4)
-
         # ---- 动作行：与平铺右键同一组动作的常驻版 ----
         acts = QWidget(content)
         ah = QHBoxLayout(acts)
@@ -499,22 +499,22 @@ class UpdateComparePage(QWidget):
             ah.addWidget(b)
         ah.addStretch(1)
         cv.addWidget(acts)
-
         # ---- 备注行（没有也给个"怎么加"的指引）----
         if m.note:
             note_lbl = QLabel(f"备注：{m.note}", content)
         else:
             note_lbl = QLabel(
-                "备注：（无——点【📝 编辑备注】给自己留句话）", content)
+                "备注：（无——点【📝 编辑备注】给自己留句话）",
+                content)
         note_lbl.setWordWrap(True)
         note_lbl.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
         cv.addWidget(note_lbl)
-
-        # ---- 快照小表（两列。"当时的本地版本"由判决史承载，
-        # 快照表不重复记）----
+        # ---- 快照小表（两列；交替行色——本表无逐格上色，无盖色坑；
+        # "当时的本地版本"由判决史承载，快照表不重复记）----
         tbl = QTableWidget(len(snaps), 2, content)
         tbl.setHorizontalHeaderLabels(_COLS_SNAP)
         tbl.verticalHeader().setVisible(False)
+        tbl.setAlternatingRowColors(True)
         tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         tbl.horizontalHeader().setSectionResizeMode(
@@ -527,16 +527,15 @@ class UpdateComparePage(QWidget):
             tbl.setItem(r, 1, QTableWidgetItem(
                 abs_time(s.time_updated) if s.time_updated else "—"))
         cv.addWidget(tbl)
-
         sec = CollapsibleSection(head_txt, self)
-        sec.set_content(content,
-                        self._section_height(len(snaps), bool(snaps)))
+        sec.set_content(content, self._section_height(len(snaps), bool(snaps)))
         # expand_changed 先连、再设初值（commandGenPage 同款时序）
         sec.expand_changed.connect(
             lambda on, k=m.mod_id: self._sec_state.__setitem__(k, on))
         sec.set_expanded(self._sec_state.get(m.mod_id, False))
         self._sections[m.mod_id] = sec
         self._body_layout.addWidget(sec)
+
 
     # ---------- 视图二：现状对照（平铺） ----------
 

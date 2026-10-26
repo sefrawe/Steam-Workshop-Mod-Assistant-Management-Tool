@@ -31,6 +31,7 @@ from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
 from workflows import exceptionFlow
 from gui.tableSort import SortItem  # 表头数值排序（单源共享件）
+from gui.collapsibleSection import make_guide  # 先读我单源（共享件内）
 
 _C_OK = "#46a758"
 _C_WARN = "#f5a623"
@@ -72,18 +73,15 @@ class TitleCheckPage(QWidget):
 
         self._game_label = QLabel(self)
         root.addWidget(self._game_label)
+        root.addWidget(make_guide(
+            "先读我：词表在哪改 · 为什么只是提醒不是判定",
+            ("本地账本标题里含提醒关键词的条目（词表在设置页"
+             "「本地标题提醒关键词」自行增删，留空 = 停用）。",
+             "作者常把 Abandoned / Deprecated 写进标题表示不再维护——"
+             "但地图名也可能含这些词（如 \"Abandoned Mines\"），命中词"
+             "在行内明示，只是提醒不是判定。离线毫秒级，不联网。"),
+            self, 120))
 
-        tip = QLabel(
-            "本地账本标题里含提醒关键词的条目（词表在设置页"
-            "「本地标题提醒关键词」自行增删，留空 = 停用）。\n"
-            "作者常把 Abandoned / Deprecated 写进标题表示不再维护——"
-            "但地图名也可能含这些词（如 \"Abandoned Mines\"），命中词"
-            "在行内明示，只是提醒不是判定。离线毫秒级，不联网。",
-            self)
-        tip.setWordWrap(True)   # 踩坑⑨：可能变长的标签一律开换行
-        tip.setStyleSheet("color: gray;")
-        root.addWidget(tip)
-        # self.root_layout = root
         row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)

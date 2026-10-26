@@ -397,6 +397,10 @@ class MainWindow(QMainWindow):
         if hasattr(modlib, "command_gen_requested"):
             modlib.command_gen_requested.connect(
                 self._on_modlist_command_gen)
+        # ⑨c：高级筛选生效状态 → 菜单栏顶级项 ＊ 星标
+        if hasattr(modlib, "advanced_active_changed"):
+            modlib.advanced_active_changed.connect(
+                self._on_adv_active_changed)
 
 
 
@@ -853,6 +857,8 @@ class MainWindow(QMainWindow):
             "标签多条件叠加，与 mod 库页顶栏筛选叠加生效。\n"
             "非模态窗口——开着可以边看结果边改；快捷键 Ctrl+Shift+F")
         act_adv.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        self._act_adv = act_adv  # ⑨c：星标要改这颗动作的文字
+
         act_adv.triggered.connect(self._open_advanced_search)
         self.menuBar().addAction(act_adv)
 
@@ -961,6 +967,21 @@ class MainWindow(QMainWindow):
         opener = getattr(page, "open_advanced_search", None)
         if callable(opener):
             opener()
+    def _on_adv_active_changed(self, active: bool) -> None:
+        """⑨c：高级筛选生效状态变化 → 菜单栏顶级项加/摘 ＊ 星标。
+        加星 = 条件生效中，一眼知道列表正被高级筛选拧窄；摘星只在
+        本处发生（清空必经 mod 库页 _reload 算出 False 发过来）。"""
+        act = getattr(self, "_act_adv", None)
+        if act is None:
+            return
+        act.setText("高级筛选(&S) ＊" if active else "高级筛选(&S)")
+        act.setToolTip(
+            "高级筛选条件生效中（菜单项带 ＊）——点开可查看/修改条件"
+            if active else
+            "打开 mod 库高级筛选：标题/备注/编号/作者/大小/更新时间/"
+            "标签多条件叠加，与 mod 库页顶栏筛选叠加生效。\n"
+            "非模态窗口——开着可以边看结果边改；快捷键 Ctrl+Shift+F")
+
     def _on_daily_check_requested(self) -> None:
         """日常更新页【开始检测】的落点：转调更新检测页的后台检测
         （不跳页——检测页的三条信号已直连日常页，过程两页同见）。
@@ -1449,20 +1470,40 @@ class MainWindow(QMainWindow):
             it = self._nav.topLevelItem(i)
             if it.childCount() > 0:
                 it.setExpanded(it.text(0) in want)
-
     def _restore_panels(self) -> None:
         """启动恢复：窗口几何 / 停靠布局 / 侧栏 / 控制台 / 详情面板
         显隐 / 组折叠 / 上次档案。几何先恢复（saveState 含停靠布局），
-        再由显隐键覆盖可见性。全默认 = 全显示。"""
+        再由显隐键覆盖可见性。全默认 = 全显示。
+
+        尺寸收容（任务⑩根治）：会话里存的窗口尺寸可能来自另一块
+        屏幕/另一个缩放比例（典型：Surface Go 2 的 1920x1280 屏上
+        存下 1920x1130，换到 1080p 屏或 125% 缩放的 2K 屏就放不下），
+        Qt 恢复时裁不动只能吐 "Unable to set geometry" 警告。恢复后
+        立即把窗口收进当前屏幕可用范围（按边框实高实宽扣减），位置
+        出屏的拉回居中——本轮警告可能已响一声（恢复瞬间拦不住），
+        但本轮退出时存下的就是合规尺寸，下一轮同屏不再弹。"""
         q = QSettings()
         geom = q.value(_SES_GEOM)
         if geom:
             self.restoreGeometry(geom)
+            scr = self.screen().availableGeometry()
+            frame = self.frameGeometry()
+            fh = max(frame.height() - self.height(), 0)   # 边框实占高
+            fw = max(frame.width() - self.width(), 0)     # 边框实占宽
+            max_w = max(scr.width() - fw, 400)
+            max_h = max(scr.height() - fh, 300)
+            if self.width() > max_w or self.height() > max_h:
+                self.resize(min(self.width(), max_w),
+                            min(self.height(), max_h))
+            if not scr.intersects(self.frameGeometry()):
+                self.move(scr.x() + max((scr.width()
+                                         - self.frameGeometry().width()) // 2, 0),
+                          scr.y() + max((scr.height()
+                                         - self.frameGeometry().height()) // 2, 0))
         state = q.value(_SES_STATE)
         if state:
             self.restoreState(state)
         self._act_side.setChecked(str(q.value(_SES_SIDE, "1")) != "0")
-
         # 控制台显隐：restoreState 虽也会带显隐，这里仍用独立会话键
         # 覆盖——与侧栏同款口径（显隐状态不依赖 saveState 的二进制
         # 内容，软件换版本也能读）；无记录 = 默认显示（停靠窗本来就
@@ -1470,12 +1511,9 @@ class MainWindow(QMainWindow):
         vis = q.value(_SES_CONSOLE)
         if vis is not None:
             self._dock_console.setVisible(str(vis) != "0")
-
         # 详情面板显隐（mod 库轮）：无记录 = 默认显示
         self._act_detail.setChecked(str(q.value(_SES_DETAIL, "1")) != "0")
-
         self._restore_nav_state()
-
         # 恢复上次打开的档案：构造期已按"下拉第一项"补广播过一次，
         # 这里若目标档案不同会再广播一次——各页 set_game 是毫秒级
         # 重载，两次换来"启动即停在上次的档案"，值得。

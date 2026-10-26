@@ -26,20 +26,53 @@ V2 断代拍板（本轮生效；V2 首次发布后按"一经发布不再改"冻
 """
 import ctypes
 import sys
-
-from PySide6.QtCore import QDir, QLockFile
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
-
 from core import appPaths
+from PySide6.QtCore import QDir, QLockFile, QTimer, qInstallMessageHandler
 
 # R12：锁文件名带项目特征 + 代际特征，避免与 V1（或别的软件）撞名
 _LOCK_PATH = QDir.temp().absoluteFilePath(
     "SteamWorkshopModAssistantV2.single-instance.lock")
 
+# ---- 任务⑩：Qt 几何警告的人话转译 ----
+# Parsec 等远程控制会话里分辨率一变，主窗口要的尺寸超出屏幕，Qt 原样
+# 吐一行开发向警告（Unable to set geometry…），看着像故障——拦下来
+# 换成一句人话弹窗（每次会话只一次），其余 Qt 消息一个不吞照常放行。
+_GEOMETRY_TOLD = False  # 提示只来一次
+
+def _tell_geometry_hint() -> None:
+    """几何警告 → 一次性人话弹窗（任务⑩）。"""
+    global _GEOMETRY_TOLD
+    if _GEOMETRY_TOLD:
+        return
+    _GEOMETRY_TOLD = True
+    QMessageBox.information(
+        None, "窗口尺寸超出屏幕（不是故障）",
+        "检测到上次记住的窗口尺寸在当前屏幕放不下（Qt: Unable to "
+        "set geometry）。\n\n"
+        "常见原因：那个尺寸是在另一块屏幕/另一个缩放比例下存下的"
+        "（如 Surface Go 2 的 1920x1280、副屏的 125%/150% 缩放），"
+        "Parsec 远程会话中的分辨率变化同理——跟现在的屏幕大小无关。\n"
+        "程序已自动把窗口收进当前屏幕，功能与数据不受任何影响，"
+        "这不是程序故障。本提示每次运行最多出现一次；同屏重启后"
+        "不会再弹。")
+
+
+def _qt_message_handler(_mode, _context, message) -> None:
+    """Qt 消息钩子（任务⑩）：几何警告弹人话（singleShot 出事件循环
+    再弹，防在几何调整中途重入），原文照打 stderr 留档——诊断要靠
+    原始数字（存的尺寸 vs 屏幕可用区）；其余消息原样走 stderr，不吞。"""
+    if "Unable to set geometry" in message:
+        print(f"[Qt] {message}", file=sys.stderr)
+        QTimer.singleShot(0, _tell_geometry_hint)
+        return
+    print(f"[Qt] {message}", file=sys.stderr)
 
 def main() -> int:
     app = QApplication(sys.argv)
+    qInstallMessageHandler(_qt_message_handler)  # 任务⑩：见模块级钩子
+
     # —— 存储坐标（不是显示名！禁止改成标题/仓库 URL 等好看的形式，
     # 改了会话记忆静默搬家/丢失——踩坑㊽族。V2 取值 = 断代拍板）——
     app.setApplicationName("Steam Workshop Mod Assistant V2")

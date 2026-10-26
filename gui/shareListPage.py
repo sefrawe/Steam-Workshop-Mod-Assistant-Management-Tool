@@ -40,6 +40,7 @@ from core.appSettings import AppSettings
 from core.models import Game
 from gui.logBus import LogBus   # V2：LogBus 独立成文件
 from gui.theme import font_px  # 字号单源（D25）
+from gui.collapsibleSection import make_guide  # 先读我单源（共享件内）
 
 # 与批量下载步骤卡片、日常更新模块页一致的配色，按用途命名
 _C_OK = "#46a758"     # 完成 / 一切正常
@@ -87,33 +88,20 @@ class ShareListPage(QWidget):
         title = QLabel("分享清单", self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
+        root.addWidget(make_guide(
+            "先读我：流程 · 为什么安全 · 术语与关系",
+            ("流程：① 整理好当前档案的备注、标签、特别关注 → 点【导出"
+             "分享包】生成一个 JSON 文件发给朋友 → ② 朋友在本软件点"
+             "【导入分享包】选那个文件（增量并入，已有的自动跳过）→ "
+             "③ 切到对应档案、跑一遍【更新检测】补全标题。",
+             "为什么安全：导入只新增、绝不改动现有数据——朋友清单里你"
+             "已经收过的 mod 原样保留，你的备注标签一字不动；所以导入"
+             "不需要确认弹窗，结果看状态栏报数。",
+             "术语与关系：分享包 = 收录清单 + 整理成果（备注/标签/特别"
+             "关注），不含下载状态等本机信息；文件菜单里也有同款两项，"
+             "两边是同一个功能的两扇门。"),
+            self, 170))
 
-        note = QFrame(self)
-        note.setObjectName("share_note")
-        note.setStyleSheet("QFrame#share_note { border: 1px solid #3a3a3a;"
-                           " border-radius: 6px; }")
-        nb = QVBoxLayout(note)
-        nb.setContentsMargins(8, 6, 8, 6)
-        nb.setSpacing(2)
-        for text in (
-            "流程：① 整理好当前档案的备注、标签、特别关注 → 点【导出"
-            "分享包】生成一个 JSON 文件发给朋友 → ② 朋友在本软件点"
-            "【导入分享包】选那个文件（增量并入，已有的自动跳过）→ "
-            "③ 切到对应档案、跑一遍【更新检测】补全标题。",
-
-            "为什么安全：导入只新增、绝不改动现有数据——朋友清单里你"
-            "已经收过的 mod 原样保留，你的备注标签一字不动；所以导入"
-            "不需要确认弹窗，结果看状态栏报数。",
-
-            "术语与关系：分享包 = 收录清单 + 整理成果（备注/标签/特别"
-            "关注），不含下载状态等本机信息；文件菜单里也有同款两项，"
-            "两边是同一个功能的两扇门。",
-        ):
-            lbl = QLabel(text, note)
-            lbl.setWordWrap(True)   # 可能变长的标签一律开换行
-            lbl.setStyleSheet(f"border:none; color:#8a8a8f; font-size: {font_px(12)}px;")
-            nb.addWidget(lbl)
-        root.addWidget(note)
 
         host = QWidget(self)
         self._cards_box = QVBoxLayout(host)

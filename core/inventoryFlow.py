@@ -1,5 +1,6 @@
-"""core/inventoryFlow.py · 只读盘点引擎（待认领区轮新写件）。
-
+"""只读盘点引擎
+"""
+"""
 一轮 scan_game 全做完，全程只读磁盘；写入只走两扇既有正门
 （record_verdicts 落候选提案 / backfill_local_sizes 回填展示列），
 本引擎不发明任何写库路径（R17）。

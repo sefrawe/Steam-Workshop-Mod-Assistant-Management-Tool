@@ -37,12 +37,14 @@ from core.steamApiClient import SteamApiCancelled, SteamApiClient, SteamApiError
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QHeaderView, QHBoxLayout, QLabel,
-    QMessageBox, QPlainTextEdit, QPushButton, QTableWidget,
+    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
+
 from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
 
+from gui.collapsibleSection import make_guide  # 先读我单源（共享件内）
 
 class _QueryWorker(QThread):
     """查询线程：客户端自动按 100/批分批限速；取消事件置位后
@@ -101,51 +103,65 @@ class QuickCommandPage(QWidget):
 
     # ---------------- UI ----------------
     def _build_ui(self) -> None:
-        v = QVBoxLayout(self)
-        title = QLabel("快速命令查询", self)
+        # 任务⑪：整页滚动壳（备份总览页同款定式）。此前所有控件直接
+        # 挤在页面里——控制台停靠窗一张开，中央区被压矮，输入框、
+        # 表格、输出框跟着被挤扁（表格只剩一条缝）。壳把"挤"换成
+        # "滚"：窗口矮时出页级滚动条，控件保持舒适高度不变形；
+        # 输入框/表格另设最低高度兜底。
+        # 输出框与复制按钮留在壳外常驻——复制是本页的终点动作，
+        # 不能随滚动沉底（commandGenPage 预览+复制的同款取舍）。
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        page_scroll = QScrollArea(self)
+        page_scroll.setWidgetResizable(True)
+        page_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        page_body = QWidget(page_scroll)
+        page_scroll.setWidget(page_body)
+        outer.addWidget(page_scroll, 1)
+        v = QVBoxLayout(page_body)
+        v.setContentsMargins(16, 16, 16, 16)
+        title = QLabel("快速命令查询", page_body)
         title.setStyleSheet(
             f"font-size: {font_px(18)}px; font-weight: 600;")
         v.addWidget(title)
-        hint = QLabel(
-            "每行贴一个，三种随便混：工坊网址 / 纯编号 / 整行下载命令"
-            "（可多游戏混杂）。查询后按每个条目自己的游戏生成命令——"
-            "与当前界面显示的游戏、与账本都无关；命令行里的旧 AppID "
-            "以重查结果为准（填错的会被纠正）。\n"
-            "复制后粘到 控制台 → steamcmd 终端 回车执行：批次按命令"
-            "自带的 AppID 归属；批次收尾自动盘点，盘上内容进该档案的"
-            "待认领区，到【入账中心】勾选确认。命令已按游戏分组，"
-            "一个批次只服务一个游戏——逐游戏复制粘贴最稳。", self)
-        hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
-        v.addWidget(hint)
+        v.addWidget(make_guide(
+            "先读我：三种输入随便混 · 按条目自己的游戏出命令",
+            ("每行贴一个，三种随便混：工坊网址 / 纯编号 / 整行下载命令"
+             "（可多游戏混杂）。查询后按每个条目自己的游戏生成命令——"
+             "与当前界面显示的游戏、与账本都无关；命令行里的旧 AppID "
+             "以重查结果为准（填错的会被纠正）。",
+             "复制后粘到 控制台 → steamcmd 终端 回车执行：批次按命令"
+             "自带的 AppID 归属；批次收尾自动盘点，盘上内容进该档案的"
+             "待认领区，到【入账中心】勾选确认。命令已按游戏分组，"
+             "一个批次只服务一个游戏——逐游戏复制粘贴最稳。"),
+            self, 140))
 
-        self._input = QPlainTextEdit(self)
+        self._input = QPlainTextEdit(page_body)
         self._input.setPlaceholderText(
             "例如：\n"
             "https://steamcommunity.com/sharedfiles/filedetails/?id=3563882422\n"
             "3563882422\n"
             "workshop_download_item 1158310 3563882422")
+        self._input.setMinimumHeight(64)  # 挤压下限：宁可页面滚动不变形
         self._input.setMaximumHeight(90)
         v.addWidget(self._input)
-
         row = QHBoxLayout()
-        self._btn_go = QPushButton("解析并查询", self)
+        self._btn_go = QPushButton("解析并查询", page_body)
         self._btn_go.setDefault(True)
         self._btn_go.clicked.connect(self._start)
         row.addWidget(self._btn_go)
-        self._btn_offline = QPushButton("离线生成（当前档案游戏）", self)
+        self._btn_offline = QPushButton("离线生成（当前档案游戏）", page_body)
         self._btn_offline.setToolTip(
             "不联网，直接按当前档案的游戏 AppID 给全部编号出命令"
             "——网络不畅时的兜底。贴进来的条目若属于别的游戏会"
             " No match，点下去前有确认弹窗说清风险")
         self._btn_offline.clicked.connect(self._on_offline)
         row.addWidget(self._btn_offline)
-        self._status = QLabel("", self)
+        self._status = QLabel("", page_body)
         self._status.setWordWrap(True)
         row.addWidget(self._status, 1)
         v.addLayout(row)
-
-        self._table = QTableWidget(0, 4, self)
+        self._table = QTableWidget(0, 4, page_body)
         self._table.setHorizontalHeaderLabels(
             ["编号", "标题", "所属游戏 AppID", "说明"])
         self._table.verticalHeader().setVisible(False)
@@ -159,22 +175,23 @@ class QuickCommandPage(QWidget):
             1, QHeaderView.ResizeMode.Stretch)
         for col, w in ((0, 110), (2, 130), (3, 220)):
             self._table.setColumnWidth(col, w)
+        self._table.setMinimumHeight(180)  # 挤压下限：表格不再被压成缝
         v.addWidget(self._table, 1)
-
+        # ——壳外常驻：命令输出 + 复制按钮——
         self._output = QPlainTextEdit(self)
         self._output.setReadOnly(True)
         self._output.setPlaceholderText(
             "查询成功后，这里显示可粘贴进 steamcmd 的命令")
+        self._output.setMinimumHeight(72)
         self._output.setMaximumHeight(110)
-        v.addWidget(self._output)
-
+        outer.addWidget(self._output)
         bottom = QHBoxLayout()
         self._btn_copy = QPushButton("复制命令", self)
         self._btn_copy.setEnabled(False)
         self._btn_copy.clicked.connect(self._on_copy)
         bottom.addStretch(1)
         bottom.addWidget(self._btn_copy)
-        v.addLayout(bottom)
+        outer.addLayout(bottom)
 
     # ---------------- 查询 ----------------
     def _start(self) -> None:
