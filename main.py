@@ -77,7 +77,7 @@ def main() -> int:
     # 改了会话记忆静默搬家/丢失——踩坑㊽族。V2 取值 = 断代拍板）——
     app.setApplicationName("Steam Workshop Mod Assistant V2")
     app.setOrganizationName("sefrawe")
-    app.setApplicationVersion("2.0.3")  # V2 版本线起步值，打包轮终拍
+    app.setApplicationVersion("2.0.4")  # V2 版本线起步值，打包轮终拍
 
     # ---- 图标（运行时两件）：任务栏归属 + 窗口图标 ----
     # AppUserModelID：向 Windows 声明独立应用身份。V2 用自己的 ID——
