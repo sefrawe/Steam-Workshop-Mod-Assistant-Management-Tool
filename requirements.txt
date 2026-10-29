@@ -7,12 +7,14 @@ vdf>=3.4
 pytest>=8.0
 truststore
 psutil
-pywinpty
+pywinpty; sys_platform == "win32"
 
 # —— 实时采集（决策 35）：pywinauto 走 UIA 遍历窗口，
 # pyautogui 发热键，pyperclip 管剪贴板；core 侧惰性导入，
 # 缺包只影响采集功能，其他功能照常 ——
-pywinauto
+# pywinpty / pywinauto 是 Windows 专属包（Linux 无轮子，装不上）：
+# 加 sys_platform 标记，Linux / 双平台 CI 安装步骤不再被卡。
+pywinauto; sys_platform == "win32"
 pyautogui
 pyperclip
 
