@@ -389,8 +389,9 @@ class TerminalDock(QWidget):
             QMessageBox.information(
                 self, "无法启动",
                 "还没有设置 steamcmd 程序路径。\n"
-                "请到 设置页 → steamcmd 程序，填入 steamcmd.exe 的"
-                "完整路径。")
+                "请到 设置页 → steamcmd 程序，填入 steamcmd 的"
+                "完整路径（Windows=steamcmd.exe；Linux=steamcmd / "
+                "steamcmd.sh）。")
             return
         if not Path(exe).is_file():
             QMessageBox.warning(

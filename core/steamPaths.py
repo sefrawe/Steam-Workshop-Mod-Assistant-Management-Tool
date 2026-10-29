@@ -123,19 +123,30 @@ def refresh_download_dir(
         return stored, False
     return fresh, fresh != stored
 
+def steamcmd_exe_names() -> tuple[str, ...]:
+    """本平台认可的 steamcmd 可执行文件名（文件夹补全/探测用）。
+    Windows：steamcmd.exe；Linux：steamcmd（32 位二进制，apt 包或官方
+    tar 解压）与 steamcmd.sh（官方 tar 里的启动脚本）。"""
+    if os.name == "nt":
+        return ("steamcmd.exe",)
+    return ("steamcmd", "steamcmd.sh")
+
+
 def ensure_steamcmd_exe(path: str) -> str:
-    """T21①：把"文件夹"形态的 steamcmd 路径补全成完整 exe 路径。
-    """
-    """设置页允许直接填"包含 steamcmd.exe 的文件夹"（用户已拍板），
+    """T21①：把"文件夹"形态的 steamcmd 路径补全成完整可执行文件路径。
+
+    设置页允许直接填"包含 steamcmd 的文件夹"（用户已拍板），
     本函数是唯一补全规则落点，三条规则：
 
     - 传入的是存在的文件 → 原样返回（正常情况，设置页一直这么存）
-    - 传入的是存在的文件夹且里面有 steamcmd.exe → 返回 <文件夹>/steamcmd.exe
-    - 其余（空串、不存在的路径、没有 exe 的文件夹）→ 原样返回——
-      让上游的存在性检查报出真实情况（"文件夹里没有 steamcmd.exe"），
-      好过悄悄拼出一个不存在的路径把问题藏起来
+    - 传入的是存在的文件夹且里面有平台认可的 steamcmd 可执行文件
+      → 返回 <文件夹>/<名字>（Windows 只认 steamcmd.exe；Linux 认
+      steamcmd 与 steamcmd.sh，先命中先得）
+    - 其余（空串、不存在的路径、没有 steamcmd 的文件夹）→ 原样返回——
+      让上游的存在性检查报出真实情况，好过悄悄拼出不存在的路径
 
-    Windows 文件名不区分大小写，steamcmd.EXE / SteamCmd.exe 同样能认出。
+    Windows 文件名不区分大小写，steamcmd.EXE / SteamCmd.exe 同样能认出；
+    Linux 区分大小写，小写标准名都能命中。
     """
     text = str(path or "").strip()
     if not text:
@@ -144,9 +155,10 @@ def ensure_steamcmd_exe(path: str) -> str:
     if p.is_file():
         return str(p)
     if p.is_dir():
-        candidate = p / "steamcmd.exe"
-        if candidate.is_file():
-            return str(candidate)
+        for name in steamcmd_exe_names():
+            candidate = p / name
+            if candidate.is_file():
+                return str(candidate)
     return text
 
 def _tree_size(p: Path) -> int:
