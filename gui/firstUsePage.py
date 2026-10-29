@@ -218,19 +218,6 @@ class FirstUsePage(QWidget):
         row2.addStretch(1)
         box2.addLayout(row2)
 
-        # ③ 连接卡：状态 + 跳联接检测页（V2：原连接指引对话框退役，
-        # 页面版能力一致——检测通过会自动记录游戏读取目录）
-        self._d3, box3 = self._make_card("step3", "③ 接通游戏读取目录")
-        row3 = QHBoxLayout()
-        self._btn_link = QPushButton("打开联接检测页…")
-        self._btn_link.setToolTip("跳到「联接检测」页（与「游戏」菜单的"
-                                  "连接指引同一落点）：判定游戏读取目录"
-                                  "与下载目录的联接状态，按步骤接通；"
-                                  "检测通过会自动记录")
-        self._btn_link.clicked.connect(self.link_guide_requested.emit)
-        row3.addWidget(self._btn_link)
-        row3.addStretch(1)
-        box3.addLayout(row3)
         # ③ 连接卡：状态 + 跳联接检测页 + 重新检查（联接检测页写库
         # 后本页不广播不自动知道——切回本页有进页钩子兜底，按钮再
         # 给个手动对账口，从检测页回来点一下即亮绿）
@@ -260,9 +247,10 @@ class FirstUsePage(QWidget):
         self._intake_detail.setStyleSheet(f"border:none; font-size: {font_px(12)}px;")
         box4.addWidget(self._intake_detail)
         row_dir = QHBoxLayout()
-        # ④ 目录框 = 可编辑下拉：注册表 + libraryfolders.vdf 探测到的
-        # 客户端库预填成候选；设置里存过的排最前；都失败就空着手填——
-        # 探测是预填便利，手填能力永不删
+        # ④ 目录框 = 可编辑下拉：客户端库探测（Windows 注册表 /
+        # Linux 常见路径）+ libraryfolders.vdf 登记，预填成候选；
+        # 设置里存过的排最前；都失败就空着手填——探测是预填便利，
+        # 手填能力永不删
         self._dir_edit = QComboBox(self)
         self._dir_edit.setEditable(True)
         self._dir_edit.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
@@ -275,7 +263,10 @@ class FirstUsePage(QWidget):
                 seen.add(cand.casefold())
                 self._dir_edit.addItem(cand)
         self._dir_edit.lineEdit().setPlaceholderText(
-            "Steam 客户端库目录，如 D:\\SteamLibrary——"
+            ("Steam 客户端库目录，如 D:\\SteamLibrary——"
+             "选库根、steamapps 或 workshop 层都行（可手动输入）")
+            if os.name == "nt" else
+            "Steam 客户端库目录，如 ~/.local/share/Steam——"
             "选库根、steamapps 或 workshop 层都行（可手动输入）")
         row_dir.addWidget(self._dir_edit, 1)
         self._btn_browse = QPushButton("浏览…", self)
