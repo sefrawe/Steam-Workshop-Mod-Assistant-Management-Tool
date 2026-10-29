@@ -3,6 +3,9 @@
 Windows 打包继续用仓库根的「Steam Workshop Mod Assistant Management Tool V2.spec」，
 两者互不影响。
 
+用法（在仓库根执行）：
+    pyinstaller --noconfirm --clean packaging/linux/SteamWorkshopTool-linux.spec
+
 Linux 侧说明：
 - pexpect 是纯 Python 包，用 collect_all 兜住其数据/动态导入；
 - pywinauto/pyautogui/pyperclip 是 Windows 专属功能（core/tabCollector 惰性导入，
@@ -12,9 +15,16 @@ Linux 侧说明：
 - 无 version.txt（那是 Windows VSVersionInfo 格式，Linux 不适用）。
 """
 
+import os
+
 from PyInstaller.utils.hooks import collect_all, collect_data_files
 
-datas = [("icon/icon.png", "icon")]
+# SPEC 是 PyInstaller 注入的本 spec 文件绝对路径。spec 位于
+# packaging/linux/ 下，上两级就是仓库根——无论从哪个目录调用都成立
+_SPEC_DIR = os.path.dirname(os.path.abspath(SPEC))  # …/packaging/linux
+PROJECT_ROOT = os.path.dirname(os.path.dirname(_SPEC_DIR))  # 仓库根
+
+datas = [(os.path.join(PROJECT_ROOT, "icon", "icon.png"), "icon")]
 binaries = []
 hiddenimports = ["psutil"]
 
@@ -25,8 +35,8 @@ binaries += pexpect_bins
 hiddenimports += pexpect_hidden
 
 a = Analysis(
-    ["main.py"],
-    pathex=[],
+    [os.path.join(PROJECT_ROOT, "main.py")],
+    pathex=[PROJECT_ROOT],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -56,7 +66,12 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=["icon/icon.png"],
+    # Windows 的 EXE 图标只收 .exe/.ico（png 会直接报错）；本 spec 面向
+    # Linux 构建，png 交给 AppImage 的 desktop/icon 机制处理。在 Windows
+    # 上做结构化构建测试时跳过 icon，走 PyInstaller 默认图标。
+    icon=(
+        [os.path.join(PROJECT_ROOT, "icon", "icon.png")]
+        if os.name != "nt" else None),
 )
 
 coll = COLLECT(
