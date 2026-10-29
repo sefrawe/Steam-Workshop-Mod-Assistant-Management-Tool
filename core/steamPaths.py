@@ -339,13 +339,15 @@ def junction_state(link_path: str | None, target_dir: str | None) -> JunctionRep
         return JunctionReport("empty_dir" if empty else "real_dir", "")
     return JunctionReport("file", "")  # 极端形态（设备等），按占用处理
 def _steam_install_dir() -> str | None:
-    r"""读注册表拿 Steam 客户端安装目录
-    （HKCU\Software\Valve\Steam 的 SteamPath 值）。
-    非 Windows / 没装 Steam / 读失败 → None（调用方降级手填）。"""
+    r"""找 Steam 客户端安装目录。
+    Windows：读注册表（HKCU\Software\Valve\Steam 的 SteamPath 值）。
+    Linux：探测常见安装位置（~/.steam/steam、~/.local/share/Steam、
+    Flatpak/Snap 布局），返回第一个盘上存在的目录。
+    没装 Steam / 读失败 / 全落空 → None（调用方降级手填）。"""
     try:
         import winreg
-    except ImportError:  # 非 Windows 平台：项目不支持（Won't），空手而归
-        return None
+    except ImportError:  # 非 Windows：走常见路径探测
+        return _posix_steam_install_dir()
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                             r"Software\Valve\Steam") as key:
@@ -354,6 +356,27 @@ def _steam_install_dir() -> str | None:
         return None
     text = str(value or "").strip()
     return text or None
+
+
+def _posix_steam_install_dir() -> str | None:
+    r"""Linux 常见 Steam 安装位置探测（只 is_dir 探测，绝不写）。
+    覆盖：传统 ~/.steam/steam、新默认 ~/.local/share/Steam、
+    Flatpak 与 Snap 布局。返回第一个存在的目录；全落空 → None。"""
+    home = Path.home()
+    candidates = (
+        home / ".steam" / "steam",
+        home / ".local" / "share" / "Steam",
+        home / ".var" / "app" / "com.valvesoftware.Steam"
+        / ".local" / "share" / "Steam",
+        home / ".var" / "app" / "com.valvesoftware.Steam"
+        / ".steam" / "steam",
+        home / "snap" / "steam" / "common" / ".local" / "share" / "Steam",
+        home / "snap" / "steam" / "common" / ".steam" / "steam",
+    )
+    for cand in candidates:
+        if cand.is_dir():
+            return str(cand)
+    return None
 
 
 def _read_library_vdf(steam_dir: Path) -> list[str]:
@@ -383,9 +406,9 @@ def _read_library_vdf(steam_dir: Path) -> list[str]:
 
 def client_library_roots(*, install_dir: str | None = None) -> list[str]:
     r"""Steam 客户端库根目录候选清单（首次使用向导第④步自动探测用）。
-    来源两路合并：① Steam 安装主目录（注册表，或测试注入的 install_dir）；
-    ② 主目录 steamapps\libraryfolders.vdf 里登记的其余库
-    （用户把游戏装到 D:\ 等其他盘时登记在此）。
+    来源两路合并：① Steam 安装主目录（Windows 注册表 / Linux 常见路径
+    探测，或测试注入的 install_dir）；② 主目录 steamapps/libraryfolders.vdf
+    里登记的其余库（用户把游戏装到其他盘/其他挂载点时登记在此）。
     边界约定：
     - 只读：注册表只读一个值、vdf 只读一个文件，绝不写、绝不动 Steam
       客户端的任何东西——与决策 21 单源架构不冲突：这里只为"读客户端
