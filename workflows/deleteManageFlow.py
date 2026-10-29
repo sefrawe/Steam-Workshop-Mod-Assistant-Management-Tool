@@ -460,7 +460,7 @@ def _find_acf(report: InventoryReport, steamcmd_path: str | None) -> Path | None
     steamcmd 账本记录，无事可移。"""
     dd = str(report.download_dir or "").strip()
     if dd:
-        hit = steamPaths.locate_acf(Path(dd).parent, report.game_id)
+        hit = steamPaths.locate_acf(Path(dd).parent.parent, report.game_id)
         if hit is not None:
             return hit
     return steamPaths.locate_acf(steamcmd_path, report.game_id)
