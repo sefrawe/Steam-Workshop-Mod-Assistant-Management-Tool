@@ -19,6 +19,11 @@ steamcmd 的行为与手动双击完全一致：逐行吐输出、自己回显�
 - ConPTY 输出统一是 UTF-8，pywinpty 直接返回 str，
   不再需要 UTF-8/GBK 两级解码。
 
+跨平台收口（2026-10 Linux 移植）：PTY 引擎已抽象到 gui/ptyBackend.py
+——Windows 用 pywinpty（ConPTY），Linux/macOS 用 pexpect。本面板只
+依赖统一的 read / write / isalive / terminate / exitstatus 接口；
+下文所有 winpty 细节是 Windows 引擎的历史依据，不是面板的直接依赖。
+
 分工口径（"终端看原文、运行日志说人话"两层不混）：
 - 本面板的输出区一字不差显示 steamcmd 的原文——你复制到黑色
   窗口里能看到的，这里也能看到，排查问题时要的就是这份原汁原味；
@@ -81,11 +86,10 @@ from core.urlParser import parse_lines
 from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
 
-try:
-    from winpty import PtyProcess
-except ImportError:
-    # 没装 pywinpty：软件照常启动，点"启动 steamcmd"时给出安装指引
-    PtyProcess = None
+# PTY 引擎统一走 gui/ptyBackend.py（跨平台收口）：Windows 用
+# pywinpty（ConPTY）、Linux/macOS 用 pexpect；本面板不直接认识
+# 任何一家的 API，缺依赖时由后端给安装指引。
+from gui import ptyBackend
 
 # 登录命令在设置里的键名（与设置页字段同名，两处拼写必须一致）
 _LOGIN_CMD_KEY = "steamcmd_login_cmd"
@@ -364,11 +368,11 @@ class TerminalDock(QWidget):
     def _on_start(self) -> None:
         if self._is_running():
             return
-        if PtyProcess is None:
+        if not ptyBackend.pty_available():
             QMessageBox.warning(
                 self, "缺少组件",
-                "终端功能需要 pywinpty 库（Windows 伪控制台），"
-                "当前环境未安装。\n请先执行：\n  pip install pywinpty\n"
+                "终端功能需要伪控制台依赖，当前环境未安装。\n"
+                f"请先执行：\n  {ptyBackend.pty_install_hint()}\n"
                 "装好后重启本软件。")
             return
 
@@ -406,11 +410,11 @@ class TerminalDock(QWidget):
 
         try:
             # argv 用列表形式：路径带空格时字符串形式会被拆坏。
-            # dimensions 见文件头实操细节 3；cwd 设为 steamcmd 所在
+            # 终端尺寸见文件头实操细节 3；cwd 设为 steamcmd 所在
             # 目录，让它自己的日志/缓存写在熟悉的位置
-            pty = PtyProcess.spawn(
+            pty = ptyBackend.spawn_pty(
                 [exe], cwd=str(Path(exe).parent),
-                dimensions=(_PTY_ROWS, _PTY_COLS))
+                rows=_PTY_ROWS, cols=_PTY_COLS)
         except Exception as exc:
             self._log.error(f"steamcmd 启动失败：{exc}")
             QMessageBox.warning(self, "无法启动", f"steamcmd 启动失败：{exc}")
