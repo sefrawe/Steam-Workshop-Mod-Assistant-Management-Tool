@@ -107,4 +107,4 @@ EOF
           name: linux-packages
           path: |
             SteamWorkshopTool-x86_64.AppImage
-            steamworkshoptool_2.0.0_amd64.deb
+            steamworkshoptool_*_amd64.deb
