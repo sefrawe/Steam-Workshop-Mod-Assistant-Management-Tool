@@ -173,7 +173,7 @@ class JunctionCheckPage(QWidget):
         h.addWidget(QLabel("游戏 mod 目录（联接所在位置）：", row))
         self._input = QLineEdit(row)
         self._input.setPlaceholderText(
-            r"如 C:\Users\<用户名>\Documents\Paradox Interactive\Crusader Kings III\mod")
+            r"Windows 如 C:\Users\<用户名>\Documents\Paradox Interactive\Crusader Kings III\mod；Linux 如 ~/.local/share/Paradox Interactive/Crusader Kings III/mod")
         self._input.returnPressed.connect(self._on_check)
         self._input.textEdited.connect(self._on_edited)
         h.addWidget(self._input, 1)

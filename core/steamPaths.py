@@ -51,7 +51,8 @@ def _paths_eq(a: str, b: str) -> bool:
     return a == b
 
 def steamcmd_root(steamcmd_path: str | None) -> Path | None:
-    """steamcmd.exe 完整路径 → 其所在目录（steamcmd 根）。
+    """steamcmd 可执行文件完整路径 → 其所在目录（steamcmd 根）。
+    Windows=steamcmd.exe，Linux=steamcmd / steamcmd.sh（见 steamcmd_exe_names）。
 
     填了路径但文件暂不存在也照常返回目录：布局推导不依赖文件存在，
     用户可能正准备去下载 steamcmd，先把目录结构定下来。

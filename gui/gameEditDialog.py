@@ -133,8 +133,8 @@ class GameEditDialog(QDialog):
         # 这就是连接指引里要填的那个路径——游戏从这里读 mod
         self._gm_edit = QLineEdit(self._orig_gm)
         self._gm_edit.setPlaceholderText(
-            r"游戏自己的 mod 文件夹，如 C:\Users\<用户名>\Documents\..."
-            "（可留空）")
+            r"游戏自己的 mod 文件夹，Windows 如 C:\Users\<用户名>\Documents\...；"
+            r"Linux 如 ~/.local/share/Paradox Interactive/…/mod（可留空）")
         form.addRow("游戏 mod 目录", self._wrap_with_browse(self._gm_edit))
 
         # ---- 备份目录：自由编辑，保存前弹影响确认 ----
