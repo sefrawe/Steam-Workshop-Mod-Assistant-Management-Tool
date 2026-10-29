@@ -14,6 +14,16 @@ sudo apt install steamcmd   # 缺依赖时按提示补装，常见：lib32gcc-s1
 
 仅浏览/管理已有账本不需要 steamcmd。
 
+## 0.5 前置：中文显示（重要）
+
+界面是中文，Mint 默认不装中文字体时会满屏方块（豆腐块）：
+
+```bash
+sudo apt install fonts-noto-cjk
+```
+
+装完重启应用即生效。
+
 ## 1. 源码运行（开发者 / M4 测试）
 
 ```bash
@@ -69,6 +79,15 @@ sudo apt -f install    # 若提示缺依赖
 | Mod 目录联接 | junction（mklink /J） | 符号链接（ln -s，M3.6 移植） |
 | 深浅色跟随 | Windows 注册表 | Qt 主题探测（M3 移植） |
 | Steam 路径探测 | 注册表 | 手填 steamcmd 路径 |
+
+## 疑难排查
+
+- **AppImage 双击没反应 / 报 FUSE 错误**：缺 libfuse2。`sudo apt install libfuse2`；或临时 `./SteamWorkshopTool-x86_64.AppImage --appimage-extract-and-run` 运行。
+- **界面字体方块**：见 §0.5，装 fonts-noto-cjk。
+- **steamcmd 起不来（登录页点启动没反应）**：32 位架构没配好，回 §0 跑 `sudo dpkg --add-architecture i386 && sudo apt update`；先在终端里确认 `steamcmd` 能进到 `Steam>` 提示符。
+- **终端面板乱码/对不齐**：面板用等宽字体（monospace 别名），确认系统装了任一等宽字体（fonts-dejavu-core 或 fonts-noto-cjk-mono）。
+- **窗口渲染异常**：`QT_QPA_PLATFORM=xcb ./SteamWorkshopTool-x86_64.AppImage` 强制 X11（Mint Cinnamon 默认即 X11，一般用不到）。
+- **找不到 Steam 路径**：Linux 版不读注册表，路径一律手填（设置页指定 steamcmd 与游戏库位置）。
 
 ## 卸载
 

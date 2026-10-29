@@ -62,6 +62,7 @@ steamcmd 在跑时弹窗警告，用户确认后放行。
 不得已才用的手段。
 """
 
+import os
 import re
 import time
 from pathlib import Path
@@ -284,7 +285,10 @@ class TerminalDock(QWidget):
         self._view.setReadOnly(True)
         self._view.setMaximumBlockCount(5000)
         self._view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        font = QFont("Consolas")
+        # Windows 用 Consolas（原设计）；Linux 没有该字体，用 fontconfig
+        # 的 monospace 别名（任何发行版都会解析到一款等宽字体），
+        # 避免 steamcmd 输出对齐塌成比例字体
+        font = QFont("Consolas" if os.name == "nt" else "monospace")
         font.setStyleHint(QFont.StyleHint.Monospace)
         self._view.setFont(font)
         root.addWidget(self._view, 1)
