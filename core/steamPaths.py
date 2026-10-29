@@ -555,7 +555,7 @@ def locate_acf(base_path: str | Path | None, app_id: int) -> Path | None:
       填 workshop 层  → <层>\\appworkshop_<appid>.acf
 
     游戏档案的 download_dir 指向 workshop\\content\\<appid>，所以调用方
-    传 Path(game.download_dir).parent（= workshop 层）即可命中第三种。
+    传 Path(game.download_dir).parent.parent（= workshop 层）即可命中第三种。
 
     找不到返回 None——不是错误：可能 steamcmd 没配、该游戏从没下载过、
     或下载目录被挪过，由调用方决定怎么提示，这里不弹窗不打日志。
