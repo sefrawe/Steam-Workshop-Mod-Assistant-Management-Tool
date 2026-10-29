@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QVBoxLayout,
 )
+from core import netGate
 from core.modRepository import ModRepository
 from core.steamApiClient import SteamApiClient
 
@@ -298,8 +299,15 @@ class GameAddDialog(QDialog):
     # ---------- 关闭时别把查名线程晾在半空 ----------
 
     def _wait_lookup(self) -> None:
-        if self._thread is not None and self._thread.isRunning():
-            self._thread.wait(1500)  # 查询通常秒回，1.5 秒是宽限
+        w = self._thread
+        if w is not None and w.isRunning():
+            # 查询通常秒回，1.5 秒是宽限；等不到 = Steam 超时重试
+            # 可能还要跑几十秒——把线程交 netGate.park 保活，绝不让
+            # 运行中的 QThread 落空引用被回收（Linux 上当场闪退，
+            # QThread: Destroyed while thread is still running）。
+            # 线程只联网不写库，进程退场守卫会随 os._exit 带走。
+            if not w.wait(1500):
+                netGate.park(w)
 
     def reject(self) -> None:
         self._wait_lookup()
