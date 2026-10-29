@@ -37,6 +37,25 @@ pip install -r requirements.txt
 python main.py
 ```
 
+**完全离线变体（U 盘套件）**：把 `linux-port-20261030.bundle` 与
+`wheels/`（全部依赖的 Linux 安装包，约 260 MB，支持 Python 3.10/3.12）
+拷到 U 盘，Mint 上：
+
+```bash
+git clone /media/你/优盘/linux-port-20261030.bundle SteamWorkshopTool
+cd SteamWorkshopTool && git checkout linux-port
+python3 -m venv .venv && source .venv/bin/activate
+pip install --no-index --find-links=/media/你/优盘/wheels wheel setuptools
+pip install --no-index --find-links=/media/你/优盘/wheels --no-build-isolation \
+    PySide6-Essentials PySide6-Addons shiboken6 requests loguru \
+    pyqtdarktheme-fork vdf truststore psutil pyautogui pyperclip pexpect pytest
+python main.py
+```
+
+（套件里个别纯 Python 包是源码包，`--no-build-isolation` + 先装
+setuptools/wheel 即可离线构建；打包工具 pyinstaller 不在套件内——
+运行/测试用不到。）
+
 源码模式数据就放在项目目录里（data/、config/），与 Windows 便携模式一致。
 
 ## 2. AppImage（下载即用，推荐）
