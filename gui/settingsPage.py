@@ -32,6 +32,7 @@ steam_client_library 只关 Steam 客户端的订阅记录，与 steamcmd
 说明（灰、11px，文本就是 _FIELDS 的 hint），校验状态单独一行、
 只对已填内容说话——说明层常驻、校验层按需，两层不互相顶掉。
 """
+import os
 import time
 from pathlib import Path
 
@@ -356,7 +357,7 @@ class SettingsPage(QWidget):
         self._theme_combo.addItem("深色", "dark")
         self._theme_combo.addItem("亮色", "light")
         self._theme_combo.setToolTip(
-            "跟随系统：Windows 深浅色切换时软件跟着变（推荐）；\n"
+            "跟随系统：系统深浅色切换时软件跟着变（推荐）；\n"
             "深色 / 亮色：固定配色，切换即时生效并记住")
         theme_row.addWidget(self._theme_combo)
         theme_row.addStretch(1)
@@ -597,9 +598,12 @@ class SettingsPage(QWidget):
             if d.exists():
                 start = str(d)
         if is_file:
+            # Windows 只认 .exe；Linux 的 steamcmd 无扩展名（steamcmd /
+            # steamcmd.sh），过滤器按平台给，避免 Mint 上选不到程序
+            flt = ("可执行程序 (*.exe);;所有文件 (*.*)" if os.name == "nt"
+                   else "steamcmd 程序 (steamcmd steamcmd.sh);;所有文件 (*)")
             path, _flt = QFileDialog.getOpenFileName(
-                self, "选择程序", start,
-                "可执行程序 (*.exe);;所有文件 (*.*)")
+                self, "选择程序", start, flt)
         else:
             path = QFileDialog.getExistingDirectory(self, "选择文件夹", start)
         if path:
