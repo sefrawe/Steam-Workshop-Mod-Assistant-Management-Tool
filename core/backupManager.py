@@ -77,7 +77,8 @@ _RC_FAIL_THRESHOLD = 8
 _PATH_WARN_LEN = 240
 
 # steamcmd 进程名（不带 .exe，比对时统一小写）
-_STEAMCMD_PROC = "steamcmd.exe"
+_STEAMCMD_PROC = "steamcmd.exe"    # Windows
+_STEAMCMD_PROC_POSIX = "steamcmd"  # Linux/macOS：可执行文件不带 .exe
 
 
 # ============ 公共：steamcmd 进程检测（R7，三方共用） ============
@@ -85,7 +86,8 @@ _STEAMCMD_PROC = "steamcmd.exe"
 def steamcmd_running() -> bool:
     """steamcmd 是否正在运行。核验 / 备份 / 扫描横幅三方共用（R7）。
 
-    实现：psutil 扫一遍进程名，等于 steamcmd.exe 即 True。
+    实现：psutil 扫一遍进程名，等于 steamcmd（Windows 带 .exe、
+    POSIX 不带——两个名字都认）即 True。
     进程在遍历期间退出 / 权限不够 → 跳过该条，不影响整体判断。
     """
     for proc in psutil.process_iter(attrs=["name"]):
@@ -93,7 +95,7 @@ def steamcmd_running() -> bool:
             name = (proc.info.get("name") or "").lower()
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-        if name == _STEAMCMD_PROC:
+        if name in (_STEAMCMD_PROC, _STEAMCMD_PROC_POSIX):
             return True
     return False
 

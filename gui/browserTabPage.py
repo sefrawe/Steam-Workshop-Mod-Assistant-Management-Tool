@@ -143,6 +143,10 @@ class BrowserTabPage(QWidget):
         呼吸 + 停止按钮可点。留在主线程是刻意的——pywinauto/pyautogui
         直接操纵系统级窗口键盘，与工作线程混用会互相打架；Esc /
         FAILSAFE / 停止按钮三路中断都靠事件循环活着。"""
+        unsupported = tabCollector.unsupported_reason()
+        if unsupported:
+            QMessageBox.information(self, "本平台不支持实时采集", unsupported)
+            return
         missing = tabCollector.missing_packages()
         if missing:
             QMessageBox.warning(

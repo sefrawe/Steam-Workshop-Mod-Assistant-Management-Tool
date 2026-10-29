@@ -22,6 +22,7 @@
 取舍（与 1.5 相同）：绕回起点按（标题,网址）对判定——若两个相邻
 标签标题与网址全同会提前收工；拿不到网址的标签跳过。
 """
+import sys
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -35,6 +36,16 @@ def missing_packages() -> list[str]:
     import importlib.util
     return [n for n in REQUIRED_PACKAGES
             if importlib.util.find_spec(n) is None]
+
+
+def unsupported_reason() -> str | None:
+    """当前平台能否跑实时采集；不能时返回给人看的原因，能则 None。
+    Linux/macOS：窗口自动化走 pywinauto UIA，是 Windows 专属——
+    "平台不支持"比"缺依赖"更根本，GUI 应先查这个再查缺包。"""
+    if sys.platform != "win32":
+        return ("实时采集依赖 Windows 窗口自动化（pywinauto），"
+                "当前平台不支持。")
+    return None
 
 
 @dataclass
@@ -216,7 +227,10 @@ class EdgeDriver:
 
     def esc_pressed(self) -> bool:
         """Esc 键是否正被按下（Win32 GetAsyncKeyState，零新依赖）。
-        仅作中断探测：拿不到键盘状态就按"没按"处理。"""
+        仅作中断探测：拿不到键盘状态就按"没按"处理。非 Windows 没有
+        这个 API，同样按"没按"处理。"""
+        if sys.platform != "win32":
+            return False
         try:
             import ctypes
             return bool(ctypes.windll.user32.GetAsyncKeyState(0x1B)

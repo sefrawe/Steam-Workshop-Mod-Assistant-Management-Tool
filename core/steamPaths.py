@@ -42,6 +42,14 @@ from typing import NamedTuple
 import shutil  # 决策 100：清缓存删目录树用
 import vdf     # ValvePython：解析 libraryfolders.vdf 与 acf（读 acf 的同一份依赖，零新增）
 
+
+def _paths_eq(a: str, b: str) -> bool:
+    """路径相等判定：Windows 大小写不敏感（casefold，R14），
+    Linux 文件系统大小写敏感、不做折叠。"""
+    if os.name == "nt":
+        a, b = a.casefold(), b.casefold()
+    return a == b
+
 def steamcmd_root(steamcmd_path: str | None) -> Path | None:
     """steamcmd.exe 完整路径 → 其所在目录（steamcmd 根）。
 
@@ -252,8 +260,8 @@ def junction_state(link_path: str | None, target_dir: str | None) -> JunctionRep
     1. 任一侧为空 → no_target / missing（防御口径，对话框不会在空输入
        时调到这里）
     2. 游戏 mod 目录是链接（os.readlink 成功）：两侧 realpath 归一化后
-       casefold 比较（R14），相等 → linked，不等 → wrong_target。悬空
-       链接同样能解析、能比较，不会崩
+       平台化比较（_paths_eq：Windows casefold，Linux 不折叠），相等
+       → linked，不等 → wrong_target。悬空链接同样能解析、能比较，不会崩
     3. 游戏 mod 目录不是链接 → 先查反向拓扑（下载目录是否是链接），
        再退回普通形态判定：
        - 下载目录是链接且解析结果 == 游戏 mod 目录 → 已按反向拓扑接通：
@@ -290,7 +298,7 @@ def junction_state(link_path: str | None, target_dir: str | None) -> JunctionRep
         pass  # 不是链接，落入下面的反向 / 普通形态判定
     else:
         resolved_link = os.path.realpath(str(p))
-        if resolved_link.casefold() == resolved_target.casefold():
+        if _paths_eq(resolved_link, resolved_target):
             return JunctionReport("linked", resolved_link)
         return JunctionReport("wrong_target", resolved_link)
 
@@ -300,7 +308,7 @@ def junction_state(link_path: str | None, target_dir: str | None) -> JunctionRep
     except OSError:
         pass
     else:
-        if resolved_target.casefold() == os.path.realpath(str(p)).casefold():
+        if _paths_eq(resolved_target, os.path.realpath(str(p))):
             if p.is_dir():
                 return JunctionReport("linked_reverse", resolved_target)
             if not p.exists():
