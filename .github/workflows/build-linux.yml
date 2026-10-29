@@ -83,9 +83,14 @@ Comment=Steam Workshop Mod Assistant Management Tool (Linux port)
 EOF
           cp icon/icon.png \
              deb/usr/share/icons/hicolor/256x256/apps/steamworkshoptool.png
-          cat > deb/DEBIAN/control <<'EOF'
+          VER="${GITHUB_REF_NAME#v}"
+          case "$VER" in
+            [0-9]*.*) ;;
+            *) VER="2.0.0" ;;   # workflow_dispatch（无 tag）时回退
+          esac
+          cat > deb/DEBIAN/control <<EOF
 Package: steamworkshoptool
-Version: 2.0.0
+Version: $VER
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -95,7 +100,7 @@ Description: Steam Workshop Mod Assistant Management Tool (Linux port)
  Steam 工坊 Mod 助理管理工具：steamcmd 下载 Mod 的入账、备份、恢复、
  防复活与清理。数据存放在 ~/.local/share/SteamWorkshopTool/（XDG）。
 EOF
-          dpkg-deb --build deb steamworkshoptool_2.0.0_amd64.deb
+          dpkg-deb --build deb "steamworkshoptool_${VER}_amd64.deb"
 
       - uses: actions/upload-artifact@v4
         with:
