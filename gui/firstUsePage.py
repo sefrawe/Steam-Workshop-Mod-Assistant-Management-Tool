@@ -202,19 +202,6 @@ class FirstUsePage(QWidget):
         row2.addStretch(1)
         box2.addLayout(row2)
 
-        # ③ 连接卡：状态 + 跳联接检测页（V2：原连接指引对话框退役，
-        # 页面版能力一致——检测通过会自动记录游戏读取目录）
-        self._d3, box3 = self._make_card("step3", "③ 接通游戏读取目录")
-        row3 = QHBoxLayout()
-        self._btn_link = QPushButton("打开联接检测页…")
-        self._btn_link.setToolTip("跳到「联接检测」页（与「游戏」菜单的"
-                                  "连接指引同一落点）：判定游戏读取目录"
-                                  "与下载目录的联接状态，按步骤接通；"
-                                  "检测通过会自动记录")
-        self._btn_link.clicked.connect(self.link_guide_requested.emit)
-        row3.addWidget(self._btn_link)
-        row3.addStretch(1)
-        box3.addLayout(row3)
         # ③ 连接卡：状态 + 跳联接检测页 + 重新检查（联接检测页写库
         # 后本页不广播不自动知道——切回本页有进页钩子兜底，按钮再
         # 给个手动对账口，从检测页回来点一下即亮绿）
