@@ -55,23 +55,27 @@ jobs:
       - name: Build AppImage
         run: |
           set -eux
-          # appimagetool 连续版；优先 gh 下载（走 GITHUB_TOKEN，不吃匿名限流），
-          # 失败退回 curl（-f：HTTP 错误即报错，不再静默下载 403 的 HTML 垃圾）
-          if ! gh release download continuous \
-               --repo AppImage/appimagetool \
-               --pattern 'appimagetool-x86_64.AppImage' \
-               --output appimagetool; then
-            curl -fsSL --retry 5 --retry-all-errors \
-              -A 'GitHubActions' \
-              https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
-              -o appimagetool
-          fi
+          # appimagetool 连续版（curl -f：HTTP 错误即报错，避免静默下载 403 的 HTML）
+          curl -fsSL --retry 3 \
+            -A 'GitHubActions' \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -o appimagetool
           chmod +x appimagetool
-          file appimagetool   # 确认真下载到 ELF，而非被限流的 HTML
-          export APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64
-          ./appimagetool AppDir SteamWorkshopTool-x86_64.AppImage
-        env:
-          GH_TOKEN: ${{ github.token }}
+          ls -l appimagetool
+          file appimagetool
+          head -c 64 appimagetool | od -c | head -n 4
+          export ARCH=x86_64
+          # 方式1：EXTRACT_AND_RUN 直接跑（免 FUSE）
+          if ! APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir SteamWorkshopTool-x86_64.AppImage \
+               2>appimagetool1.err; then
+            echo "::error::appimagetool 直接运行失败：$(head -n 8 appimagetool1.err | tr '\n' ' ' | cut -c1-500)"
+            # 方式2：解包后直跑内部 AppRun，完全绕开 AppImage 运行时
+            ./appimagetool --appimage-extract 2>appimagetool2.err || {
+              echo "::error::appimagetool 解包失败：$(head -n 8 appimagetool2.err | tr '\n' ' ' | cut -c1-500)"; exit 1; }
+            ./squashfs-root/AppRun AppDir SteamWorkshopTool-x86_64.AppImage 2>appimagetool3.err || {
+              echo "::error::AppRun 构建失败：$(head -n 8 appimagetool3.err | tr '\n' ' ' | cut -c1-500)"; exit 1; }
+          fi
+          ls -l SteamWorkshopTool-x86_64.AppImage
 
       - name: Build deb
         run: |
