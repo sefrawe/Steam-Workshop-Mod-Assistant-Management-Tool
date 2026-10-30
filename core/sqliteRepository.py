@@ -31,7 +31,7 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 
-from core import constants
+from core import appPaths, constants
 from core.modRepository import (
     ALLOWED_ORDERS,
     BackupOverviewRow,
@@ -114,7 +114,10 @@ class SQLiteRepository(ModRepository):
         if version == 0:
             # 空库 → 跑 schema.sql 建表（脚本自己会把 user_version 置 1）。
             # 幂等：重复打开同一个空库不报错，测试里可以随便造临时库
-            schema = (Path(__file__).parent / "schema.sql").read_text(
+            # 资源路径唯一定义点（T17）：打包运行时从 _MEIPASS 取，
+            # 源码运行从仓库根取——不能写死 __file__（打包后 .py 都收进
+            # PYZ，数据文件不会跟着它走）
+            schema = appPaths.resource_path("core/schema.sql").read_text(
                 encoding="utf-8")
             self._conn.executescript(schema)
         elif version == 1:

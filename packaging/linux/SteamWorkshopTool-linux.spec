@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Linux 打包 spec（PyInstaller onedir → AppImage / deb 的上游产物）。
+"""Linux 打包 spec（PyInstaller onedir → AppImage 的上游产物）。
+AppImage 是唯一维护的 Linux 格式（deb 已从 build-linux.yml 移除：
+U 盘 live 系统里 deb 装进系统盘、重启即失，单文件 AppImage 随 U 盘走）。
 Windows 打包继续用仓库根的「Steam Workshop Mod Assistant Management Tool V2.spec」，
 两者互不影响。
 
@@ -24,7 +26,13 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files
 _SPEC_DIR = os.path.dirname(os.path.abspath(SPEC))  # …/packaging/linux
 PROJECT_ROOT = os.path.dirname(os.path.dirname(_SPEC_DIR))  # 仓库根
 
-datas = [(os.path.join(PROJECT_ROOT, "icon", "icon.png"), "icon")]
+datas = [
+    (os.path.join(PROJECT_ROOT, "icon", "icon.png"), "icon"),
+    # 建库脚本：sqliteRepository 开空库时经 appPaths.resource_path 读取。
+    # PyInstaller 只自动收 .py，数据文件必须显式声明——漏了它，打包版
+    # 首次建档就是 FileNotFoundError（v2.0.8 实测翻过车）。
+    (os.path.join(PROJECT_ROOT, "core", "schema.sql"), "core"),
+]
 binaries = []
 hiddenimports = ["psutil"]
 

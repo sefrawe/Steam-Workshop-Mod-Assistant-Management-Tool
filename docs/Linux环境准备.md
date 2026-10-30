@@ -68,15 +68,8 @@ chmod +x SteamWorkshopTool-x86_64.AppImage
 AppImage 本体是只读挂载，**数据在 ~/.local/share/SteamWorkshopTool/**（设置
 `XDG_DATA_HOME` 环境变量可改位置）。
 
-## 3. deb（系统级安装）
-
-```bash
-sudo dpkg -i steamworkshoptool_2.1.0_amd64.deb
-sudo apt -f install    # 若提示缺依赖
-```
-
-程序装在 /opt/steamworkshoptool/，命令 `steamworkshoptool`（或应用菜单启动）。
-**数据同样在 ~/.local/share/SteamWorkshopTool/**。
+> AppImage 是唯一维护的 Linux 打包格式（deb 已于 v2.0.9 从构建流水线移除）：
+> U 盘 live 系统里 deb 装进系统盘、重启即失；单文件 AppImage 随 U 盘走，双击即用。
 
 ## 数据位置一览
 
@@ -84,7 +77,7 @@ sudo apt -f install    # 若提示缺依赖
 |---|---|
 | 源码（python main.py） | 项目目录（data/、config/） |
 | Windows 打包（便携版） | exe 所在文件夹（原设计不变） |
-| Linux 打包（AppImage/deb） | `$XDG_DATA_HOME/SteamWorkshopTool/` 或 `~/.local/share/SteamWorkshopTool/` |
+| Linux 打包（AppImage） | `$XDG_DATA_HOME/SteamWorkshopTool/` 或 `~/.local/share/SteamWorkshopTool/` |
 
 账本 mods.db、全局设置 GlobalSettings.json、备份都在数据根下，卸载/升级不丢数据。
 
@@ -111,4 +104,3 @@ sudo apt -f install    # 若提示缺依赖
 ## 卸载
 
 - AppImage：删掉 .AppImage 文件 + 数据目录 `~/.local/share/SteamWorkshopTool/`。
-- deb：`sudo apt remove steamworkshoptool`；数据目录按需手动删。
