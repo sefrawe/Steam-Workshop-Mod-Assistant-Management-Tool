@@ -9,6 +9,11 @@
 （SNSS v3）上三轮真机验证 0 结果——块流不可读、zlib 假设失败、
 零明文网址。用户旧 1.5 同机多日稳定，事实胜于考古。
 
+Linux 补充（2.1.0 轮）：Firefox 的会话存档（recovery.jsonlz4）与
+Edge SNSS 是两回事——官方 mozLz4 格式、运行中约每 15 秒自动保存，
+直读稳定可靠；Linux/mac 的采集由 FirefoxSessionDriver 承担（只读
+文件，不占鼠标键盘），Windows 仍走 EdgeDriver 键盘走查，一字未动。
+
 代价（界面文案同步声明）：
 - 采集期间占用鼠标键盘（Edge 窗口自己切换，人别动）；
 - 紧急刹车两条：Alt+Tab 切回本工具点【停止采集】；或鼠标甩到
@@ -22,9 +27,11 @@
 取舍（与 1.5 相同）：绕回起点按（标题,网址）对判定——若两个相邻
 标签标题与网址全同会提前收工；拿不到网址的标签跳过。
 """
+import json
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 # 实时采集的第三方依赖（真驱动用；psutil 项目 requirements 里已有）
 REQUIRED_PACKAGES = ("pywinauto", "pyautogui", "pyperclip", "psutil")
@@ -38,14 +45,19 @@ def missing_packages() -> list[str]:
             if importlib.util.find_spec(n) is None]
 
 
-def unsupported_reason() -> str | None:
-    """当前平台能否跑实时采集；不能时返回给人看的原因，能则 None。
-    Linux/macOS：窗口自动化走 pywinauto UIA，是 Windows 专属——
-    "平台不支持"比"缺依赖"更根本，GUI 应先查这个再查缺包。"""
+def missing_packages_message() -> str | None:
+    """点采集前的统一体检：缺依赖时返回可直接弹窗的完整文案，None=放行。
+    只看 Windows 走查路线的四个包——Linux/mac 走 FirefoxSessionDriver
+    会话直读，不依赖它们（lz4 只在读压缩会话时才要，缺失由驱动给指引）。"""
     if sys.platform != "win32":
-        return ("实时采集依赖 Windows 窗口自动化（pywinauto），"
-                "当前平台不支持。")
-    return None
+        return None
+    missing = missing_packages()
+    if not missing:
+        return None
+    return ("实时采集缺 " + "、".join(missing) + "。\n\n"
+            "安装命令（复制到 cmd 执行）：\n"
+            "pip install pywinauto pyautogui pyperclip psutil\n\n"
+            "装完后无需重启本工具，再点一次本按钮即可继续。")
 
 
 @dataclass
@@ -237,3 +249,104 @@ class EdgeDriver:
                         & 0x8000)
         except Exception:
             return False
+
+
+class FirefoxSessionDriver:
+    """Linux/macOS 的真驱动：直读 Firefox 会话存档拿"当前打开的标签页"。
+
+    V1 否掉会话路线针对的是 Edge 的 SNSS v3（三轮真机 0 结果）；Firefox
+    的 recovery.jsonlz4 是另一回事——官方格式（mozLz4 头 + lz4 块压缩
+    的 JSON），运行中约每 15 秒自动保存，含全部窗口/标签的网址与标题，
+    多年稳定。只读文件：不占鼠标键盘、不动浏览器窗口，也不要求 Firefox
+    正开着（正常退出后的存档照样在）。隐私窗口读不到（Firefox 本就不
+    把私有会话写盘）；存档最多落后真实状态一个保存周期（~15 秒）。
+    """
+
+    _MAGIC = b"mozLz40\0"  # 魔数 8B + 未压缩大小 uint32 LE + lz4 块
+
+    def __init__(self, profile_root: Path | None = None) -> None:
+        # profile_root 是测试注入点；None = 按平台找真实 Firefox 档案目录
+        self._profile_root = profile_root
+
+    def _candidate_roots(self) -> list[Path]:
+        """Firefox 档案目录的三种安装形态：deb/官方包、snap、flatpak。"""
+        if self._profile_root is not None:
+            return [self._profile_root]
+        home = Path.home()
+        return [home / ".mozilla" / "firefox",
+                home / "snap" / "firefox" / "common" / ".mozilla" / "firefox",
+                home / ".var" / "app" / "org.mozilla.firefox"
+                / ".mozilla" / "firefox"]
+
+    def _session_files(self) -> list[Path]:
+        """全部候选档案的会话文件，按修改时间新→旧。recovery.jsonlz4 =
+        运行中的实时存档；没有（Firefox 已正常关闭）就退 previous.jsonlz4
+        = 上次正常退出时的存档。"""
+        out: list[Path] = []
+        for root in self._candidate_roots():
+            if not root.is_dir():
+                continue
+            for prof in root.iterdir():
+                ss = prof / "sessionstore-backups"
+                for name in ("recovery.jsonlz4", "previous.jsonlz4"):
+                    f = ss / name
+                    if f.is_file():
+                        out.append(f)
+        out.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        return out
+
+    @classmethod
+    def _decode(cls, data: bytes) -> dict:
+        """mozLz4 → dict；也收未压缩 JSON（测试直塞明文用）。"""
+        if data[:8] == cls._MAGIC:
+            try:
+                import lz4.block
+            except ImportError as exc:
+                raise CollectError(
+                    "读到 Firefox 压缩会话，但缺 lz4 库：\n"
+                    "pip install lz4\n装完再点一次即可。") from exc
+            size = int.from_bytes(data[8:12], "little")
+            raw = lz4.block.decompress(data[12:], uncompressed_size=size)
+        else:
+            raw = data
+        return json.loads(raw.decode("utf-8"))
+
+    def collect(self, *, max_tabs: int = 300) -> list[CollectedTab]:
+        """全部档案的全部窗口的全部标签（每标签只取当前页，不走浏览
+        历史），网址去重、http/https 门槛、300 上限——产物口径与
+        Windows 走查路线一致。"""
+        files = self._session_files()
+        if not files:
+            raise CollectError(
+                "未发现 Firefox 会话文件——请确认装了 Firefox 且打开过"
+                "标签页（正在运行或正常关闭过都行）。用的若是 Edge/Chrome，"
+                "本功能暂不支持。")
+        out: list[CollectedTab] = []
+        seen: set[str] = set()
+        for f in files:
+            try:
+                data = self._decode(f.read_bytes())
+            except CollectError:
+                raise  # 缺 lz4 这类"要人动手"的指引必须冒出来
+            except Exception:
+                continue  # 单个档案损坏换下一个，绝不因一个坏档全灭
+            for win in data.get("windows", []):
+                for tab in win.get("tabs", []):
+                    entries = tab.get("entries") or []
+                    idx = tab.get("index") or len(entries)
+                    if not 1 <= idx <= len(entries):
+                        continue
+                    cur = entries[idx - 1]
+                    url = cur.get("url") or ""
+                    if (url.startswith(("http://", "https://"))
+                            and url not in seen):
+                        seen.add(url)
+                        out.append(CollectedTab(
+                            url, cur.get("title") or ""))
+                        if len(out) >= max_tabs:
+                            return out
+        if not out:
+            raise CollectError(
+                "Firefox 会话里没有可用的 http(s) 标签页"
+                "（可能全停在空白页或浏览器内部页）。")
+        return out

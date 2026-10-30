@@ -351,18 +351,9 @@ class AddModPage(QWidget):
         """弹出浏览器选择器（对话框内嵌，不跳页）。弹之前先查依赖：
         没装就地弹窗教安装——功能模块要能独立走到头，小白不需要理解
         基础功能页。"""
-        unsupported = tabCollector.unsupported_reason()
-        if unsupported:
-            QMessageBox.information(self, "本平台不支持实时采集", unsupported)
-            return
-        missing = tabCollector.missing_packages()
-        if missing:
-            QMessageBox.information(
-                self, "需要先安装采集依赖",
-                "实时采集缺 " + "、".join(missing) + "。\n\n"
-                                                    "安装命令（复制到 cmd 执行）：\n"
-                                                    "pip install pywinauto pyautogui pyperclip psutil\n\n"
-                                                    "装完后无需重启本工具，再点一次本按钮即可继续。")
+        msg = tabCollector.missing_packages_message()
+        if msg:
+            QMessageBox.information(self, "需要先安装采集依赖", msg)
             return
         self.open_browser_picker.emit()
 

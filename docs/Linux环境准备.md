@@ -86,7 +86,7 @@ AppImage 本体是只读挂载，**数据在 ~/.local/share/SteamWorkshopTool/**
 | 功能 | Windows | Linux |
 |---|---|---|
 | steamcmd 终端（下载页） | ConPTY（winpty） | pexpect（M2 移植） |
-| 实时采集（浏览器页签） | pywinauto UIA | **不支持**——入口弹「本平台不支持实时采集」，需手动录入 |
+| 实时采集（浏览器页签） | Edge 键盘走查（pywinauto UIA） | Firefox 会话直读（读 recovery.jsonlz4，不占鼠标键盘；2.1.0 轮移植） |
 | 备份/恢复引擎 | robocopy | shutil.copytree（M3.5 移植，语义等价） |
 | Mod 目录联接 | junction（mklink /J） | 符号链接（ln -s，M3.6 移植） |
 | 深浅色跟随 | Windows 注册表 | Qt 主题探测（M3 移植） |
