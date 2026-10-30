@@ -55,11 +55,23 @@ jobs:
       - name: Build AppImage
         run: |
           set -eux
-          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
-            -O appimagetool
+          # appimagetool 连续版；优先 gh 下载（走 GITHUB_TOKEN，不吃匿名限流），
+          # 失败退回 curl（-f：HTTP 错误即报错，不再静默下载 403 的 HTML 垃圾）
+          if ! gh release download continuous \
+               --repo AppImage/appimagetool \
+               --pattern 'appimagetool-x86_64.AppImage' \
+               --output appimagetool; then
+            curl -fsSL --retry 5 --retry-all-errors \
+              -A 'GitHubActions' \
+              https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+              -o appimagetool
+          fi
           chmod +x appimagetool
+          file appimagetool   # 确认真下载到 ELF，而非被限流的 HTML
           export APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64
           ./appimagetool AppDir SteamWorkshopTool-x86_64.AppImage
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Build deb
         run: |
