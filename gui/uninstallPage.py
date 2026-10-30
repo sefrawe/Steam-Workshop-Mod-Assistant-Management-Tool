@@ -26,6 +26,7 @@ gui/uninstallPage.py · 左导航「分步向导」组：绿色软件的"反安�
 零接线成本）。盘点只 stat 文件元数据不读内容，毫秒级，主线程直调
 （与退场盘点 survey 同一口径，不值得开线程）。
 """
+import os
 from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
@@ -156,8 +157,10 @@ class UninstallPage(QWidget):
         row2.addStretch(1)
         box2.addLayout(row2)
 
-        # ---- 卡③：注册表指路 ----
-        self._d3, _ = self._make_card("step3", "③ 注册表残留（仅旧版本用户）")
+        # ---- 卡③：注册表指路（Windows 专属概念；Linux 显示说明）----
+        _d3_title = ("③ 注册表残留（仅旧版本用户）" if os.name == "nt"
+                     else "③ 界面记忆残留（仅旧 Windows 版本用户）")
+        self._d3, _ = self._make_card("step3", _d3_title)
 
         root.addStretch(1)
 
@@ -174,7 +177,16 @@ class UninstallPage(QWidget):
             + ("（文件已生成）" if exists
                else "（还没有这个文件——首次改动面板布局/窗口大小后才创建）"),
             _C_MUTED)
-        # 卡③：注册表键路径 + 有无残留
+        # 卡③：注册表键路径 + 有无残留。注册表是 Windows 专属概念：
+        # Linux 的界面记忆走配置文件（卡② 已指路），本卡直接说明
+        if os.name != "nt":
+            self._set_card(
+                self._d3,
+                "当前平台不使用注册表（那是旧 Windows 版本的记忆落点）；"
+                "Linux 的界面记忆按惯例存入配置文件——位置见卡②，"
+                "删除软件文件夹/配置文件即清零。",
+                _C_OK)
+            return
         key_path = registry_key_display()
         if registry_has_keys():
             self._set_card(

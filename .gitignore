@@ -18,6 +18,7 @@ data/cache/
 build/
 dist/
 *.spec
+!packaging/linux/*.spec
 
 # 日志
 logs/

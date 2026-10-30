@@ -32,6 +32,7 @@ steam_client_library 只关 Steam 客户端的订阅记录，与 steamcmd
 说明（灰、11px，文本就是 _FIELDS 的 hint），校验状态单独一行、
 只对已填内容说话——说明层常驻、校验层按需，两层不互相顶掉。
 """
+import os
 import time
 from pathlib import Path
 
@@ -44,7 +45,8 @@ from PySide6.QtWidgets import (
 
 from gui.theme import reapply_theme, font_px
 from core.appSettings import DEFAULTS, AppSettings
-from core.steamPaths import clear_download_caches, ensure_steamcmd_exe
+from core.steamPaths import (clear_download_caches, ensure_steamcmd_exe,
+                              steamcmd_exe_names)
 from gui.logBus import LogBus
 
 # key / 中文标签 / 空值时的灰色提示 / 字段类型
@@ -54,9 +56,10 @@ from gui.logBus import LogBus
 # 注意：这里的键集必须与 appSettings.DEFAULTS 完全一致（决策 12）
 _FIELDS = [
     ("steamcmd_path", "steamcmd 程序",
-     "steamcmd.exe 完整路径（请先自行安装），"
-     "如 C:\\Program Files\\SteamCMD\\steamcmd.exe；"
-     "也可以直接填包含 steamcmd.exe 的文件夹——保存时自动补全 exe 文件名。"
+     "steamcmd 完整路径（请先自行安装），"
+     "Windows 如 C:\\Program Files\\SteamCMD\\steamcmd.exe；"
+     "Linux 如 /usr/games/steamcmd 或 ~/steamcmd/steamcmd.sh。"
+     "也可以直接填包含 steamcmd 的文件夹——保存时自动补全文件名。"
      "命令生成、本地扫描、新建档案时的下载目录推导，都按它定位",
      "file"),
 
@@ -354,7 +357,7 @@ class SettingsPage(QWidget):
         self._theme_combo.addItem("深色", "dark")
         self._theme_combo.addItem("亮色", "light")
         self._theme_combo.setToolTip(
-            "跟随系统：Windows 深浅色切换时软件跟着变（推荐）；\n"
+            "跟随系统：系统深浅色切换时软件跟着变（推荐）；\n"
             "深色 / 亮色：固定配色，切换即时生效并记住")
         theme_row.addWidget(self._theme_combo)
         theme_row.addStretch(1)
@@ -464,12 +467,15 @@ class SettingsPage(QWidget):
             if kind == "file":
                 p = Path(text)
                 if p.is_dir():
-                    # T21①：文件夹输入——里面有没有 steamcmd.exe 决定
-                    # 是"可识别"还是"缺东西"，两种状态分开说清楚
-                    has_exe = (p / "steamcmd.exe").is_file()
-                    valid = has_exe
-                    ok_text = "已识别文件夹：保存时自动补全为其中的 steamcmd.exe"
-                    bad_text = ("文件夹里没有找到 steamcmd.exe"
+                    # T21①：文件夹输入——里面有没有平台认可的 steamcmd
+                    # 可执行文件决定是"可识别"还是"缺东西"
+                    names = steamcmd_exe_names()
+                    found = next((n for n in names
+                                  if (p / n).is_file()), None)
+                    valid = found is not None
+                    ok_text = f"已识别文件夹：保存时自动补全为其中的 {found}"
+                    bad_text = ("文件夹里没有找到 steamcmd 可执行文件（"
+                                + " / ".join(names) + "）"
                                 "（可先保存，使用相关功能前修正即可）")
                 else:
                     valid = p.is_file()
@@ -592,9 +598,12 @@ class SettingsPage(QWidget):
             if d.exists():
                 start = str(d)
         if is_file:
+            # Windows 只认 .exe；Linux 的 steamcmd 无扩展名（steamcmd /
+            # steamcmd.sh），过滤器按平台给，避免 Mint 上选不到程序
+            flt = ("可执行程序 (*.exe);;所有文件 (*.*)" if os.name == "nt"
+                   else "steamcmd 程序 (steamcmd steamcmd.sh);;所有文件 (*)")
             path, _flt = QFileDialog.getOpenFileName(
-                self, "选择程序", start,
-                "可执行程序 (*.exe);;所有文件 (*.*)")
+                self, "选择程序", start, flt)
         else:
             path = QFileDialog.getExistingDirectory(self, "选择文件夹", start)
         if path:

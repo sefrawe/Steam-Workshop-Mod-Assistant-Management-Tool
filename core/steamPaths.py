@@ -42,8 +42,17 @@ from typing import NamedTuple
 import shutil  # 决策 100：清缓存删目录树用
 import vdf     # ValvePython：解析 libraryfolders.vdf 与 acf（读 acf 的同一份依赖，零新增）
 
+
+def _paths_eq(a: str, b: str) -> bool:
+    """路径相等判定：Windows 大小写不敏感（casefold，R14），
+    Linux 文件系统大小写敏感、不做折叠。"""
+    if os.name == "nt":
+        a, b = a.casefold(), b.casefold()
+    return a == b
+
 def steamcmd_root(steamcmd_path: str | None) -> Path | None:
-    """steamcmd.exe 完整路径 → 其所在目录（steamcmd 根）。
+    """steamcmd 可执行文件完整路径 → 其所在目录（steamcmd 根）。
+    Windows=steamcmd.exe，Linux=steamcmd / steamcmd.sh（见 steamcmd_exe_names）。
 
     填了路径但文件暂不存在也照常返回目录：布局推导不依赖文件存在，
     用户可能正准备去下载 steamcmd，先把目录结构定下来。
@@ -115,19 +124,30 @@ def refresh_download_dir(
         return stored, False
     return fresh, fresh != stored
 
+def steamcmd_exe_names() -> tuple[str, ...]:
+    """本平台认可的 steamcmd 可执行文件名（文件夹补全/探测用）。
+    Windows：steamcmd.exe；Linux：steamcmd（32 位二进制，apt 包或官方
+    tar 解压）与 steamcmd.sh（官方 tar 里的启动脚本）。"""
+    if os.name == "nt":
+        return ("steamcmd.exe",)
+    return ("steamcmd", "steamcmd.sh")
+
+
 def ensure_steamcmd_exe(path: str) -> str:
-    """T21①：把"文件夹"形态的 steamcmd 路径补全成完整 exe 路径。
-    """
-    """设置页允许直接填"包含 steamcmd.exe 的文件夹"（用户已拍板），
+    """T21①：把"文件夹"形态的 steamcmd 路径补全成完整可执行文件路径。
+
+    设置页允许直接填"包含 steamcmd 的文件夹"（用户已拍板），
     本函数是唯一补全规则落点，三条规则：
 
     - 传入的是存在的文件 → 原样返回（正常情况，设置页一直这么存）
-    - 传入的是存在的文件夹且里面有 steamcmd.exe → 返回 <文件夹>/steamcmd.exe
-    - 其余（空串、不存在的路径、没有 exe 的文件夹）→ 原样返回——
-      让上游的存在性检查报出真实情况（"文件夹里没有 steamcmd.exe"），
-      好过悄悄拼出一个不存在的路径把问题藏起来
+    - 传入的是存在的文件夹且里面有平台认可的 steamcmd 可执行文件
+      → 返回 <文件夹>/<名字>（Windows 只认 steamcmd.exe；Linux 认
+      steamcmd 与 steamcmd.sh，先命中先得）
+    - 其余（空串、不存在的路径、没有 steamcmd 的文件夹）→ 原样返回——
+      让上游的存在性检查报出真实情况，好过悄悄拼出不存在的路径
 
-    Windows 文件名不区分大小写，steamcmd.EXE / SteamCmd.exe 同样能认出。
+    Windows 文件名不区分大小写，steamcmd.EXE / SteamCmd.exe 同样能认出；
+    Linux 区分大小写，小写标准名都能命中。
     """
     text = str(path or "").strip()
     if not text:
@@ -136,9 +156,10 @@ def ensure_steamcmd_exe(path: str) -> str:
     if p.is_file():
         return str(p)
     if p.is_dir():
-        candidate = p / "steamcmd.exe"
-        if candidate.is_file():
-            return str(candidate)
+        for name in steamcmd_exe_names():
+            candidate = p / name
+            if candidate.is_file():
+                return str(candidate)
     return text
 
 def _tree_size(p: Path) -> int:
@@ -252,8 +273,8 @@ def junction_state(link_path: str | None, target_dir: str | None) -> JunctionRep
     1. 任一侧为空 → no_target / missing（防御口径，对话框不会在空输入
        时调到这里）
     2. 游戏 mod 目录是链接（os.readlink 成功）：两侧 realpath 归一化后
-       casefold 比较（R14），相等 → linked，不等 → wrong_target。悬空
-       链接同样能解析、能比较，不会崩
+       平台化比较（_paths_eq：Windows casefold，Linux 不折叠），相等
+       → linked，不等 → wrong_target。悬空链接同样能解析、能比较，不会崩
     3. 游戏 mod 目录不是链接 → 先查反向拓扑（下载目录是否是链接），
        再退回普通形态判定：
        - 下载目录是链接且解析结果 == 游戏 mod 目录 → 已按反向拓扑接通：
@@ -290,7 +311,7 @@ def junction_state(link_path: str | None, target_dir: str | None) -> JunctionRep
         pass  # 不是链接，落入下面的反向 / 普通形态判定
     else:
         resolved_link = os.path.realpath(str(p))
-        if resolved_link.casefold() == resolved_target.casefold():
+        if _paths_eq(resolved_link, resolved_target):
             return JunctionReport("linked", resolved_link)
         return JunctionReport("wrong_target", resolved_link)
 
@@ -300,7 +321,7 @@ def junction_state(link_path: str | None, target_dir: str | None) -> JunctionRep
     except OSError:
         pass
     else:
-        if resolved_target.casefold() == os.path.realpath(str(p)).casefold():
+        if _paths_eq(resolved_target, os.path.realpath(str(p))):
             if p.is_dir():
                 return JunctionReport("linked_reverse", resolved_target)
             if not p.exists():
@@ -318,13 +339,15 @@ def junction_state(link_path: str | None, target_dir: str | None) -> JunctionRep
         return JunctionReport("empty_dir" if empty else "real_dir", "")
     return JunctionReport("file", "")  # 极端形态（设备等），按占用处理
 def _steam_install_dir() -> str | None:
-    r"""读注册表拿 Steam 客户端安装目录
-    （HKCU\Software\Valve\Steam 的 SteamPath 值）。
-    非 Windows / 没装 Steam / 读失败 → None（调用方降级手填）。"""
+    r"""找 Steam 客户端安装目录。
+    Windows：读注册表（HKCU\Software\Valve\Steam 的 SteamPath 值）。
+    Linux：探测常见安装位置（~/.steam/steam、~/.local/share/Steam、
+    Flatpak/Snap 布局），返回第一个盘上存在的目录。
+    没装 Steam / 读失败 / 全落空 → None（调用方降级手填）。"""
     try:
         import winreg
-    except ImportError:  # 非 Windows 平台：项目不支持（Won't），空手而归
-        return None
+    except ImportError:  # 非 Windows：走常见路径探测
+        return _posix_steam_install_dir()
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                             r"Software\Valve\Steam") as key:
@@ -333,6 +356,27 @@ def _steam_install_dir() -> str | None:
         return None
     text = str(value or "").strip()
     return text or None
+
+
+def _posix_steam_install_dir() -> str | None:
+    r"""Linux 常见 Steam 安装位置探测（只 is_dir 探测，绝不写）。
+    覆盖：传统 ~/.steam/steam、新默认 ~/.local/share/Steam、
+    Flatpak 与 Snap 布局。返回第一个存在的目录；全落空 → None。"""
+    home = Path.home()
+    candidates = (
+        home / ".steam" / "steam",
+        home / ".local" / "share" / "Steam",
+        home / ".var" / "app" / "com.valvesoftware.Steam"
+        / ".local" / "share" / "Steam",
+        home / ".var" / "app" / "com.valvesoftware.Steam"
+        / ".steam" / "steam",
+        home / "snap" / "steam" / "common" / ".local" / "share" / "Steam",
+        home / "snap" / "steam" / "common" / ".steam" / "steam",
+    )
+    for cand in candidates:
+        if cand.is_dir():
+            return str(cand)
+    return None
 
 
 def _read_library_vdf(steam_dir: Path) -> list[str]:
@@ -362,9 +406,9 @@ def _read_library_vdf(steam_dir: Path) -> list[str]:
 
 def client_library_roots(*, install_dir: str | None = None) -> list[str]:
     r"""Steam 客户端库根目录候选清单（首次使用向导第④步自动探测用）。
-    来源两路合并：① Steam 安装主目录（注册表，或测试注入的 install_dir）；
-    ② 主目录 steamapps\libraryfolders.vdf 里登记的其余库
-    （用户把游戏装到 D:\ 等其他盘时登记在此）。
+    来源两路合并：① Steam 安装主目录（Windows 注册表 / Linux 常见路径
+    探测，或测试注入的 install_dir）；② 主目录 steamapps/libraryfolders.vdf
+    里登记的其余库（用户把游戏装到其他盘/其他挂载点时登记在此）。
     边界约定：
     - 只读：注册表只读一个值、vdf 只读一个文件，绝不写、绝不动 Steam
       客户端的任何东西——与决策 21 单源架构不冲突：这里只为"读客户端

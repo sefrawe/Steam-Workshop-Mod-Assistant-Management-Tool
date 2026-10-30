@@ -1,0 +1,110 @@
+name: build-linux-packages
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller (onedir)
+        run: pyinstaller --noconfirm --clean packaging/linux/SteamWorkshopTool-linux.spec
+
+      - name: Assemble AppDir
+        run: |
+          set -eux
+          mkdir -p AppDir/usr/bin \
+                   AppDir/usr/share/applications \
+                   AppDir/usr/share/icons/hicolor/256x256/apps
+          cp -r dist/SteamWorkshopTool/* AppDir/usr/bin/
+          cp icon/icon.png AppDir/steamworkshoptool.png
+          cp icon/icon.png \
+             AppDir/usr/share/icons/hicolor/256x256/apps/steamworkshoptool.png
+          cat > AppDir/usr/share/applications/steamworkshoptool.desktop <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Steam Workshop Mod Assistant
+          Name[zh_CN]=Steam 工坊 Mod 助理管理工具
+          Exec=SteamWorkshopTool
+          Icon=steamworkshoptool
+          Terminal=false
+          Categories=Utility;
+          Comment=Steam Workshop Mod Assistant Management Tool (Linux port)
+          EOF
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          DIR=$(dirname "$(readlink -f "$0")")
+          exec "$DIR/usr/bin/SteamWorkshopTool" "$@"
+          EOF
+          chmod +x AppDir/AppRun AppDir/usr/bin/SteamWorkshopTool
+
+      - name: Build AppImage
+        run: |
+          set -eux
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -O appimagetool
+          chmod +x appimagetool
+          export APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64
+          ./appimagetool AppDir SteamWorkshopTool-x86_64.AppImage
+
+      - name: Build deb
+        run: |
+          set -eux
+          mkdir -p deb/DEBIAN deb/opt/steamworkshoptool deb/usr/bin \
+                   deb/usr/share/applications \
+                   deb/usr/share/icons/hicolor/256x256/apps
+          cp -r dist/SteamWorkshopTool/* deb/opt/steamworkshoptool/
+          ln -s /opt/steamworkshoptool/SteamWorkshopTool \
+                deb/usr/bin/steamworkshoptool
+          cat > deb/usr/share/applications/steamworkshoptool.desktop <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Steam Workshop Mod Assistant
+          Name[zh_CN]=Steam 工坊 Mod 助理管理工具
+          Exec=steamworkshoptool
+          Icon=steamworkshoptool
+          Terminal=false
+          Categories=Utility;
+          Comment=Steam Workshop Mod Assistant Management Tool (Linux port)
+          EOF
+          cp icon/icon.png \
+             deb/usr/share/icons/hicolor/256x256/apps/steamworkshoptool.png
+          VER="${GITHUB_REF_NAME#v}"
+          case "$VER" in
+            [0-9]*.*) ;;
+            *) VER="2.0.0" ;;   # workflow_dispatch（无 tag）时回退
+          esac
+          cat > deb/DEBIAN/control <<EOF
+          Package: steamworkshoptool
+          Version: $VER
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: sefrawe <2182344099@qq.com>
+          Depends: libc6 (>= 2.31), libgl1, libegl1, libxkbcommon0, libxkbcommon-x11-0, libxcb-cursor0, libdbus-1-3, libfontconfig1, libfreetype6, zlib1g
+          Description: Steam Workshop Mod Assistant Management Tool (Linux port)
+           Steam 工坊 Mod 助理管理工具：steamcmd 下载 Mod 的入账、备份、恢复、
+           防复活与清理。数据存放在 ~/.local/share/SteamWorkshopTool/（XDG）。
+          EOF
+          dpkg-deb --build deb "steamworkshoptool_${VER}_amd64.deb"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            SteamWorkshopTool-x86_64.AppImage
+            steamworkshoptool_*_amd64.deb

@@ -69,7 +69,8 @@ Windows 细节（三个已知坑，比对前必须处理）：
   isjunction 对符号链接也返回 False，两者必须都查
 - os.readlink 对 junction/symlink 可能返回带 \\\\?\\ 扩展前缀的
   路径，剥掉再比；UNC 的扩展形式顺带还原成普通共享路径
-- 路径比对一律 casefold（Windows 路径大小写不敏感）
+- 路径比对：Windows 一律 casefold（大小写不敏感）；Linux 不做
+  折叠（文件系统大小写敏感，Foo/foo 合法并存）
 
 同步执行：全程只做目录列表、存在性检查和 readlink，不读文件内容，
 百条级毫秒完成，不需要线程。
@@ -184,8 +185,9 @@ def _strip_extended_prefix(raw: str) -> str:
 
 
 def _same_path(a: Path, b: Path) -> bool:
-    """Windows 路径相等判断：解析 + casefold（建链接时写的大小写和
-    库里的不一定一致，但指向同一个地方）。"""
+    """同一路径判断：解析后比对。Windows 大小写不敏感——casefold
+    （建链接时写的大小写和库里的不一定一致，但指向同一个地方）；
+    Linux 文件系统大小写敏感，不做折叠。"""
     try:
         sa = a.resolve().as_posix()
     except OSError:
@@ -194,7 +196,9 @@ def _same_path(a: Path, b: Path) -> bool:
         sb = b.resolve().as_posix()
     except OSError:
         sb = b.as_posix()
-    return sa.casefold() == sb.casefold()
+    if os.name == "nt":
+        sa, sb = sa.casefold(), sb.casefold()
+    return sa == sb
 
 
 def verify_junctions(

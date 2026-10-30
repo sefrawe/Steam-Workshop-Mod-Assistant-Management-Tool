@@ -45,6 +45,8 @@ from core.appSettings import AppSettings
 from core.commandBuilder import build_copy_text
 from core.localScanner import locate_acf, scan_acf
 from core.models import Game
+import os
+
 from core.steamPaths import client_library_roots, workshop_content_dir
 from gui.consolePanel import LogBus
 from workflows.intakeFlow import ClientIntakePlan, apply_intake, classify_client_items
@@ -64,16 +66,30 @@ _ID_LIMIT = 20  # 编号最多原样列出多少个，超出折成"…"
 # 访问工坊页的前置）。本页不检测装没装——第三方软件检测不了，也不该
 # 装作能检测；两张卡是纯说明，永远显示
 _GUIDE_STEAMCMD_TITLE = "准备 · 安装 steamcmd"
-_GUIDE_STEAMCMD = (
-    "安装 steamcmd（Steam 命令行工具）是本工具的前置条件："
-    "官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\n"
-    "下载后解压得到steamcmd.exe，先别急着点进去，首次运行会自动安装到当前目录下，应当把它移到一个固定目录（如 D:\\steamcmd）再运行，\n"
-    "请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦；不能装在带中文的路径，会闪退。\n"
-    "调整好位置后运行 steamcmd.exe 让它安装完成，务必关闭watt Toolkit等加速器，否则无法安装，提示无法下载；"
-    "装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；"
-    "额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。千万不能输入中文，否则会一直输出“？？？？？？”只能关闭软件\n"
-    "装好后回下方第①步填路径。"
-)
+if os.name == "nt":
+    _GUIDE_STEAMCMD = (
+        "安装 steamcmd（Steam 命令行工具）是本工具的前置条件："
+        "官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\n"
+        "下载后解压得到steamcmd.exe，先别急着点进去，首次运行会自动安装到当前目录下，应当把它移到一个固定目录（如 D:\\steamcmd）再运行，\n"
+        "请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦；不能装在带中文的路径，会闪退。\n"
+        "调整好位置后运行 steamcmd.exe 让它安装完成，务必关闭watt Toolkit等加速器，否则无法安装，提示无法下载；"
+        "装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；"
+        "额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。千万不能输入中文，否则会一直输出“？？？？？？”只能关闭软件\n"
+        "装好后回下方第①步填路径。"
+    )
+else:
+    _GUIDE_STEAMCMD = (
+        "安装 steamcmd（Steam 命令行工具）是本工具的前置条件："
+        "官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\n"
+        "Linux 版：解压官方 tar 包到固定目录（如 ~/steamcmd），首次使用先补 32 位架构：\n"
+        "  sudo dpkg --add-architecture i386 && sudo apt update\n"
+        "（Debian/Ubuntu/Mint 也可直接 sudo apt install steamcmd，装到 /usr/games/steamcmd）\n"
+        "请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦。\n"
+        "调整好位置后运行一次 ./steamcmd.sh 让它安装完成；\n"
+        "装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；\n"
+        "额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。\n"
+        "装好后回下方第①步填路径（如 ~/steamcmd/steamcmd.sh 或 /usr/games/steamcmd）。"
+    )
 _GUIDE_WATT_TITLE = "推荐 · Watt Toolkit（原 Steam++）"
 _GUIDE_WATT = (
     "Watt Toolkit 是一个网络加速工具，可以加速Steam、github等相关平台。"
@@ -231,9 +247,10 @@ class FirstUsePage(QWidget):
         self._intake_detail.setStyleSheet(f"border:none; font-size: {font_px(12)}px;")
         box4.addWidget(self._intake_detail)
         row_dir = QHBoxLayout()
-        # ④ 目录框 = 可编辑下拉：注册表 + libraryfolders.vdf 探测到的
-        # 客户端库预填成候选；设置里存过的排最前；都失败就空着手填——
-        # 探测是预填便利，手填能力永不删
+        # ④ 目录框 = 可编辑下拉：客户端库探测（Windows 注册表 /
+        # Linux 常见路径）+ libraryfolders.vdf 登记，预填成候选；
+        # 设置里存过的排最前；都失败就空着手填——探测是预填便利，
+        # 手填能力永不删
         self._dir_edit = QComboBox(self)
         self._dir_edit.setEditable(True)
         self._dir_edit.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
@@ -246,7 +263,10 @@ class FirstUsePage(QWidget):
                 seen.add(cand.casefold())
                 self._dir_edit.addItem(cand)
         self._dir_edit.lineEdit().setPlaceholderText(
-            "Steam 客户端库目录，如 D:\\SteamLibrary——"
+            ("Steam 客户端库目录，如 D:\\SteamLibrary——"
+             "选库根、steamapps 或 workshop 层都行（可手动输入）")
+            if os.name == "nt" else
+            "Steam 客户端库目录，如 ~/.local/share/Steam——"
             "选库根、steamapps 或 workshop 层都行（可手动输入）")
         row_dir.addWidget(self._dir_edit, 1)
         self._btn_browse = QPushButton("浏览…", self)

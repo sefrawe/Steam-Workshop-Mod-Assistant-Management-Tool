@@ -52,8 +52,9 @@ core/backupManager.py · 把 mod 的下载内容复制到备份区，可恢复�
   已知限制：中途强杀进程会留下"挪走的旧目录 + 半成品新目录"，
   两者都会被核验页的非数字内容桶报出来——属可接受的崩溃残留。
 
-测试注入口：robocopy 调用走构造参数 runner（默认真 robocopy），
-测试注入假 runner 即可测"拷贝失败回退"，不需要真制造失败。
+测试注入口：复制调用走构造参数 runner（默认平台复制引擎，
+Windows=robocopy，POSIX=shutil.copytree），测试注入假 runner
+即可测"拷贝失败回退"，不需要真制造失败。
 """
 import os
 import shutil
@@ -77,7 +78,8 @@ _RC_FAIL_THRESHOLD = 8
 _PATH_WARN_LEN = 240
 
 # steamcmd 进程名（不带 .exe，比对时统一小写）
-_STEAMCMD_PROC = "steamcmd.exe"
+_STEAMCMD_PROC = "steamcmd.exe"    # Windows
+_STEAMCMD_PROC_POSIX = "steamcmd"  # Linux/macOS：可执行文件不带 .exe
 
 
 # ============ 公共：steamcmd 进程检测（R7，三方共用） ============
@@ -85,7 +87,8 @@ _STEAMCMD_PROC = "steamcmd.exe"
 def steamcmd_running() -> bool:
     """steamcmd 是否正在运行。核验 / 备份 / 扫描横幅三方共用（R7）。
 
-    实现：psutil 扫一遍进程名，等于 steamcmd.exe 即 True。
+    实现：psutil 扫一遍进程名，等于 steamcmd（Windows 带 .exe、
+    POSIX 不带——两个名字都认）即 True。
     进程在遍历期间退出 / 权限不够 → 跳过该条，不影响整体判断。
     """
     for proc in psutil.process_iter(attrs=["name"]):
@@ -93,7 +96,7 @@ def steamcmd_running() -> bool:
             name = (proc.info.get("name") or "").lower()
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-        if name == _STEAMCMD_PROC:
+        if name in (_STEAMCMD_PROC, _STEAMCMD_PROC_POSIX):
             return True
     return False
 
@@ -211,8 +214,9 @@ class BackupManager:
     quota_bytes：全部备份的总量上限字节（保留策略之二，None = 不限）
     steamcmd_path：设置页的 steamcmd 程序路径——档案没配 backup_dir 时
                    按它推导默认备份位置（决策 21⑥）
-    runner：robocopy 调用注入口，签名 (src, dst) -> (退出码, 输出文本)。
-            默认真 robocopy；测试注入假的可测"拷贝失败回退"，不需真制造失败。
+    runner：复制调用注入口，签名 (src, dst) -> (退出码, 输出文本)。
+            默认平台复制引擎（Windows=robocopy，POSIX=shutil.copytree）；
+            测试注入假的可测"拷贝失败回退"，不需真制造失败。
     """
 
     def __init__(
@@ -228,7 +232,7 @@ class BackupManager:
         self._keep = max(1, int(keep_per_mod))
         self._quota = quota_bytes
         self._steamcmd_path = steamcmd_path
-        self._run = runner if runner is not None else self._run_robocopy
+        self._run = runner if runner is not None else self._run_copy
 
     # ---------- 对外：备份 ----------
     def backup_mod(self, mod_id: int, *, note: str | None = None) -> BackupReport:
@@ -662,3 +666,31 @@ class BackupManager:
                "/E", "/MT", "/XJ", "/R:2", "/W:2", "/NFL", "/NDL", "/NP"]
         proc = subprocess.run(cmd, capture_output=True)
         return proc.returncode, _decode(proc.stdout) + _decode(proc.stderr)
+
+    @staticmethod
+    def _run_copy(src: str, dst: str) -> tuple[int, str]:
+        """平台复制引擎分派：Windows 走 robocopy（R5/R10 语义），
+        其余平台走 shutil.copytree。签名与 robocopy 版一致：
+        (src, dst) -> (退出码, 输出文本)，rc 语义统一——
+        0-7 成功（R5 is_success_rc）、8 起失败；copytree 路径
+        成功恒 0，失败恒 8 + 异常文本（robocopy 的 8 正是
+        "有文件没拷成"）。"""
+        if os.name == "nt":
+            return BackupManager._run_robocopy(src, dst)
+        return BackupManager._run_posix_copy(src, dst)
+
+    @staticmethod
+    def _run_posix_copy(src: str, dst: str) -> tuple[int, str]:
+        """POSIX 复制（shutil.copytree）：
+
+        - dirs_exist_ok=True ≈ robocopy /E 的增量合并（目标已有
+          目录时补缺覆盖，不整树先删后拷）
+        - symlinks=True：符号链接按链接复制，不穿透进备份
+          （≈ robocopy /XJ 排除 junction 的 R10 精神）
+        - 失败抛异常 → rc=8 + 异常文本进输出（调用方按 R5 判定，
+          消息可进日志/报告）"""
+        try:
+            shutil.copytree(src, dst, dirs_exist_ok=True, symlinks=True)
+        except Exception as exc:
+            return 8, f"copytree 失败：{exc}"
+        return 0, ""

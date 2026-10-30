@@ -613,7 +613,7 @@ class DeletePage(QWidget):
             QMessageBox.warning(
                 self, "盘点",
                 "尚未设置 steamcmd 程序路径，无法定位 content 目录。\n"
-                "请先到设置页填写 steamcmd 程序（steamcmd.exe）的完整路径。")
+                "请先到设置页填写 steamcmd 程序的完整路径（Windows=steamcmd.exe；Linux=steamcmd / steamcmd.sh）。")
             return
         # 下载目录死路径核对（与扫描本地同款：steamcmd 挪位后重推导并写回）
         effective, changed = steamPaths.refresh_download_dir(

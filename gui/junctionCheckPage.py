@@ -16,9 +16,9 @@ core/steamPaths.junction_state，本文件零判断）：
 
 本页只做四件事：
 1. 实况判定：把游戏 mod 目录的当前路径填进来，判定它处于哪种状态
-2. 产出命令：按状态生成 mklink /J（建链）、rmdir（拆链/移除）、
+2. 产出命令：按状态生成 mklink /J / ln -s（建链）、rmdir / rm（拆链）、
    mkdir（接通悬空反向联接）命令，一键复制。命令永远由用户自己在
-   cmd 里执行——本页全程只读，不做任何盘上写操作
+   终端（Windows=cmd）里执行——本页全程只读，不做任何盘上写操作
 3. 步骤说明：按状态给出对应的操作顺序
 4. 检测通过写档案：判定为"已连接"（正向 linked / 反向
    linked_reverse）时，把该路径写进档案现成的 game_mod_dir 字段
@@ -52,6 +52,8 @@ from PySide6.QtWidgets import (
     QPushButton, QScrollArea, QVBoxLayout, QWidget,QFileDialog
 )
 from pathlib import Path
+import os
+
 from core import steamPaths
 from core.models import Game
 from gui.logBus import LogBus
@@ -74,6 +76,24 @@ _STATE_LOOKS = {
     "no_target": ("#e5484d", "✗ 推导不出下载目录（steamcmd 未配置），档案里也没有记录——"
                   "先到设置页填 steamcmd 程序路径，或重新建档"),
 }
+
+
+def _mklink(link: str, target: str) -> str:
+    """建链命令：Windows=目录联接（junction），POSIX=符号链接。"""
+    if os.name == "nt":
+        return f'cmd /c mklink /J "{link}" "{target}"'
+    return f'ln -s "{target}" "{link}"'
+
+
+def _rmlink(path: str) -> str:
+    """拆链命令：Windows=rmdir（对联接只摘链接本体），POSIX=rm（删符号链接）。"""
+    if os.name == "nt":
+        return f'rmdir "{path}"'
+    return f'rm "{path}"'
+
+
+# 命令执行环境提示词（标题里「在 X 里执行」的 X）
+_TERM = "cmd" if os.name == "nt" else "终端"
 
 
 class JunctionCheckPage(QWidget):
@@ -153,7 +173,7 @@ class JunctionCheckPage(QWidget):
         h.addWidget(QLabel("游戏 mod 目录（联接所在位置）：", row))
         self._input = QLineEdit(row)
         self._input.setPlaceholderText(
-            r"如 C:\Users\<用户名>\Documents\Paradox Interactive\Crusader Kings III\mod")
+            r"Windows 如 C:\Users\<用户名>\Documents\Paradox Interactive\Crusader Kings III\mod；Linux 如 ~/.local/share/Paradox Interactive/Crusader Kings III/mod")
         self._input.returnPressed.connect(self._on_check)
         self._input.textEdited.connect(self._on_edited)
         h.addWidget(self._input, 1)
@@ -231,7 +251,7 @@ class JunctionCheckPage(QWidget):
         t = QLabel("", box)
         t.setStyleSheet("font-weight: 600;")
         btn = QPushButton("复制", box)
-        btn.setToolTip("复制这条命令，粘贴到 cmd 窗口里回车执行。")
+        btn.setToolTip(f"复制这条命令，粘贴到{_TERM}窗口里回车执行。")
         btn.setFixedWidth(64)
         head.addWidget(t, 1)
         head.addWidget(btn)
@@ -347,42 +367,42 @@ class JunctionCheckPage(QWidget):
         if report.state == "linked":
             detail = f"解析目标：{report.detail}"
             show_remove = True
-            remove_title = "拆除命令（如需断开连接才使用；在 cmd 里执行）"
-            remove_cmd = f'rmdir "{link}"'
-            steps = ("当前无需任何操作。若以后想断开：在 cmd 里执行拆除命令——"
-                     "rmdir 只删除联接本身，不会动下载目录里的内容。")
+            remove_title = f"拆除命令（如需断开连接才使用；在{_TERM}里执行）"
+            remove_cmd = _rmlink(link)
+            steps = (f"当前无需任何操作。若以后想断开：在{_TERM}里执行拆除命令——"
+                     "拆链命令只删除链接本身，不会动下载目录里的内容。")
         elif report.state == "linked_reverse":
             # 反向拓扑：联接在下载目录侧，拆除时动的也是那一侧
             detail = f"联接位于（下载目录侧）：{target}"
             show_remove = True
-            remove_title = "拆除命令（如需断开连接才使用；在 cmd 里执行）"
-            remove_cmd = f'rmdir "{target}"'
+            remove_title = f"拆除命令（如需断开连接才使用；在{_TERM}里执行）"
+            remove_cmd = _rmlink(target)
             steps = ("当前无需任何操作：steamcmd 经联接写入，内容实际存放在"
-                     "游戏 mod 目录，游戏直接读真实目录。若以后想断开：在 cmd "
-                     "里执行拆除命令——rmdir 只删除联接本身，不动游戏目录里的"
-                     "内容；拆掉后 steamcmd 下次下载会在原位重建真实下载目录。")
+                     "游戏 mod 目录，游戏直接读真实目录。若以后想断开：在"
+                     f"{_TERM}里执行拆除命令——拆链命令只删除链接本身，不动游戏"
+                     "目录里的内容；拆掉后 steamcmd 下次下载会在原位重建真实下载目录。")
         elif report.state == "linked_reverse_missing":
             # 反向接了一半：只差游戏目录本身。绝不能建议 mklink 游戏→下载
             # （下载目录已是联接，再套一层就是环）——接通方式是补建目录
             detail = f"联接位于（下载目录侧）：{target}"
             show_build = True
             show_remove = True
-            build_title = "接通命令：创建游戏 mod 目录（在 cmd 里执行）"
+            build_title = f"接通命令：创建游戏 mod 目录（在{_TERM}里执行）"
             build_cmd = f'mkdir "{link}"'
             remove_title = "或：拆除下载目录侧的联接（改用其他拓扑前先拆）"
-            remove_cmd = f'rmdir "{target}"'
+            remove_cmd = _rmlink(target)
             steps = ("下载目录侧的联接已经指对了位置，只差游戏 mod 目录本身："
-                     "在 cmd 里执行接通命令，建一个普通文件夹即可接上"
+                     f"在{_TERM}里执行接通命令，建一个普通文件夹即可接上"
                      "（原内容若已被删除则无法找回）。也可以先拆除联接，"
                      "再按正向拓扑重新规划。")
         elif report.state == "wrong_target":
             detail = f"解析目标：{report.detail}"
             show_build = True
             show_remove = True
-            build_title = "第 2 步：建链命令（在 cmd 里执行）"
-            build_cmd = f'cmd /c mklink /J "{link}" "{target}"'
-            remove_title = "第 1 步：拆除现有联接（在 cmd 里执行）"
-            remove_cmd = f'rmdir "{link}"'
+            build_title = f"第 2 步：建链命令（在{_TERM}里执行）"
+            build_cmd = _mklink(link, target)
+            remove_title = f"第 1 步：拆除现有联接（在{_TERM}里执行）"
+            remove_cmd = _rmlink(link)
             steps = ("① 先核对上方的解析目标，确认它确实不是本档案的下载目录；"
                      "② 先拆除再建链。建议 steamcmd 空闲时操作。")
         elif report.state == "wrong_target_reverse":
@@ -391,10 +411,10 @@ class JunctionCheckPage(QWidget):
                       f"解析目标：{report.detail}")
             show_build = True
             show_remove = True
-            build_title = "第 2 步：原地重建反向联接（在 cmd 里执行）"
-            build_cmd = f'cmd /c mklink /J "{target}" "{link}"'
-            remove_title = "第 1 步：拆除指错的联接（在 cmd 里执行）"
-            remove_cmd = f'rmdir "{target}"'
+            build_title = f"第 2 步：原地重建反向联接（在{_TERM}里执行）"
+            build_cmd = _mklink(target, link)
+            remove_title = f"第 1 步：拆除指错的联接（在{_TERM}里执行）"
+            remove_cmd = _rmlink(target)
             steps = ("steamcmd 的内容正写进「解析目标」那个位置，游戏 mod 目录"
                      "接不到。两条路二选一：① 保留反向拓扑——依次执行下面两条"
                      "命令，把下载目录侧的联接原地指对（数据无需搬运；若游戏 "
@@ -405,10 +425,10 @@ class JunctionCheckPage(QWidget):
         elif report.state == "empty_dir":
             show_build = True
             show_remove = True
-            build_title = "第 2 步：建链命令（在 cmd 里执行）"
-            build_cmd = f'cmd /c mklink /J "{link}" "{target}"'
-            remove_title = "第 1 步：移除空目录（在 cmd 里执行）"
-            remove_cmd = f'rmdir "{link}"'
+            build_title = f"第 2 步：建链命令（在{_TERM}里执行）"
+            build_cmd = _mklink(link, target)
+            remove_title = f"第 1 步：移除空目录（在{_TERM}里执行）"
+            remove_cmd = f'rmdir "{link}"'   # 空真实目录：rmdir 两端同语义
             steps = ("① 先执行移除命令——rmdir 只删得动空目录，里面有东西会"
                      "报错拒绝（这是保护）；② 再执行建链命令。"
                      "建议 steamcmd 空闲时操作。")
@@ -417,10 +437,10 @@ class JunctionCheckPage(QWidget):
             show_remove = True
             # 三步重编号：两块命令都带步号，第 1 步搬运只活在说明里——
             # 照页面读必须先看到"第 1 步"
-            build_title = "第 3 步：建链命令（在 cmd 里执行）"
-            build_cmd = f'cmd /c mklink /J "{link}" "{target}"'
-            remove_title = "第 2 步：移除已搬空的目录（在 cmd 里执行）"
-            remove_cmd = f'rmdir "{link}"'
+            build_title = f"第 3 步：建链命令（在{_TERM}里执行）"
+            build_cmd = _mklink(link, target)
+            remove_title = f"第 2 步：移除已搬空的目录（在{_TERM}里执行）"
+            remove_cmd = f'rmdir "{link}"'   # 已搬空的真实目录：rmdir 两端同语义
             # 步骤里直接写明第 1 步搬到哪（路径可选中复制）；
             # rmdir 报错是保护这点一并说清。
             # ★ V2 口径：收编不再走"右键确认（手动）"——统一指路入账中心
@@ -436,10 +456,10 @@ class JunctionCheckPage(QWidget):
                 "第 3 步：执行建链命令。建议 steamcmd 空闲时操作。")
         elif report.state == "missing":
             show_build = True
-            build_title = "建链命令（在 cmd 里执行）"
-            build_cmd = f'cmd /c mklink /J "{link}" "{target}"'
+            build_title = f"建链命令（在{_TERM}里执行）"
+            build_cmd = _mklink(link, target)
             steps = ("① 确认上方路径的上级文件夹已存在（路径拼错是建链失败"
-                     "最常见的原因）；② 在 cmd 里执行建链命令。"
+                     f"最常见的原因）；② 在{_TERM}里执行建链命令。"
                      "建议 steamcmd 空闲时操作。")
         elif report.state == "file":
             steps = ("确认这个文件是什么——若是无关文件，删除或改名后再点"

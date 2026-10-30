@@ -8,12 +8,16 @@ r"""全项目的"数据放哪"只在本模块回答一次（与 steamPaths 管 s
   数据根 = 项目根目录（core/ 的上一级）。data/、config/ 都在项目根，
   与历史行为完全一致，开发环境零影响。
 
-- 打包运行（PyInstaller 出的 exe）：
-  数据根 = exe 所在的文件夹。账本、设置跟着软件走：整个文件夹拷去
-  别的机器，数据原样带走——这就是"便携"的含义。
+- 打包运行（PyInstaller 出的 exe / Linux 包）：
+  Windows：数据根 = exe 所在的文件夹。账本、设置跟着软件走：整个
+  文件夹拷去别的机器，数据原样带走——这就是"便携"的含义。
   为什么不能用程序文件所在的位置：单文件版 exe 每次启动把自己解压
   到临时目录、退出就删，数据写进去等于每次清零；文件夹版的内部
   目录属于"程序尸体"，升级时整个换掉。
+  Linux（AppImage/deb）：程序本体装在只读挂载/系统目录（/opt）里，
+  "数据跟着程序走"写不进去。按 XDG 惯例放用户家目录
+  ~/.local/share/SteamWorkshopTool/（XDG_DATA_HOME 可覆盖）——
+  同样位置可预期、可备份，升级不丢数据。
 
 为什么写不了就拒绝启动、而不是悄悄换地方（比如 %APPDATA%）：
   便携模式的价值就在"数据位置永远可预期"。偷偷搬家，用户日后
@@ -22,13 +26,21 @@ r"""全项目的"数据放哪"只在本模块回答一次（与 steamPaths 管 s
 
 本模块纯逻辑零 Qt：main.py 的启动守卫和 pytest 共用。
 """
+import os
 import sys
 from pathlib import Path
 
 
 def app_root() -> Path:
-    """程序的家目录：源码运行 = 项目根；打包运行 = exe 所在文件夹。"""
+    """程序的家目录：源码运行 = 项目根；打包运行 = exe 所在文件夹
+    （Windows 便携模式）/ XDG 数据目录（Linux 打包，见文件头）。"""
     if getattr(sys, "frozen", False):
+        if sys.platform != "win32":
+            # Linux 打包（AppImage/deb）：程序本体在只读挂载或 /opt，
+            # 数据按 XDG 惯例放用户家目录，位置可预期、可备份
+            xdg_root = os.environ.get("XDG_DATA_HOME") or \
+                str(Path.home() / ".local" / "share")
+            return Path(xdg_root) / "SteamWorkshopTool"
         # PyInstaller 打包后：sys.executable 就是用户双击的那个 exe。
         # 注意不能用 __file__——打包后它指向解包出来的临时/内部目录，
         # 数据写到那里会丢（见文件头说明）
@@ -90,14 +102,20 @@ def writability_problem() -> str | None:
         except OSError as exc:
             # 典型场景：软件被放进 Program Files 等系统目录，
             # 普通权限的进程没有写盘资格
+            if sys.platform == "win32":
+                advice = ("解决办法：把整个软件文件夹移动到一个普通文件夹"
+                          "（例如 D:\\SteamModTool），\n"
+                          "不要放在 Program Files、Windows 等系统目录里，"
+                          "然后重新运行。")
+            else:
+                advice = ("解决办法：确认上面目录的属主是你当前的用户、"
+                          "且可写；\n或设置 XDG_DATA_HOME 环境变量把数据"
+                          "目录指到别处，然后重新运行。")
             return (
                 "程序无法在当前位置保存数据（账本、设置等将无处可写），"
                 "因此拒绝启动。\n\n"
                 f"出问题的目录：{d}\n"
                 f"系统原因：{exc}\n\n"
-                "解决办法：把整个软件文件夹移动到一个普通文件夹"
-                "（例如 D:\\SteamModTool），\n"
-                "不要放在 Program Files、Windows 等系统目录里，"
-                "然后重新运行。"
+                + advice
             )
     return None
