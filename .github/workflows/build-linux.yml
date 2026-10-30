@@ -45,6 +45,10 @@ jobs:
           Categories=Utility;
           Comment=Steam Workshop Mod Assistant Management Tool (Linux port)
           EOF
+          # appimagetool 只在 AppDir 根目录找 *.desktop（AppImage 规范），
+          # usr/share/applications 里的只用于系统集成，必须补一份到根。
+          cp AppDir/usr/share/applications/steamworkshoptool.desktop \
+             AppDir/steamworkshoptool.desktop
           cat > AppDir/AppRun <<'EOF'
           #!/bin/sh
           DIR=$(dirname "$(readlink -f "$0")")
