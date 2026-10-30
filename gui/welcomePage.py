@@ -110,7 +110,7 @@ class WelcomePage(QWidget):
         title.setStyleSheet(f"font-size: {font_px(20)}px; font-weight: 600;")
         text.addWidget(title)
 
-        # 版本号读全局（main.py setApplicationVersion 设定，当前 2.0.0）。
+        # 版本号读全局（main.py setApplicationVersion 设定，当前 2.1.0）。
         # 读不到就不显示这一行——宁可少显示，不显示假信息。
         ver = QApplication.applicationVersion()
         if ver:

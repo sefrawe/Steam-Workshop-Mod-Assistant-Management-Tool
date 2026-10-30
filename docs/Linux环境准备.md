@@ -71,7 +71,7 @@ AppImage 本体是只读挂载，**数据在 ~/.local/share/SteamWorkshopTool/**
 ## 3. deb（系统级安装）
 
 ```bash
-sudo dpkg -i steamworkshoptool_2.0.0_amd64.deb
+sudo dpkg -i steamworkshoptool_2.1.0_amd64.deb
 sudo apt -f install    # 若提示缺依赖
 ```
 
