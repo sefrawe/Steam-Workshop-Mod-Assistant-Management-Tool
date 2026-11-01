@@ -103,37 +103,37 @@ _NAV_WIDTH = 210
 # 改这里即可，树与占位器自动跟。
 # ============================================================
 _PAGE_TITLES: dict[int, str] = {
-    constants.PAGE_WELCOME: "欢迎",
-    constants.PAGE_MOD_LIST: "mod 库",
-    constants.PAGE_ACCOUNT_CENTER: "入账中心",
-    constants.PAGE_UPDATE_CHECK: "更新检测",
-    constants.PAGE_UPDATE_COMPARE: "更新对照",
-    constants.PAGE_ADD_MOD: "加入新 mod",
-    constants.PAGE_DAILY_UPDATE: "日常更新",
-    constants.PAGE_FIRST_USE: "首次使用",
-    constants.PAGE_GAME_EXIT: "游戏退场",
-    constants.PAGE_UNINSTALL: "卸载与清理",
-    constants.PAGE_COMMAND_GEN: "下载命令生成",
+    constants.PAGE_WELCOME: '欢迎',
+    constants.PAGE_MOD_LIST: 'mod 库',
+    constants.PAGE_ACCOUNT_CENTER: '入账中心',
+    constants.PAGE_UPDATE_CHECK: '更新检测',
+    constants.PAGE_UPDATE_COMPARE: '更新对照',
+    constants.PAGE_ADD_MOD: '加入新 mod',
+    constants.PAGE_DAILY_UPDATE: '日常更新',
+    constants.PAGE_FIRST_USE: '首次使用',
+    constants.PAGE_GAME_EXIT: '游戏退场',
+    constants.PAGE_UNINSTALL: '卸载与清理',
+    constants.PAGE_COMMAND_GEN: '下载命令生成',
 
-    constants.PAGE_BACKUP: "备份与恢复",
-    constants.PAGE_BACKUP_OVERVIEW: "备份总览",
-    constants.PAGE_TITLE_CHECK: "标题检测",
-    constants.PAGE_REMOTE_HEALTH: "远端健康",
-    constants.PAGE_DEP_CHECK: "依赖检测",
-    constants.PAGE_EXCEPTION: "异常处置",
-    constants.PAGE_VERIFY: "账实核验",
-    constants.PAGE_JUNCTION_CHECK: "联接检测",
-    constants.PAGE_CLEANUP: "清理与删除",
-    constants.PAGE_PURGED: "已清账管理",
+    constants.PAGE_BACKUP: '备份与恢复',
+    constants.PAGE_BACKUP_OVERVIEW: '备份总览',
+    constants.PAGE_TITLE_CHECK: '标题检测',
+    constants.PAGE_REMOTE_HEALTH: '远端健康',
+    constants.PAGE_DEP_CHECK: '依赖检测',
+    constants.PAGE_EXCEPTION: '异常处置',
+    constants.PAGE_VERIFY: '账实核验',
+    constants.PAGE_JUNCTION_CHECK: '联接检测',
+    constants.PAGE_CLEANUP: '清理与删除',
+    constants.PAGE_PURGED: '已清账管理',
 
-    constants.PAGE_MIGRATION: "换机迁移",
-    constants.PAGE_RESCUE: "恢复旧版本",
-    constants.PAGE_SHARE_LIST: "分享清单",
-    constants.PAGE_STATS: "统计",
-    constants.PAGE_API_KEY: "Steam API 密钥",
-    constants.PAGE_SETTINGS: "设置",
-    constants.PAGE_QUICK_CMD: "快速命令查询",
-    constants.PAGE_BROWSER_TABS: "从浏览器取网址"
+    constants.PAGE_MIGRATION: '换机迁移',
+    constants.PAGE_RESCUE: '恢复旧版本',
+    constants.PAGE_SHARE_LIST: '分享清单',
+    constants.PAGE_STATS: '统计',
+    constants.PAGE_API_KEY: 'Steam API 密钥',
+    constants.PAGE_SETTINGS: '设置',
+    constants.PAGE_QUICK_CMD: '快速命令查询',
+    constants.PAGE_BROWSER_TABS: t('从浏览器取网址')
 }
 
 
@@ -151,24 +151,24 @@ _PAGE_TITLES: dict[int, str] = {
 # 则是开发者视角的词，用户看不懂——两者一并改掉。
 # ============================================================
 _NAV_SCHEMA: list[tuple[str, int | list[int]]] = [
-    ("欢迎", constants.PAGE_WELCOME),
+    ('欢迎', constants.PAGE_WELCOME),
     # 分步向导升到第二位：新用户开荒路径（首次使用 → 加入 mod →
     # 日常更新）是最高频的引导需求，不该沉底
-    ("分步向导", [constants.PAGE_FIRST_USE, constants.PAGE_ADD_MOD,
+    ('分步向导', [constants.PAGE_FIRST_USE, constants.PAGE_ADD_MOD,
                   constants.PAGE_DAILY_UPDATE, constants.PAGE_GAME_EXIT,
                   constants.PAGE_MIGRATION, constants.PAGE_RESCUE,
                   constants.PAGE_UNINSTALL]),
-    ("工作台", [constants.PAGE_MOD_LIST, constants.PAGE_ACCOUNT_CENTER, constants.PAGE_UPDATE_CHECK,
+    ('工作台', [constants.PAGE_MOD_LIST, constants.PAGE_ACCOUNT_CENTER, constants.PAGE_UPDATE_CHECK,
                 constants.PAGE_UPDATE_COMPARE, constants.PAGE_BROWSER_TABS]),
 
-    ("下载与备份", [constants.PAGE_COMMAND_GEN, constants.PAGE_QUICK_CMD,
+    ('下载与备份', [constants.PAGE_COMMAND_GEN, constants.PAGE_QUICK_CMD,
                     constants.PAGE_BACKUP, constants.PAGE_BACKUP_OVERVIEW]),
 
-    ("检测与异常", [constants.PAGE_TITLE_CHECK, constants.PAGE_REMOTE_HEALTH,
+    ('检测与异常', [constants.PAGE_TITLE_CHECK, constants.PAGE_REMOTE_HEALTH,
                     constants.PAGE_DEP_CHECK, constants.PAGE_EXCEPTION]),
-    ("清理与账务", [constants.PAGE_VERIFY, constants.PAGE_JUNCTION_CHECK,
+    ('清理与账务', [constants.PAGE_VERIFY, constants.PAGE_JUNCTION_CHECK,
                     constants.PAGE_CLEANUP, constants.PAGE_PURGED]),
-    ("档案与工具", [constants.PAGE_SHARE_LIST, constants.PAGE_STATS,
+    ('档案与工具', [constants.PAGE_SHARE_LIST, constants.PAGE_STATS,
                     constants.PAGE_API_KEY, constants.PAGE_SETTINGS]),
 ]
 
@@ -176,8 +176,8 @@ _NAV_SCHEMA: list[tuple[str, int | list[int]]] = [
 # 组改名后旧记录里的旧名靠这张表映射到新名；迁移不回写，记录里
 # 旧名长期存在也无害。今后再改组名，在此追加一行即可。
 _LEGACY_GROUP_NAMES: dict[str, str] = {
-    "主循环": "工作台",
-    "功能模块": "分步向导",
+    "主循环": '工作台',
+    "功能模块": '分步向导',
 }
 
 
@@ -194,13 +194,13 @@ def _check_nav() -> None:
             seen.extend(spec)
     unknown = [i for i in seen if i not in _PAGE_TITLES]
     if unknown:
-        raise RuntimeError(f"导航树里有不认识的页面编号：{unknown}")
+        raise RuntimeError((t('导航树里有不认识的页面编号：') + f"{unknown}"))
     dup = sorted({i for i in seen if seen.count(i) > 1})
     if dup:
-        raise RuntimeError(f"导航树里有重复登记的页面：{dup}")
+        raise RuntimeError((t('导航树里有重复登记的页面：') + f"{dup}"))
     missing = sorted(set(_PAGE_TITLES) - set(seen))
     if missing:
-        raise RuntimeError(f"constants 里的页面没进导航树：{missing}")
+        raise RuntimeError((t('constants 里的页面没进导航树：') + f"{missing}"))
 
 
 _check_nav()
@@ -226,12 +226,10 @@ class PlaceholderPage(QWidget):
         super().__init__(parent)
         lay = QVBoxLayout(self)
         lay.addStretch(1)
-        big = QLabel(f"「{title}」页还没有搬迁", self)
+        big = QLabel(('「' + f"{title}" + t('」页还没有搬迁')), self)
         big.setAlignment(Qt.AlignmentFlag.AlignCenter)
         small = QLabel(
-            f"页面编号 {pid}（core/constants PAGE_*）\n"
-            "主窗口骨架轮的占位器——该页搬迁时原位替换，"
-            "导航树与档案广播零改动",
+            (t('页面编号 ') + f"{pid}" + t('（core/constants PAGE_*）\n主窗口骨架轮的占位器——该页搬迁时原位替换，导航树与档案广播零改动')),
             self)
         small.setAlignment(Qt.AlignmentFlag.AlignCenter)
         small.setWordWrap(True)
@@ -244,7 +242,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Steam创意工坊Mod辅助管理工具")
+        self.setWindowTitle(t('Steam创意工坊Mod辅助管理工具'))
         self.resize(1200, 800)
 
         # 设置必须先建：数据库构造时要从中读"快照保留条数"注入
@@ -334,15 +332,15 @@ class MainWindow(QMainWindow):
 
         for name, spec in _NAV_SCHEMA:
             if isinstance(spec, int):
-                item = QTreeWidgetItem([name])
+                item = QTreeWidgetItem([t(name)])
                 item.setData(0, Qt.ItemDataRole.UserRole, spec)
                 self._nav.addTopLevelItem(item)
                 self._nav_items[spec] = item
                 continue
-            group = QTreeWidgetItem([name])
+            group = QTreeWidgetItem([t(name)])
             group.setFlags(Qt.ItemFlag.ItemIsEnabled)  # 组节点不可选中，只折叠
             for pid in spec:
-                child = QTreeWidgetItem([_PAGE_TITLES[pid]])
+                child = QTreeWidgetItem([t(_PAGE_TITLES[pid])])
                 child.setData(0, Qt.ItemDataRole.UserRole, pid)
                 self._nav_items[pid] = child
                 group.addChild(child)
@@ -417,7 +415,7 @@ class MainWindow(QMainWindow):
         """底部控制台停靠窗（控制台轮）：运行日志 + steamcmd 终端。
         objectName 必须设——saveState/restoreState 按 objectName
         记忆停靠布局，缺了它停靠位置/大小/浮动状态都记不住。"""
-        self._dock_console = QDockWidget("控制台", self)
+        self._dock_console = QDockWidget(t('控制台'), self)
         self._dock_console.setObjectName("dock_console")
         self._console = ConsolePanel(self._log, self,
                                      settings=self._settings)
@@ -454,8 +452,7 @@ class MainWindow(QMainWindow):
             # ——自动路（D16 语义原样：直接下载）——
             if self._batch_ctrl.is_busy():
                 self._log.warn(
-                    f"更新下载未开始：已有批次在跑——这 {len(updated_ids)} 个"
-                    "编号已在账本，批次结束后到 mod 库页勾选下载即可")
+                    (t('更新下载未开始：已有批次在跑——这 ') + f"{len(updated_ids)}" + t(' 个编号已在账本，批次结束后到 mod 库页勾选下载即可')))
                 return
             ok = self._batch_ctrl.start_batch(
                 app_id, updated_ids, backup_first=False,
@@ -473,7 +470,7 @@ class MainWindow(QMainWindow):
         if self._update_dialog is not None:
             self._update_dialog.close()  # close 触发 finished → 引用清理
             self._update_dialog = None
-            self._log.info("上一份更新清单被新结果替换（未执行的勾选已作废）")
+            self._log.info(t('上一份更新清单被新结果替换（未执行的勾选已作废）'))
         # 清单要 mod 整行（标题/版本/大小/链接）。逐个现取：检测刚
         # 写完库，取到的就是最新字段；顺序 = 检测报告顺序 = 库内顺序
         mods = []
@@ -495,8 +492,7 @@ class MainWindow(QMainWindow):
         self._update_dialog = dlg
         dlg.show()
         self._log.info(
-            f"检测到 {len(mods)} 个 mod 有新版本——更新确认清单已打开"
-            "（勾选条目、选动作、点【执行选中】）")
+            (t('检测到 ') + f"{len(mods)}" + t(' 个 mod 有新版本——更新确认清单已打开（勾选条目、选动作、点【执行选中】）')))
     def _forward_daily_updates(self, app_id: int, n: int, auto: bool) -> None:
         """把「确有新版本」的结论同步给日常更新模块页的②卡。只在
         两条路真正走得通时调用（见 _on_updates_found 里的两处调用点）；
@@ -521,11 +517,11 @@ class MainWindow(QMainWindow):
         # 清单），这里再校一道——对不上就拒绝，绝不往错档案开批
         if self._current_game is None or self._current_game.app_id != app_id:
             dlg.notify_not_started(
-                "清单归属的档案已不是当前档案——请关掉清单重新检测")
+                t('清单归属的档案已不是当前档案——请关掉清单重新检测'))
             return
         if self._batch_ctrl.is_busy():
             dlg.notify_not_started(
-                "已有批次在跑（底部控制台·下载批次）——等它结束再点执行")
+                t('已有批次在跑（底部控制台·下载批次）——等它结束再点执行'))
             return
         ok = self._batch_ctrl.start_batch(
             app_id, mod_ids,
@@ -538,8 +534,7 @@ class MainWindow(QMainWindow):
         else:
             # 拒绝原因控制器已写进运行日志；清单给常见指引即可
             dlg.notify_not_started(
-                "常见原因 = steamcmd 未启动/未登录、下载目录未设置"
-                "——详见底部控制台·运行日志")
+                t('常见原因 = steamcmd 未启动/未登录、下载目录未设置——详见底部控制台·运行日志'))
 
     def _on_update_dialog_finished(self, _result: int) -> None:
         """清单关闭（点【完成】/点 X/切档案时被关）的统一收尾：清
@@ -859,9 +854,7 @@ class MainWindow(QMainWindow):
         # Ctrl+Shift+F 同效；非模态窗口，开着不影响继续操作 ——
         act_adv = QAction(t("高级筛选(&S)"), self)
         act_adv.setToolTip(
-            "打开 mod 库高级筛选：标题/备注/编号/作者/大小/更新时间/"
-            "标签多条件叠加，与 mod 库页顶栏筛选叠加生效。\n"
-            "非模态窗口——开着可以边看结果边改；快捷键 Ctrl+Shift+F")
+            t('打开 mod 库高级筛选：标题/备注/编号/作者/大小/更新时间/标签多条件叠加，与 mod 库页顶栏筛选叠加生效。\n非模态窗口——开着可以边看结果边改；快捷键 Ctrl+Shift+F'))
         act_adv.setShortcut(QKeySequence("Ctrl+Shift+F"))
         self._act_adv = act_adv  # ⑨c：星标要改这颗动作的文字
 
@@ -930,16 +923,15 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, t("关于"),
             t("<b>Steam 创意工坊 Mod 辅助管理工具</b>")
-            + (f"（版本 {ver}）" if ver else "")
+            + ((t('（版本 ') + f"{ver}" + '）') if ver else "")
             + "<br><br>" + t("帮助大量使用 mod 的 Steam 玩家，在不打开 Steam 客户端"
               "的情况下完成工坊 mod 的登记、更新检测、下载与备份恢复。"
               "绿色软件：账本、设置等全部数据保存在软件自己的文件夹里。")
-            + f"<br><br>项目主页：<a href=\"{PROJECT_URL}\">{PROJECT_URL}</a>"
-              "（点击用浏览器打开）")
+            + (t('<br><br>项目主页：<a href="') + f"{PROJECT_URL}" + '">' + f"{PROJECT_URL}" + t('</a>（点击用浏览器打开）')))
 
     def _build_status_bar(self) -> None:
         self._status_game = QLabel(self)
-        self._status_db = QLabel(f"数据库：{DEFAULT_DB_PATH}")
+        self._status_db = QLabel((t('数据库：') + f"{DEFAULT_DB_PATH}"))
         self.statusBar().addWidget(self._status_game)
         self.statusBar().addPermanentWidget(self._status_db)
 
@@ -992,11 +984,9 @@ class MainWindow(QMainWindow):
             return
         act.setText(t("高级筛选(&S) ＊") if active else t("高级筛选(&S)"))
         act.setToolTip(
-            "高级筛选条件生效中（菜单项带 ＊）——点开可查看/修改条件"
+            t('高级筛选条件生效中（菜单项带 ＊）——点开可查看/修改条件')
             if active else
-            "打开 mod 库高级筛选：标题/备注/编号/作者/大小/更新时间/"
-            "标签多条件叠加，与 mod 库页顶栏筛选叠加生效。\n"
-            "非模态窗口——开着可以边看结果边改；快捷键 Ctrl+Shift+F")
+            t('打开 mod 库高级筛选：标题/备注/编号/作者/大小/更新时间/标签多条件叠加，与 mod 库页顶栏筛选叠加生效。\n非模态窗口——开着可以边看结果边改；快捷键 Ctrl+Shift+F'))
 
     def _on_daily_check_requested(self) -> None:
         """日常更新页【开始检测】的落点：转调更新检测页的后台检测
@@ -1007,11 +997,11 @@ class MainWindow(QMainWindow):
         page = self._pages.get(constants.PAGE_UPDATE_CHECK)
         fn = getattr(page, "start_check", None)
         if not callable(fn):
-            self._log.warn("更新检测页尚未就绪，无法开始检测")
+            self._log.warn(t('更新检测页尚未就绪，无法开始检测'))
             return
         reason = fn()
         if reason:
-            self._log.warn(f"更新检测未开始：{reason}")
+            self._log.warn((t('更新检测未开始：') + f"{reason}"))
             return
         daily = self._pages.get(constants.PAGE_DAILY_UPDATE)
         started = getattr(daily, "on_check_started", None)
@@ -1029,15 +1019,14 @@ class MainWindow(QMainWindow):
         if callable(fn):
             fn()
         else:
-            self._log.info("请在本页点【扫描游戏目录】完成盘点确认")
+            self._log.info(t('请在本页点【扫描游戏目录】完成盘点确认'))
     def _on_browser_handoff(self, urls: list) -> None:
         """独立页【送到「加入新 mod」】：清单交模块②的
         receive_external_lines（自动填入并解析预览），随即跳页。"""
         page = self._pages.get(constants.PAGE_ADD_MOD)
         receiver = getattr(page, "receive_external_lines", None)
         if not callable(receiver):
-            self._log.warn("加入新 mod 页未就绪，网址未送出——可在"
-                           "原页复制网址后到【入账中心 · 登记】")
+            self._log.warn(t('加入新 mod 页未就绪，网址未送出——可在原页复制网址后到【入账中心 · 登记】'))
             return
         receiver(urls)
         self._goto_page(constants.PAGE_ADD_MOD)
@@ -1050,8 +1039,7 @@ class MainWindow(QMainWindow):
         page = self._pages.get(constants.PAGE_ACCOUNT_CENTER)
         receiver = getattr(page, "receive_ids", None)
         if not callable(receiver):
-            self._log.warn("入账中心未就绪，编号未送出——可在原页复制"
-                           "编号后到【入账中心 · 登记】粘贴")
+            self._log.warn(t('入账中心未就绪，编号未送出——可在原页复制编号后到【入账中心 · 登记】粘贴'))
             return
         if receiver(mod_ids):
             self._goto_page(constants.PAGE_ACCOUNT_CENTER)
@@ -1064,7 +1052,7 @@ class MainWindow(QMainWindow):
         page = self._pages.get(constants.PAGE_ADD_MOD)
         receiver = getattr(page, "receive_external_lines", None)
         if not callable(receiver):
-            self._log.warn("加入新 mod 页未就绪，浏览器选择器未打开")
+            self._log.warn(t('加入新 mod 页未就绪，浏览器选择器未打开'))
             return
         dlg = BrowserPickDialog(self, log=self._log)
         dlg.lines_picked.connect(receiver)
@@ -1083,8 +1071,7 @@ class MainWindow(QMainWindow):
         """mod 库页右键「获取下载命令…」的落点：改道【快速命令查询】页
         并预填编号（只填不跑，查询由用户亲手点）。"""
         self._goto_quick_cmd("\n".join(str(m) for m in mod_ids))
-        self._log.info(f"已把 {len(mod_ids)} 个编号带入【快速命令查询】"
-                       "（点【解析并查询】生成命令）")
+        self._log.info((t('已把 ') + f"{len(mod_ids)}" + t(' 个编号带入【快速命令查询】（点【解析并查询】生成命令）')))
 
     def _on_verify_command_gen(self, mod_ids: list[int]) -> None:
         """核验页修复三选「重新下载」：跳命令生成页并聚焦勾选。
@@ -1146,7 +1133,7 @@ class MainWindow(QMainWindow):
             self._status_game.setText(t("当前游戏：（无）—— 请先添加档案"))
         else:
             self._status_game.setText(
-                f"当前游戏：{game.name}（{game.app_id}）")
+                (t('当前游戏：') + f"{game.name}" + '（' + f"{game.app_id}" + '）'))
 
         # set_game 广播循环：占位器没有 set_game，getattr 自动跳过；
         # 页面搬迁后自动纳入广播，本循环零改动（V1 同款结构）。
@@ -1166,15 +1153,13 @@ class MainWindow(QMainWindow):
                 setter(game)
                 notified += 1
             except Exception as exc:
-                name = _PAGE_TITLES.get(pid, f"页面 {pid}")
+                name = _PAGE_TITLES.get(pid, (t('页面 ') + f"{pid}"))
                 failed.append(name)
                 self._log.error(
-                    f"档案广播：{name} 页接收失败（本页可能与当前档案"
-                    f"不同步，其余页面不受影响）：{exc}")
+                    (t('档案广播：') + f"{name}" + t(' 页接收失败（本页可能与当前档案不同步，其余页面不受影响）：') + f"{exc}"))
         if failed:
             self._log.warn(
-                f"档案广播完成：{notified} 页成功、{len(failed)} 页失败"
-                f"（{'、'.join(failed)}）")
+                (t('档案广播完成：') + f"{notified}" + t(' 页成功、') + f"{len(failed)}" + t(' 页失败（') + f"{'、'.join(failed)}" + '）'))
 
         # 无档案时目录入口没有操作对象；添加档案不在其列——空库也能加
         # （更新确认清单"切档案自动关"随更新检测轮回补）
@@ -1206,7 +1191,7 @@ class MainWindow(QMainWindow):
         """选一个 JSON 文件；取消返回 None。起始目录固定为数据目录——
         便携模式下数据跟着软件走，从数据目录起步最可预期。"""
         path, _ = QFileDialog.getOpenFileName(
-            self, title, str(appPaths.data_dir()), "JSON 文件 (*.json)")
+            self, title, str(appPaths.data_dir()), t('JSON 文件 (*.json)'))
         return path or None
     def _refresh_switcher_after_import(self) -> None:
         """账本/分享包导入后的档案下拉刷新：档案切换器重读 games 表
@@ -1221,12 +1206,12 @@ class MainWindow(QMainWindow):
         payload = dataExporter.build_ledger(self._repo)
         suggested = appPaths.data_dir() / dataExporter.default_filename(payload)
         path, _ = QFileDialog.getSaveFileName(
-            self, "导出完整账本", str(suggested), "JSON 文件 (*.json)")
+            self, t('导出完整账本'), str(suggested), t('JSON 文件 (*.json)'))
         if not path:
             return
         out = dataExporter.save(payload, path)
-        self._log.ok(f"账本已导出：{out}")
-        self.statusBar().showMessage(f"账本已导出：{out}", 8000)
+        self._log.ok((t('账本已导出：') + f"{out}"))
+        self.statusBar().showMessage((t('账本已导出：') + f"{out}"), 8000)
 
     def _import_ledger(self) -> None:
         """文件 → 导入完整账本…：清库重灌（引擎拍板，不做合并）。
@@ -1236,38 +1221,37 @@ class MainWindow(QMainWindow):
         互相踩脚，等一等没有坏处。"""
         if self._batch_ctrl.is_busy():
             QMessageBox.warning(
-                self, "下载批次进行中",
-                "批量下载尚未完成，等批次结束后再导入账本。")
+                self, t('下载批次进行中'),
+                t('批量下载尚未完成，等批次结束后再导入账本。'))
             return
-        path = self._ask_open_json("导入完整账本")
+        path = self._ask_open_json(t('导入完整账本'))
         if path is None:
             return
         try:
             payload = dataExporter.load(path)
         except ValueError as exc:
-            QMessageBox.warning(self, "无法导入", str(exc))
+            QMessageBox.warning(self, t('无法导入'), str(exc))
             return
         ret = QMessageBox.question(
-            self, "导入完整账本",
+            self, t('导入完整账本'),
             dataExporter.ledger_summary(payload)
-            + "\n\n当前账本将被整体替换，此操作无法撤销。\n确定继续吗？",
+            + t('\n\n当前账本将被整体替换，此操作无法撤销。\n确定继续吗？'),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)   # 破坏性操作：默认停在"否"
         if ret != QMessageBox.StandardButton.Yes:
-            self._log.info("已取消账本导入")
+            self._log.info(t('已取消账本导入'))
             return
         try:
             counts = dataExporter.import_ledger(payload, self._repo)
         except (ValueError, sqlite3.Error) as exc:
             QMessageBox.warning(
-                self, "导入失败",
-                f"导入没有完成，当前账本原样保留、未做任何改动。\n\n{exc}")
+                self, t('导入失败'),
+                (t('导入没有完成，当前账本原样保留、未做任何改动。\n\n') + f"{exc}"))
             return
         self._refresh_switcher_after_import()
-        self._log.ok(f"账本导入完成：{counts}")
+        self._log.ok((t('账本导入完成：') + f"{counts}"))
         self.statusBar().showMessage(
-            f"账本导入完成：{counts['games']} 个档案、"
-            f"{counts['mods']} 条 mod 记录", 8000)
+            (t('账本导入完成：') + f"{counts['games']}" + t(' 个档案、') + f"{counts['mods']}" + t(' 条 mod 记录')), 8000)
 
     def _export_sharepack(self) -> None:
         """文件 → 导出分享包…：当前游戏的清单 + 整理成果 → JSON。
@@ -1278,18 +1262,18 @@ class MainWindow(QMainWindow):
         try:
             payload = dataExporter.build_sharepack(self._repo, game.app_id)
         except ValueError as exc:   # 理论不可达：档案来自同一 repo
-            QMessageBox.warning(self, "导出失败", str(exc))
+            QMessageBox.warning(self, t('导出失败'), str(exc))
             return
         suggested = appPaths.data_dir() / dataExporter.default_filename(payload)
         path, _ = QFileDialog.getSaveFileName(
-            self, f"导出分享包 — {game.name}", str(suggested),
-            "JSON 文件 (*.json)")
+            self, (t('导出分享包 — ') + f"{game.name}"), str(suggested),
+            t('JSON 文件 (*.json)'))
         if not path:
             return
         out = dataExporter.save(payload, path)
         n = len(payload["tables"]["mods"])
-        self._log.ok(f"分享包已导出：「{game.name}」共 {n} 条 mod → {out}")
-        self.statusBar().showMessage(f"分享包已导出：{n} 条 mod", 5000)
+        self._log.ok((t('分享包已导出：「') + f"{game.name}" + t('」共 ') + f"{n}" + t(' 条 mod → ') + f"{out}"))
+        self.statusBar().showMessage((t('分享包已导出：') + f"{n}" + t(' 条 mod')), 5000)
 
     def _import_sharepack(self) -> None:
         """文件 → 导入分享包…：增量并入——已有的 mod 跳过、现有数据
@@ -1297,34 +1281,30 @@ class MainWindow(QMainWindow):
         行列：分享包的 schema 闸靠 Game(**row)/Mod(**row) 的构造
         （dataExporter 文件头说明），形状不对会从这里冒出来，弹窗兜住
         照样"原账无损"。"""
-        path = self._ask_open_json("导入分享包")
+        path = self._ask_open_json(t('导入分享包'))
         if path is None:
             return
         try:
             payload = dataExporter.load(path)
         except ValueError as exc:
-            QMessageBox.warning(self, "无法导入", str(exc))
+            QMessageBox.warning(self, t('无法导入'), str(exc))
             return
         try:
             report = dataExporter.import_sharepack(payload, self._repo)
         except (ValueError, TypeError, sqlite3.Error) as exc:
             QMessageBox.warning(
-                self, "导入失败",
-                f"分享包没有并入，当前账本未做任何改动。\n\n{exc}")
+                self, t('导入失败'),
+                (t('分享包没有并入，当前账本未做任何改动。\n\n') + f"{exc}"))
             return
         self._refresh_switcher_after_import()
         game = self._repo.get_game(report["app_id"])
         name = game.name if game else str(report["app_id"])
         elsewhere = (self._current_game is None
                      or self._current_game.app_id != report["app_id"])
-        self._log.ok(f"分享包导入完成：「{name}」新增 {report['added']} 条、"
-                     f"跳过 {report['skipped']} 条")
+        self._log.ok((t('分享包导入完成：「') + f"{name}" + t('」新增 ') + f"{report['added']}" + t(' 条、跳过 ') + f"{report['skipped']}" + t(' 条')))
         self.statusBar().showMessage(
-            f"分享包导入完成：「{name}」新增 {report['added']} 条、"
-            f"跳过 {report['skipped']} 条"
-            f"（导入条目均为「待下载」；本机已有文件的话，到【入账中心】"
-            "点【扫描游戏目录】摆成待认领、确认补版本）"
-            + ("；在左上角下拉切换到该游戏查看" if elsewhere else ""),
+            (t('分享包导入完成：「') + f"{name}" + t('」新增 ') + f"{report['added']}" + t(' 条、跳过 ') + f"{report['skipped']}" + t(' 条（导入条目均为「待下载」；本机已有文件的话，到【入账中心】点【扫描游戏目录】摆成待认领、确认补版本）'))
+            + (t('；在左上角下拉切换到该游戏查看') if elsewhere else ""),
             8000)
 
 
@@ -1338,27 +1318,26 @@ class MainWindow(QMainWindow):
         path = Path(game.download_dir)
         if not path.is_dir():
             QMessageBox.information(
-                self, "打开下载目录",
-                f"这个目录还不存在（可能还没下载过任何 mod）：\n{path}\n"
-                "steamcmd 首次下载时会自动创建。")
+                self, t('打开下载目录'),
+                (t('这个目录还不存在（可能还没下载过任何 mod）：\n') + f"{path}" + t('\nsteamcmd 首次下载时会自动创建。')))
             return
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
             # openUrl 失败是静默的（v2.18 教训）：手动兜底提示
             QMessageBox.warning(
-                self, "打开下载目录",
-                f"文件管理器没有响应，请手动打开：\n{path}")
+                self, t('打开下载目录'),
+                (t('文件管理器没有响应，请手动打开：\n') + f"{path}"))
 
     def _open_software_dir(self) -> None:
         """文件 → 打开软件所在目录：绿色软件的"家"。路径走
         appPaths.app_root()（T17 单源：数据、配置、日志全在其下）。"""
         path = appPaths.app_root()
         if not path.is_dir():
-            QMessageBox.warning(self, "打开软件目录",
-                                f"目录不存在？请手动检查：\n{path}")
+            QMessageBox.warning(self, t('打开软件目录'),
+                                (t('目录不存在？请手动检查：\n') + f"{path}"))
             return
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
-            QMessageBox.warning(self, "打开软件目录",
-                                f"文件管理器没有响应，请手动打开：\n{path}")
+            QMessageBox.warning(self, t('打开软件目录'),
+                                (t('文件管理器没有响应，请手动打开：\n') + f"{path}"))
     def _on_download_requested(self, app_id: int, mod_ids: list) -> None:
         """mod 库页【下载选中项】的落点：转批次控制器开批。开工检查
         （批次互斥 / steamcmd 在跑 / 下载目录已设）控制器里都有，
@@ -1384,15 +1363,12 @@ class MainWindow(QMainWindow):
         game = self._current_game
         accepted = False
         if game is None:
-            self._log.warn("转批次被拒：还没有游戏档案——请先在左上角"
-                           "添加或选择游戏档案")
+            self._log.warn(t('转批次被拒：还没有游戏档案——请先在左上角添加或选择游戏档案'))
         elif app_ids and set(app_ids) != {game.app_id}:
             shown = "、".join(str(a) for a in app_ids[:5])
-            self._log.warn(f"转批次被拒：命令里的 AppID（{shown}）与当前"
-                           f"档案（{game.app_id}）不一致——请按档案分开"
-                           "粘贴，或先切换到对应档案")
+            self._log.warn((t('转批次被拒：命令里的 AppID（') + f"{shown}" + t('）与当前档案（') + f"{game.app_id}" + t('）不一致——请按档案分开粘贴，或先切换到对应档案')))
         elif self._batch_ctrl.is_busy():
-            self._log.warn("转批次被拒：已有批次在跑——等它结束或先停止")
+            self._log.warn(t('转批次被拒：已有批次在跑——等它结束或先停止'))
         else:
             accepted = self._batch_ctrl.start_batch(
                 game.app_id, mod_ids, backup_first=False,
@@ -1459,11 +1435,10 @@ class MainWindow(QMainWindow):
                     self._settings.get("steamcmd_path"))
                 if cleared or skipped:
                     self._log.info(
-                        f"退出清缓存：清掉 {cleared} 项，"
-                        f"释放 {freed / 2 ** 20:.1f} MB"
-                        + (f"；跳过 {len(skipped)} 项（被占用）" if skipped else ""))
+                        (t('退出清缓存：清掉 ') + f"{cleared}" + t(' 项，释放 ') + f"{freed / 2 ** 20:'.1f'}" + ' MB')
+                        + ((t('；跳过 ') + f"{len(skipped)}" + t(' 项（被占用）')) if skipped else ""))
             except OSError as exc:
-                self._log.warn(f"退出清缓存未完成（不影响退出）：{exc}")
+                self._log.warn((t('退出清缓存未完成（不影响退出）：') + f"{exc}"))
 
         self._save_panel_state()
         self._repo.close()
@@ -1481,6 +1456,10 @@ class MainWindow(QMainWindow):
             if self._nav.topLevelItem(i).childCount() > 0
                and self._nav.topLevelItem(i).isExpanded()
         ]
+        # 存**原词**（_NAV_SCHEMA 里的组名）而非界面文字：界面语言换了
+        # 之后，"Workbench" 与"工作台"不是同一串，按原词存才能对得上
+        groups = [name for name, spec in _NAV_SCHEMA if not isinstance(spec, int)]
+        expanded = [groups[i] for i in expanded if i < len(groups)]
         q.setValue(_SES_NAV, ",".join(expanded))
 
     def _restore_nav_state(self) -> None:
@@ -1493,10 +1472,15 @@ class MainWindow(QMainWindow):
             return
         want = {_LEGACY_GROUP_NAMES.get(s, s)
                 for s in str(raw).split(",") if s}
+        # 树里的显示文字可能已翻译，故按位置取 _NAV_SCHEMA 的原词比对
+        groups = [name for name, spec in _NAV_SCHEMA if not isinstance(spec, int)]
+        gi = 0
         for i in range(self._nav.topLevelItemCount()):
             it = self._nav.topLevelItem(i)
             if it.childCount() > 0:
-                it.setExpanded(it.text(0) in want)
+                raw_name = groups[gi] if gi < len(groups) else it.text(0)
+                gi += 1
+                it.setExpanded(raw_name in want)
     def _restore_panels(self) -> None:
         """启动恢复：窗口几何 / 停靠布局 / 侧栏 / 控制台 / 详情面板
         显隐 / 组折叠 / 上次档案。几何先恢复（saveState 含停靠布局），
@@ -1557,7 +1541,7 @@ class MainWindow(QMainWindow):
                 if self._switcher.set_current_by_app_id(last_id):
                     g = self._current_game
                     if g is not None:
-                        self._log.info(f"已恢复上次打开的档案：「{g.name}」")
+                        self._log.info((t('已恢复上次打开的档案：「') + f"{g.name}" + '」'))
 
     def _save_panel_state(self) -> None:
         """退出前落盘当前显隐（closeEvent 调用；QSettings 析构时也会
@@ -1593,8 +1577,7 @@ class MainWindow(QMainWindow):
         整体跳过，下次退出再补。任何意外绝不阻断退出。"""
         try:
             if steamcmd_running():
-                self._log.warn("steamcmd 尚未完全退出：本次跳过账本"
-                               "断根扫尾（下次退出时补）")
+                self._log.warn(t('steamcmd 尚未完全退出：本次跳过账本断根扫尾（下次退出时补）'))
                 return
             root = steamPaths.steamcmd_root(
                 self._settings.get("steamcmd_path") or "")
@@ -1616,22 +1599,18 @@ class MainWindow(QMainWindow):
                         acf, mids)
                 except ValueError as exc:
                     failures += 1
-                    self._log.warn(f"账本扫尾：游戏 {game_id} 的账本"
-                                   f"未动（{exc}）")
+                    self._log.warn((t('账本扫尾：游戏 ') + f"{game_id}" + t(' 的账本未动（') + f"{exc}" + '）'))
                     continue
                 if removed:
                     total_removed += len(removed)
                     games_done += 1
             if total_removed:
                 self._log.ok(
-                    f"退出前断根扫尾：已通知 steamcmd 忘记黑名单里的 "
-                    f"{total_removed} 个条目（{games_done} 个游戏；"
-                    "原账本文件已自动备份在同目录）")
+                    (t('退出前断根扫尾：已通知 steamcmd 忘记黑名单里的 ') + f"{total_removed}" + t(' 个条目（') + f"{games_done}" + t(' 个游戏；原账本文件已自动备份在同目录）')))
             if failures:
-                self._log.warn(f"账本扫尾：{failures} 个游戏的账本文件"
-                               "有问题未动（详见上方日志）")
+                self._log.warn((t('账本扫尾：') + f"{failures}" + t(' 个游戏的账本文件有问题未动（详见上方日志）')))
         except Exception as exc:  # 收尾不拦退出
-            self._log.warn(f"退出前账本扫尾未完成（不影响退出）：{exc}")
+            self._log.warn((t('退出前账本扫尾未完成（不影响退出）：') + f"{exc}"))
 
     # ---------- 全局异常兜底 ----------
 
@@ -1644,20 +1623,17 @@ class MainWindow(QMainWindow):
 
         def main_hook(exc_type, exc_value, exc_tb):
             self._log.error(
-                f"未处理的异常：{exc_type.__name__}: {exc_value}"
-                "（完整 traceback 见终端）")
+                (t('未处理的异常：') + f"{exc_type.__name__}" + ': ' + f"{exc_value}" + t('（完整 traceback 见终端）')))
             sys.__excepthook__(exc_type, exc_value, exc_tb)
             QMessageBox.critical(
-                self, "程序内部错误",
-                "发生了一个程序内部错误，详情已写入日志。\n\n"
-                f"{exc_type.__name__}: {exc_value}")
+                self, t('程序内部错误'),
+                (t('发生了一个程序内部错误，详情已写入日志。\n\n') + f"{exc_type.__name__}" + ': ' + f"{exc_value}"))
 
         sys.excepthook = main_hook
 
         def thread_hook(args) -> None:
             self._log.error(
-                f"后台线程异常：{args.exc_type.__name__}: {args.exc_value}"
-                "（完整 traceback 见终端）")
+                (t('后台线程异常：') + f"{args.exc_type.__name__}" + ': ' + f"{args.exc_value}" + t('（完整 traceback 见终端）')))
             threading.__excepthook__(args)
 
         threading.excepthook = thread_hook
