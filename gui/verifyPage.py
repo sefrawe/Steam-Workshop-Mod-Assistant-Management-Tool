@@ -60,41 +60,30 @@ from gui.collapsibleSection import CollapsibleSection as _Section
 from gui.theme import font_px  # 字号单源（D25）
 
 # 表格 6 列：勾选列（"选"）已随收录/确认退役
-_COLUMNS = ["编号", "标题", "账本状态", "盘上情况", "建议", "操作"]
+_COLUMNS = [t('编号'), "标题", t('账本状态'), t('盘上情况'), t('建议'), t('操作')]
 
 # 行类别（kind）：筛选下拉/右键菜单/双击都按它分流。
 # missing/empty = 修复类；claim = 账本外（本页只指路）；confirm =
 # 已收录+盘上有内容（本页只指路）；keep = 软删除/失效保留文件（只提示）
 _BUCKETS = [
-    ("全部行", None),
-    ("盘上缺失（已下载）", "missing"),
-    ("空目录（疑似中断）", "empty"),
-    ("账本外（盘上有目录）", "claim"),
-    ("待下载·盘上有内容", "confirm"),
-    ("软删除/失效·保留文件", "keep"),
+    (t('全部行'), None),
+    (t('盘上缺失（已下载）'), "missing"),
+    (t('空目录（疑似中断）'), "empty"),
+    (t('账本外（盘上有目录）'), "claim"),
+    (t('待下载·盘上有内容'), "confirm"),
+    (t('软删除/失效·保留文件'), "keep"),
 ]
 
 _GUIDE_PARAS = (
-    "两把尺子先分清：本页核验看的是【磁盘】（下载目录实况，联接布局下即游戏真实读到的目录）；【扫描本地】读的是 steamcmd 自己的账本文件。所以"
-    "核验能看见的条目，扫描本地未必认——两者对不上不是故障。",
+    t('两把尺子先分清：本页核验看的是【磁盘】（下载目录实况，联接布局下即游戏真实读到的目录）；【扫描本地】读的是 steamcmd 自己的账本文件。所以核验能看见的条目，扫描本地未必认——两者对不上不是故障。'),
 
-    "各行含义：账说「已下载」但盘上缺失/为空 → 点【修复…】三选一；"
-    "「账本外」（盘上有目录、账本没登记）→ 到入账中心收编；「已收录」"
-    "且盘上有内容 → 到入账中心确认补版本；软删除/失效记录盘上保留"
-    "文件 → 正常，不动。",
+    t('各行含义：账说「已下载」但盘上缺失/为空 → 点【修复…】三选一；「账本外」（盘上有目录、账本没登记）→ 到入账中心收编；「已收录」且盘上有内容 → 到入账中心确认补版本；软删除/失效记录盘上保留文件 → 正常，不动。'),
 
-    "账本外、已收录待确认两类，本页只看不办：入账（含补版本号）统一"
-    "走【入账中心 → 扫描游戏目录】——盘点会把它们摆成待认领，确认时"
-    "一并取真实版本。入账正门只有一处，账本不会被两头改。",
+    t('账本外、已收录待确认两类，本页只看不办：入账（含补版本号）统一走【入账中心 → 扫描游戏目录】——盘点会把它们摆成待认领，确认时一并取真实版本。入账正门只有一处，账本不会被两头改。'),
 
-    "修复三选：重新下载（增量，日常首选）／校验重下 validate（怀疑"
-    "文件被改坏时用，会把改动冲回原版）／标记为已移除（本工具不再为"
-    "它生成命令；其他前端清单里还有它仍可能被下回来）。双击缺失/"
-    "空目录行 = 快捷普通重下。",
+    t('修复三选：重新下载（增量，日常首选）／校验重下 validate（怀疑文件被改坏时用，会把改动冲回原版）／标记为已移除（本工具不再为它生成命令；其他前端清单里还有它仍可能被下回来）。双击缺失/空目录行 = 快捷普通重下。'),
 
-    "本页不删任何文件；写库只发生在你主动的动作（修复三选里的"
-    "「标记为已移除」）与死路径自动重推导。游戏侧联接的检查在"
-    "【联接检测】页进行，本页不再重复。",
+    t('本页不删任何文件；写库只发生在你主动的动作（修复三选里的「标记为已移除」）与死路径自动重推导。游戏侧联接的检查在【联接检测】页进行，本页不再重复。'),
 
 )
 
@@ -175,9 +164,9 @@ class VerifyPage(QWidget):
         fh.addWidget(self._kw_edit, 1)
 
         self._sort_combo = QComboBox(frow)
-        for label, data in (("按桶分组", "bucket"),
-                            ("编号 从小到大", "id_asc"),
-                            ("编号 从大到小", "id_desc")):
+        for label, data in ((t('按桶分组'), "bucket"),
+                            (t('编号 从小到大'), "id_asc"),
+                            (t('编号 从大到小'), "id_desc")):
             self._sort_combo.addItem(label, data)
         self._sort_combo.setToolTip(t("重灌式排序：数据按编号重排，内容不变"))
         self._sort_combo.currentIndexChanged.connect(
@@ -219,14 +208,14 @@ class VerifyPage(QWidget):
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_row_menu)
 
-        self._sec_table = _Section("问题明细", self)
+        self._sec_table = _Section(t('问题明细'), self)
         self._sec_table.set_content(self._table, 500)
         root.addWidget(self._sec_table)
 
         self._nn_label = QLabel("", self)
         root.addWidget(self._nn_label)
         self._nn_list = QListWidget(self)
-        self._sec_nn = _Section("非数字明细", self)
+        self._sec_nn = _Section(t('非数字明细'), self)
         self._sec_nn.set_content(self._nn_list, 300)
         root.addWidget(self._sec_nn)
 
@@ -259,7 +248,7 @@ class VerifyPage(QWidget):
         wrap.setWidgetResizable(True)
         wrap.setFrameShape(QScrollArea.Shape.NoFrame)
         wrap.setWidget(body)
-        sec = _Section("先读我：两把尺子 · 桶含义 · 修复三选 · 只读边界", self)
+        sec = _Section(t('先读我：两把尺子 · 桶含义 · 修复三选 · 只读边界'), self)
         sec.set_content(wrap, 250)
         sec.set_expanded(False)
         return sec
@@ -287,7 +276,7 @@ class VerifyPage(QWidget):
         self._nn_label.setText("")
         # 切档案后旧明细已清空：非数字节收回折叠态，不留空框
         self._sec_nn.set_expanded(False)
-        self._sec_table.set_title("问题明细")
+        self._sec_table.set_title(t('问题明细'))
         self._summary.setText("")
         if game is None:
             self._game_label.setText(
@@ -353,9 +342,9 @@ class VerifyPage(QWidget):
         n_bad = len(result.missing) + len(result.empty)
         self._summary.setStyleSheet(
             "color: #46a758;" if n_bad == 0 else "color: #f76b15;")
-        parts = [f"账本 ↔ 磁盘：相符 {result.healthy}",
-                 f"｜盘上缺失 {len(result.missing)}",
-                 f"｜空目录 {len(result.empty)}"]
+        parts = [(t('账本 ↔ 磁盘：相符 ') + f"{result.healthy}"),
+                 (t('｜盘上缺失 ') + f"{len(result.missing)}"),
+                 (t('｜空目录 ') + f"{len(result.empty)}")]
         if n_claim:
             parts.append(t('｜账本外 ') + f"{n_claim}")
         if n_confirm:
@@ -365,11 +354,9 @@ class VerifyPage(QWidget):
         parts.append(t('｜非数字内容 ') + f"{len(result.non_numeric)}")
         self._summary.setText("".join(parts))
         self._log.ok(
-            f"账实核验完成（{self._game.name}）：相符 {result.healthy}，"
-            f"缺失 {len(result.missing)}，空目录 {len(result.empty)}，"
-            f"账本外 {n_claim}，已收录待确认 {n_confirm}"
-            + (f"，软删/失效保留 {n_keep}" if n_keep else "")
-            + f"，非数字 {len(result.non_numeric)}")
+            (t('账实核验完成（') + f"{self._game.name}" + t('）：相符 ') + f"{result.healthy}" + t('，缺失 ') + f"{len(result.missing)}" + t('，空目录 ') + f"{len(result.empty)}" + t('，账本外 ') + f"{n_claim}" + t('，已收录待确认 ') + f"{n_confirm}")
+            + ((t('，软删/失效保留 ') + f"{n_keep}") if n_keep else "")
+            + (t('，非数字 ') + f"{len(result.non_numeric)}"))
 
     # ---------- 表格填充（行清单与重灌分离：筛选/排序不重查盘）----------
     def _fill_table(self, result: modVerifier.VerifyResult) -> None:
@@ -380,34 +367,30 @@ class VerifyPage(QWidget):
         for mid in result.missing:
             specs.append(dict(
                 mid=mid, kind="missing", status="已下载",
-                disk="目录不存在",
-                advice="双击本行重下；或点【修复…】选修复方式"))
+                disk=t('目录不存在'),
+                advice=t('双击本行重下；或点【修复…】选修复方式')))
         for mid in result.empty:
             specs.append(dict(
                 mid=mid, kind="empty", status="已下载",
-                disk="目录存在但为空",
-                advice="疑似中断残留：双击重下；或点【修复…】；"
-                       "也可手动删除空目录"))
+                disk=t('目录存在但为空'),
+                advice=t('疑似中断残留：双击重下；或点【修复…】；也可手动删除空目录')))
         for mid, st in result.untracked_content:
             if st is None:
                 specs.append(dict(
-                    mid=mid, kind="claim", status="未入账",
-                    disk="盘上有目录",
-                    advice="本页只看不办：到【入账中心】点【扫描游戏目录】，"
-                           "盘点会把它摆成待认领，确认后入账"))
+                    mid=mid, kind="claim", status=t('未入账'),
+                    disk=t('盘上有目录'),
+                    advice=t('本页只看不办：到【入账中心】点【扫描游戏目录】，盘点会把它摆成待认领，确认后入账')))
             elif st == "tracked":
                 specs.append(dict(
                     mid=mid, kind="confirm", status=status_zh(st),
-                    disk="盘上已有内容",
-                    advice="到【入账中心】点【扫描游戏目录】：盘点同样把它"
-                           "摆成待认领，确认时一并补上真实版本号"))
+                    disk=t('盘上已有内容'),
+                    advice=t('到【入账中心】点【扫描游戏目录】：盘点同样把它摆成待认领，确认时一并补上真实版本号')))
             else:
                 # deleted / failed：软删除和失败记录本来就保留文件
                 specs.append(dict(
                     mid=mid, kind="keep", status=status_zh(st),
-                    disk="盘上仍有内容",
-                    advice="保留文件属正常（软删除/失效记录）；"
-                           "不需要可到「清理与删除」页处置"))
+                    disk=t('盘上仍有内容'),
+                    advice=t('保留文件属正常（软删除/失效记录）；不需要可到「清理与删除」页处置')))
         self._rows_spec = specs
         # 核验"按结果重设收展"：有问题摊开、全清收起
         self._sec_table.set_expanded(bool(specs))
@@ -441,11 +424,10 @@ class VerifyPage(QWidget):
         self._table.setItem(r, 0, mid_item)
 
         if s["kind"] == "claim":
-            title = "（账本外）"
-            tip = ("账本里还没有这条编号；在入账中心确认收录并跑"
-                   "【更新检测】后，这里会显示标题")
+            title = t('（账本外）')
+            tip = (t('账本里还没有这条编号；在入账中心确认收录并跑【更新检测】后，这里会显示标题'))
         else:
-            title = self._titles.get(mid) or "（无标题）"
+            title = self._titles.get(mid) or t('（无标题）')
             tip = title
         t_item = QTableWidgetItem(title)
         t_item.setToolTip(tip)
@@ -490,8 +472,8 @@ class VerifyPage(QWidget):
             if ok:
                 visible += 1
         if total:
-            suffix = (f"（显示 {visible} / 共 {total}）"
-                      if (bucket is not None or kw) else f"（共 {total}）")
+            suffix = ((t('（显示 ') + f"{visible}" + t(' / 共 ') + f"{total}" + '）')
+                      if (bucket is not None or kw) else (t('（共 ') + f"{total}" + '）'))
             self._sec_table.set_title(t("问题明细") + suffix)
 
     # ---------- 右键菜单（与行内按钮同一组口径）----------
@@ -559,12 +541,12 @@ class VerifyPage(QWidget):
         box.setText(
             t('账本记为「已下载」，但磁盘上对不上。三种修法：\n\n① 重新下载（增量）——生成普通下载命令，manifest 保证只补差异（日常首选）\n\n② 校验重下（validate）——命令加 validate 参数，逐文件核对 manifest，被改动过的文件会冲回原版；文件夹缺失或为空时等同完整重下（怀疑文件损坏时用）\n\n③ 标记为已移除——账本记为「已删除」，本工具不再为它生成下载命令；若其他工具（如 RimSort）的清单里还有它，仍可能被下回来，需在那些工具里一并移除'))
         b_redownload = box.addButton(
-            "重新下载（增量）", QMessageBox.ButtonRole.ActionRole)
+            t('重新下载（增量）'), QMessageBox.ButtonRole.ActionRole)
         b_validate = box.addButton(
-            "校验重下（validate）", QMessageBox.ButtonRole.ActionRole)
+            t('校验重下（validate）'), QMessageBox.ButtonRole.ActionRole)
         b_remove = box.addButton(
-            "标记为已移除", QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+            t('标记为已移除'), QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(t('取消'), QMessageBox.ButtonRole.RejectRole)
         box.exec()
         clicked = box.clickedButton()
         if clicked is b_redownload:
@@ -586,8 +568,8 @@ class VerifyPage(QWidget):
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(
             t('复制下面的命令，粘贴到 steamcmd 终端执行（终端面板可从控制台菜单打开）：\n\n') + f"{text.strip()}" + t('\n\n注意：validate 会把被改动过的文件冲回原版；文件夹缺失或为空时等同完整重下。执行完回到本页点【开始核验】即可看到结果。'))
-        b_copy = box.addButton("复制命令", QMessageBox.ButtonRole.ActionRole)
-        box.addButton("关闭", QMessageBox.ButtonRole.RejectRole)
+        b_copy = box.addButton(t('复制命令'), QMessageBox.ButtonRole.ActionRole)
+        box.addButton(t('关闭'), QMessageBox.ButtonRole.RejectRole)
         box.exec()
         if box.clickedButton() is b_copy:
             QApplication.clipboard().setText(text)

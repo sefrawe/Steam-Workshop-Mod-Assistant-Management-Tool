@@ -77,24 +77,24 @@ _URL_COL = {"missing": M_URL, "clean": C_URL, "orphan": O_URL}
 # 引擎动作 kind → 人话（逐条日志/失败明细用；ActionResult.kind 是
 # 数据契约不动，翻译住页面侧——账面/文件两步在日志里肉眼可分）
 _KIND_ZH = {
-    "ledger_soft": "账面·软删除",
-    "ledger_purge": "账面·彻底清账",
-    "backup_file": "备份文件",
-    "content": "content 文件",
-    "orphan": "孤儿目录",
-    "orphan_blacklist": "孤儿·拉黑",
-    "orphan_acf": "孤儿·账本条目移除",
+    "ledger_soft": t('账面·软删除'),
+    "ledger_purge": t('账面·彻底清账'),
+    "backup_file": t('备份文件'),
+    "content": t('content 文件'),
+    "orphan": t('孤儿目录'),
+    "orphan_blacklist": t('孤儿·拉黑'),
+    "orphan_acf": t('孤儿·账本条目移除'),
 
 }
 def _who(mod_id: int) -> str:
     """日志主语：批次级动作（孤儿·账本条目移除，mod_id=0 只是占位）
     显示「（整批）」，其余显示 mod N。"""
-    return f"mod {mod_id}" if mod_id else "（整批）"
+    return f"mod {mod_id}" if mod_id else t('（整批）')
 
 _CLEAN_SORTS = (
-    ("按编号（小→大）", lambda r: r.mod_id),
-    ("按盘上大小（大→小）", lambda r: -(r.dir_size or 0)),
-    ("按标题（A→Z）", lambda r: (r.title or "").casefold()),
+    (t('按编号（小→大）'), lambda r: r.mod_id),
+    (t('按盘上大小（大→小）'), lambda r: -(r.dir_size or 0)),
+    (t('按标题（A→Z）'), lambda r: (r.title or "").casefold()),
 )
 
 
@@ -291,10 +291,10 @@ class DeletePage(QWidget):
 
         self._tbl_missing = self._make_table(5, M_TITLE)
         self._tbl_missing.setHorizontalHeaderLabels(
-            ["↗", "编号", "标题", "备份登记", "动作"])
+            ["↗", t('编号'), "标题", t('备份登记'), t('动作')])
         for col, w in ((M_URL, 36), (M_ID, 110), (M_BACKUPS, 190), (M_ACT, 260)):
             self._tbl_missing.setColumnWidth(col, w)
-        self._sec_missing = _Section("问题明细（0 行）", body)
+        self._sec_missing = _Section(t('问题明细（0 行）'), body)
         self._sec_missing.set_content(self._tbl_missing, 240)
         box2.addWidget(self._sec_missing)
 
@@ -345,7 +345,7 @@ class DeletePage(QWidget):
         h2.addWidget(QLabel(t("状态"), self._bar_clean))
         self._status_filter = QComboBox(self._bar_clean)
         for label, val in (("全部", None), ("已下载", "downloaded"),
-                           ("已删除", "deleted"), ("已失败", "failed")):
+                           ("已删除", "deleted"), (t('已失败'), "failed")):
             self._status_filter.addItem(label, val)
         self._status_filter.setToolTip(
             t("按账本状态过滤显示（与 mod 库页状态下拉同款：显示中文、"
@@ -377,11 +377,11 @@ class DeletePage(QWidget):
 
         self._tbl_clean = self._make_table(6, C_TITLE)
         self._tbl_clean.setHorizontalHeaderLabels(
-            ["↗", "编号", "标题", "状态", "盘上大小", "动作"])
+            ["↗", t('编号'), "标题", t('状态'), t('盘上大小'), t('动作')])
         for col, w in ((C_URL, 36), (C_ID, 110), (C_STATUS, 90),
                        (C_SIZE, 110), (C_ACT, 280)):
             self._tbl_clean.setColumnWidth(col, w)
-        self._sec_clean = _Section("清理清单（0 行）", body)
+        self._sec_clean = _Section(t('清理清单（0 行）'), body)
         self._sec_clean.set_content(self._tbl_clean, 600)
         box3.addWidget(self._sec_clean)
 
@@ -458,10 +458,10 @@ class DeletePage(QWidget):
         box4.addWidget(self._bar_orphan)
 
         self._tbl_orphan = self._make_table(4, O_SIZE)
-        self._tbl_orphan.setHorizontalHeaderLabels(["选择", "↗", "编号", "大小"])
+        self._tbl_orphan.setHorizontalHeaderLabels([t('选择'), "↗", t('编号'), t('大小')])
         for col, w in ((O_CHK, 40), (O_URL, 36), (O_ID, 120), (O_SIZE, 100)):
             self._tbl_orphan.setColumnWidth(col, w)
-        self._sec_orphan = _Section("孤儿清单（0 个）", body)
+        self._sec_orphan = _Section(t('孤儿清单（0 个）'), body)
         self._sec_orphan.set_content(self._tbl_orphan, 240)
         box4.addWidget(self._sec_orphan)
         # 孤儿防复活复合开关（2026-10）：默认关（保守方向）。确认
@@ -758,16 +758,16 @@ class DeletePage(QWidget):
             # 行内 id：操作对象按 id 定位不按行号（备份页纪律）
             it.setData(Qt.ItemDataRole.UserRole, r.mod_id)
             tbl.setItem(i, M_ID, it)
-            tbl.setItem(i, M_TITLE, QTableWidgetItem(r.title or "（无标题）"))
+            tbl.setItem(i, M_TITLE, QTableWidgetItem(r.title or t('（无标题）')))
             tbl.setItem(i, M_BACKUPS, QTableWidgetItem(
                 f"{r.backup_count}" + t(' 份 / ') + f"{fmt_size(r.backup_bytes)}"))
             combo = QComboBox()
             combo.addItem(t('不动'), None)
             combo.addItem(t('软删除（推荐）'), "soft")
-            combo.setItemData(1, "记录保留，可随时恢复（推荐）",
+            combo.setItemData(1, t('记录保留，可随时恢复（推荐）'),
                               Qt.ItemDataRole.ToolTipRole)
             combo.addItem(t('彻底清账（不可逆）'), "purge")
-            combo.setItemData(2, "记录物理删除，不可恢复；备份登记随账清除",
+            combo.setItemData(2, t('记录物理删除，不可恢复；备份登记随账清除'),
                               Qt.ItemDataRole.ToolTipRole)
             tbl.setCellWidget(i, M_ACT, combo)
 
@@ -781,7 +781,7 @@ class DeletePage(QWidget):
             it = QTableWidgetItem(str(r.mod_id))
             it.setData(Qt.ItemDataRole.UserRole, r.mod_id)
             tbl.setItem(i, C_ID, it)
-            tbl.setItem(i, C_TITLE, QTableWidgetItem(r.title or "（无标题）"))
+            tbl.setItem(i, C_TITLE, QTableWidgetItem(r.title or t('（无标题）')))
             # 状态列：显示走 status_zh 单源，英文原值进 UserRole 供
             # 推荐/过滤逻辑使用——显示与数据分离
             st = QTableWidgetItem(status_zh(r.status))
@@ -793,31 +793,30 @@ class DeletePage(QWidget):
             if r.status == "downloaded":
                 combo.addItem(t('删文件+软删除（推荐）'), "wipe_soft")
                 combo.setItemData(
-                    1, "账实一起收尾：文件删、记录保留可恢复（推荐）",
+                    1, t('账实一起收尾：文件删、记录保留可恢复（推荐）'),
                     Qt.ItemDataRole.ToolTipRole)
                 combo.addItem(t('仅删文件'), "wipe")
                 combo.setItemData(
-                    2, "账本仍记着「已下载」——之后它会在本页②"
-                       "「账有盘无」里出现",
+                    2, t('账本仍记着「已下载」——之后它会在本页②「账有盘无」里出现'),
                     Qt.ItemDataRole.ToolTipRole)
                 combo.addItem(t('删文件+彻底清账（不可逆）'), "wipe_purge")
                 combo.setItemData(
-                    3, "文件与记录都不要了：记录物理删除，不可恢复",
+                    3, t('文件与记录都不要了：记录物理删除，不可恢复'),
                     Qt.ItemDataRole.ToolTipRole)
             elif r.status == "deleted":
                 combo.addItem(t('删文件（推荐）'), "wipe")
                 combo.setItemData(
-                    1, "账本已经是删除状态，只需清掉占地的文件",
+                    1, t('账本已经是删除状态，只需清掉占地的文件'),
                     Qt.ItemDataRole.ToolTipRole)
                 combo.addItem(t('删文件+彻底清账（不可逆）'), "wipe_purge")
                 combo.setItemData(
-                    2, "连删除记录一起物理删除，不可恢复",
+                    2, t('连删除记录一起物理删除，不可恢复'),
                     Qt.ItemDataRole.ToolTipRole)
             else:
                 # failed：处置链归异常页，本页只清文件
                 combo.addItem(t('仅删文件（推荐）'), "wipe")
                 combo.setItemData(
-                    1, "失效原因的处置在【异常处理】页，这里只清占地的文件",
+                    1, t('失效原因的处置在【异常处理】页，这里只清占地的文件'),
                     Qt.ItemDataRole.ToolTipRole)
             tbl.setCellWidget(i, C_ACT, combo)
 
@@ -836,17 +835,13 @@ class DeletePage(QWidget):
             resurfaced = o.mod_id in purged_ids
             chk = QCheckBox()
             chk.setToolTip(
-                ("复活条目：你此前已彻底清账（黑名单在案），文件又被"
-                 "别的工具/steamcmd 弄回来了。\n勾选删除不会重复登记；"
-                 "完整断根请勾上面的「删除同时防复活」"
-                 "（含 steamcmd 账本条目移除）")
+                (t('复活条目：你此前已彻底清账（黑名单在案），文件又被别的工具/steamcmd 弄回来了。\n勾选删除不会重复登记；完整断根请勾上面的「删除同时防复活」（含 steamcmd 账本条目移除）'))
                 if resurfaced else
-                "勾选 = 执行时删除该目录（不可恢复）；确认不要的"
-                "可顺手勾上「删除同时防复活」")
+                t('勾选 = 执行时删除该目录（不可恢复）；确认不要的可顺手勾上「删除同时防复活」'))
             tbl.setCellWidget(i, O_CHK, chk)
             tbl.setItem(i, O_URL, self._make_url_item(o.mod_id))
             it = QTableWidgetItem(
-                f"{o.mod_id}（复活）" if resurfaced else str(o.mod_id))
+                (f"{o.mod_id}" + t('（复活）')) if resurfaced else str(o.mod_id))
             it.setData(Qt.ItemDataRole.UserRole, o.mod_id)
             if resurfaced:
                 it.setForeground(QBrush(QColor(_C_WARN)))
@@ -1069,7 +1064,7 @@ class DeletePage(QWidget):
         ret = QMessageBox.question(
             self, t("确认执行（最后一道确认）"),
             "\n".join(plan.notes)
-            + "\n\n确认按上述执行？默认按钮是「否」，回车不会动手。",
+            + t('\n\n确认按上述执行？默认按钮是「否」，回车不会动手。'),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
@@ -1113,10 +1108,9 @@ class DeletePage(QWidget):
         # 消解误读；逐条日志用 _KIND_ZH 写明是哪一步。涉及数按全部
         # 结果去重（成功+失败都算"动过了"），失败明细逐条列出
         n_mods = len({r.mod_id for r in results if r.mod_id})
-        tail = "（已按要求停止，剩余动作未执行）" if stopped else ""
+        tail = t('（已按要求停止，剩余动作未执行）') if stopped else ""
         summary = (
-                f"执行结束：完成 {len(ok)} 条动作（涉及 {n_mods} 个 mod），"
-                f"失败 {len(bad)} 条{tail}"
+                (t('执行结束：完成 ') + f"{len(ok)}" + t(' 条动作（涉及 ') + f"{n_mods}" + t(' 个 mod），失败 ') + f"{len(bad)}" + t(' 条') + f"{tail}")
                 + ("\n" + "\n".join(f"· {_KIND_ZH.get(r.kind, r.kind)} "
                                     f"{_who(r.mod_id)}：{r.detail}" for r in bad) if bad else ""))
         self._set_colored(self._lbl_progress, summary, _C_OK if (not bad and not stopped) else _C_WARN)
@@ -1139,9 +1133,8 @@ class DeletePage(QWidget):
                 freed, cleared, skipped = steamPaths.clear_download_caches(cmd)
                 if cleared or skipped:
                     self._log.info(
-                        f"清账后清缓存（防复活）：清掉 {cleared} 项，"
-                        f"释放 {freed / 2 ** 20:.1f} MB"
-                        + (f"；跳过 {len(skipped)} 项（被占用）" if skipped else ""))
+                        (t('清账后清缓存（防复活）：清掉 ') + f"{cleared}" + t(' 项，释放 ') + f"{freed / 2 ** 20:'.1f'}" + ' MB')
+                        + ((t('；跳过 ') + f"{len(skipped)}" + t(' 项（被占用）')) if skipped else ""))
             except OSError as exc:
                 self._log.warn(t('清账后清缓存出错（不影响清账结果）：') + f"{exc}")
 

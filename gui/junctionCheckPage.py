@@ -62,20 +62,16 @@ from gui.theme import font_px  # 字号单源（D25）
 
 # 状态 → (颜色, 结论一句话)。命令显隐与步骤文案在 _refresh 里按状态分派
 _STATE_LOOKS = {
-    "linked": ("#46a758", "✓ 已连接：游戏 mod 目录是联接，且正确指向下载目录"),
-    "linked_reverse": ("#46a758", "✓ 已连接（反向拓扑）：下载目录本身是联接，指向游戏 mod 目录"
-                       "——无需任何操作"),
-    "linked_reverse_missing": ("#f5a623", "接了一半：下载目录是联接、也指对了位置，"
-                               "但游戏 mod 目录当前不存在（steamcmd 写入会失败）"),
-    "wrong_target": ("#e5484d", "✗ 指错了地方：游戏 mod 目录是联接，但没有指向本档案的下载目录"),
-    "wrong_target_reverse": ("#e5484d", "✗ 下载目录本身是个联接，但指向了别处——"
-                             "steamcmd 的内容写不进游戏 mod 目录"),
-    "empty_dir": ("#f5a623", "未连接：位置存在但是个空目录（建链前需先移除它）"),
-    "real_dir": ("#f5a623", "未连接：这是真实目录且里面有内容（需先搬运再建链）"),
-    "missing": ("#f5a623", "未连接：该位置还不存在（可直接建链）"),
-    "file": ("#e5484d", "✗ 该位置被一个普通文件占用，无法建联接"),
-    "no_target": ("#e5484d", "✗ 推导不出下载目录（steamcmd 未配置），档案里也没有记录——"
-                  "先到设置页填 steamcmd 程序路径，或重新建档"),
+    "linked": ("#46a758", t('✓ 已连接：游戏 mod 目录是联接，且正确指向下载目录')),
+    "linked_reverse": ("#46a758", t('✓ 已连接（反向拓扑）：下载目录本身是联接，指向游戏 mod 目录——无需任何操作')),
+    "linked_reverse_missing": ("#f5a623", t('接了一半：下载目录是联接、也指对了位置，但游戏 mod 目录当前不存在（steamcmd 写入会失败）')),
+    "wrong_target": ("#e5484d", t('✗ 指错了地方：游戏 mod 目录是联接，但没有指向本档案的下载目录')),
+    "wrong_target_reverse": ("#e5484d", t('✗ 下载目录本身是个联接，但指向了别处——steamcmd 的内容写不进游戏 mod 目录')),
+    "empty_dir": ("#f5a623", t('未连接：位置存在但是个空目录（建链前需先移除它）')),
+    "real_dir": ("#f5a623", t('未连接：这是真实目录且里面有内容（需先搬运再建链）')),
+    "missing": ("#f5a623", t('未连接：该位置还不存在（可直接建链）')),
+    "file": ("#e5484d", t('✗ 该位置被一个普通文件占用，无法建联接')),
+    "no_target": ("#e5484d", t('✗ 推导不出下载目录（steamcmd 未配置），档案里也没有记录——先到设置页填 steamcmd 程序路径，或重新建档')),
 }
 
 
@@ -94,7 +90,7 @@ def _rmlink(path: str) -> str:
 
 
 # 命令执行环境提示词（标题里「在 X 里执行」的 X）
-_TERM = "cmd" if os.name == "nt" else "终端"
+_TERM = "cmd" if os.name == "nt" else t('终端')
 
 
 class JunctionCheckPage(QWidget):
@@ -284,7 +280,7 @@ class JunctionCheckPage(QWidget):
         self._game_label.setText(t('当前游戏：') + f"{game.name}" + f'（' + f"{game.app_id}" + f'）')
         self._target = self._derive_target(game)
         self._target_label.setText(
-            "下载目录（联接应指向的实体）：\n" + (self._target or "（推导不出，档案里也没有记录）"))
+            t('下载目录（联接应指向的实体）：\n') + (self._target or t('（推导不出，档案里也没有记录）')))
         # 历史手填提示：档案记录值与现推导值不同时说一句
         stored = str(game.download_dir or "").strip().strip('"').strip()
         if self._target and stored and \
@@ -329,7 +325,7 @@ class JunctionCheckPage(QWidget):
         if start and not Path(start).is_dir():
             start = ""  # 框里是手打的半截路径：别拿它当起点
         picked = QFileDialog.getExistingDirectory(
-            self, "选择游戏 mod 目录", start)
+            self, t('选择游戏 mod 目录'), start)
         if not picked:
             return
         self._input.setText(picked)
@@ -349,7 +345,7 @@ class JunctionCheckPage(QWidget):
         状态 → 行动的对照表就铺在这一个方法里，对照 JunctionReport
         的 docstring 看即可。"""
         color, text = _STATE_LOOKS.get(
-            report.state, ("gray", f"未知状态：{report.state}"))
+            report.state, ("gray", (t('未知状态：') + f"{report.state}")))
         self._state_label.setText(text)
         self._state_label.setStyleSheet(f"color: {color}; font-weight: 600;")
 
@@ -365,107 +361,79 @@ class JunctionCheckPage(QWidget):
         steps = ""
 
         if report.state == "linked":
-            detail = f"解析目标：{report.detail}"
+            detail = (t('解析目标：') + f"{report.detail}")
             show_remove = True
-            remove_title = f"拆除命令（如需断开连接才使用；在{_TERM}里执行）"
+            remove_title = (t('拆除命令（如需断开连接才使用；在') + f"{_TERM}" + t('里执行）'))
             remove_cmd = _rmlink(link)
-            steps = (f"当前无需任何操作。若以后想断开：在{_TERM}里执行拆除命令——"
-                     "拆链命令只删除链接本身，不会动下载目录里的内容。")
+            steps = ((t('当前无需任何操作。若以后想断开：在') + f"{_TERM}" + t('里执行拆除命令——拆链命令只删除链接本身，不会动下载目录里的内容。')))
         elif report.state == "linked_reverse":
             # 反向拓扑：联接在下载目录侧，拆除时动的也是那一侧
-            detail = f"联接位于（下载目录侧）：{target}"
+            detail = (t('联接位于（下载目录侧）：') + f"{target}")
             show_remove = True
-            remove_title = f"拆除命令（如需断开连接才使用；在{_TERM}里执行）"
+            remove_title = (t('拆除命令（如需断开连接才使用；在') + f"{_TERM}" + t('里执行）'))
             remove_cmd = _rmlink(target)
-            steps = ("当前无需任何操作：steamcmd 经联接写入，内容实际存放在"
-                     "游戏 mod 目录，游戏直接读真实目录。若以后想断开：在"
-                     f"{_TERM}里执行拆除命令——拆链命令只删除链接本身，不动游戏"
-                     "目录里的内容；拆掉后 steamcmd 下次下载会在原位重建真实下载目录。")
+            steps = ((t('当前无需任何操作：steamcmd 经联接写入，内容实际存放在游戏 mod 目录，游戏直接读真实目录。若以后想断开：在') + f"{_TERM}" + t('里执行拆除命令——拆链命令只删除链接本身，不动游戏目录里的内容；拆掉后 steamcmd 下次下载会在原位重建真实下载目录。')))
         elif report.state == "linked_reverse_missing":
             # 反向接了一半：只差游戏目录本身。绝不能建议 mklink 游戏→下载
             # （下载目录已是联接，再套一层就是环）——接通方式是补建目录
-            detail = f"联接位于（下载目录侧）：{target}"
+            detail = (t('联接位于（下载目录侧）：') + f"{target}")
             show_build = True
             show_remove = True
-            build_title = f"接通命令：创建游戏 mod 目录（在{_TERM}里执行）"
+            build_title = (t('接通命令：创建游戏 mod 目录（在') + f"{_TERM}" + t('里执行）'))
             build_cmd = f'mkdir "{link}"'
-            remove_title = "或：拆除下载目录侧的联接（改用其他拓扑前先拆）"
+            remove_title = t('或：拆除下载目录侧的联接（改用其他拓扑前先拆）')
             remove_cmd = _rmlink(target)
-            steps = ("下载目录侧的联接已经指对了位置，只差游戏 mod 目录本身："
-                     f"在{_TERM}里执行接通命令，建一个普通文件夹即可接上"
-                     "（原内容若已被删除则无法找回）。也可以先拆除联接，"
-                     "再按正向拓扑重新规划。")
+            steps = ((t('下载目录侧的联接已经指对了位置，只差游戏 mod 目录本身：在') + f"{_TERM}" + t('里执行接通命令，建一个普通文件夹即可接上（原内容若已被删除则无法找回）。也可以先拆除联接，再按正向拓扑重新规划。')))
         elif report.state == "wrong_target":
-            detail = f"解析目标：{report.detail}"
+            detail = (t('解析目标：') + f"{report.detail}")
             show_build = True
             show_remove = True
-            build_title = f"第 2 步：建链命令（在{_TERM}里执行）"
+            build_title = (t('第 2 步：建链命令（在') + f"{_TERM}" + t('里执行）'))
             build_cmd = _mklink(link, target)
-            remove_title = f"第 1 步：拆除现有联接（在{_TERM}里执行）"
+            remove_title = (t('第 1 步：拆除现有联接（在') + f"{_TERM}" + t('里执行）'))
             remove_cmd = _rmlink(link)
-            steps = ("① 先核对上方的解析目标，确认它确实不是本档案的下载目录；"
-                     "② 先拆除再建链。建议 steamcmd 空闲时操作。")
+            steps = (t('① 先核对上方的解析目标，确认它确实不是本档案的下载目录；② 先拆除再建链。建议 steamcmd 空闲时操作。'))
         elif report.state == "wrong_target_reverse":
             # 反向指错：联接在下载目录侧，重建也在那一侧原地指对
-            detail = (f"联接位于（下载目录侧）：{target}\n"
-                      f"解析目标：{report.detail}")
+            detail = ((t('联接位于（下载目录侧）：') + f"{target}" + t('\n解析目标：') + f"{report.detail}"))
             show_build = True
             show_remove = True
-            build_title = f"第 2 步：原地重建反向联接（在{_TERM}里执行）"
+            build_title = (t('第 2 步：原地重建反向联接（在') + f"{_TERM}" + t('里执行）'))
             build_cmd = _mklink(target, link)
-            remove_title = f"第 1 步：拆除指错的联接（在{_TERM}里执行）"
+            remove_title = (t('第 1 步：拆除指错的联接（在') + f"{_TERM}" + t('里执行）'))
             remove_cmd = _rmlink(target)
-            steps = ("steamcmd 的内容正写进「解析目标」那个位置，游戏 mod 目录"
-                     "接不到。两条路二选一：① 保留反向拓扑——依次执行下面两条"
-                     "命令，把下载目录侧的联接原地指对（数据无需搬运；若游戏 "
-                     "mod 目录当前还不存在，第 2 步执行完再创建它即可）；"
-                     "② 改用常规拓扑——拆除联接后让 steamcmd 重新生成真实"
-                     "下载目录，再按正向建链（需先搬运内容）。"
-                     "建议 steamcmd 空闲时操作。")
+            steps = (t('steamcmd 的内容正写进「解析目标」那个位置，游戏 mod 目录接不到。两条路二选一：① 保留反向拓扑——依次执行下面两条命令，把下载目录侧的联接原地指对（数据无需搬运；若游戏 mod 目录当前还不存在，第 2 步执行完再创建它即可）；② 改用常规拓扑——拆除联接后让 steamcmd 重新生成真实下载目录，再按正向建链（需先搬运内容）。建议 steamcmd 空闲时操作。'))
         elif report.state == "empty_dir":
             show_build = True
             show_remove = True
-            build_title = f"第 2 步：建链命令（在{_TERM}里执行）"
+            build_title = (t('第 2 步：建链命令（在') + f"{_TERM}" + t('里执行）'))
             build_cmd = _mklink(link, target)
-            remove_title = f"第 1 步：移除空目录（在{_TERM}里执行）"
+            remove_title = (t('第 1 步：移除空目录（在') + f"{_TERM}" + t('里执行）'))
             remove_cmd = f'rmdir "{link}"'   # 空真实目录：rmdir 两端同语义
-            steps = ("① 先执行移除命令——rmdir 只删得动空目录，里面有东西会"
-                     "报错拒绝（这是保护）；② 再执行建链命令。"
-                     "建议 steamcmd 空闲时操作。")
+            steps = (t('① 先执行移除命令——rmdir 只删得动空目录，里面有东西会报错拒绝（这是保护）；② 再执行建链命令。建议 steamcmd 空闲时操作。'))
         elif report.state == "real_dir":
             show_build = True
             show_remove = True
             # 三步重编号：两块命令都带步号，第 1 步搬运只活在说明里——
             # 照页面读必须先看到"第 1 步"
-            build_title = f"第 3 步：建链命令（在{_TERM}里执行）"
+            build_title = (t('第 3 步：建链命令（在') + f"{_TERM}" + t('里执行）'))
             build_cmd = _mklink(link, target)
-            remove_title = f"第 2 步：移除已搬空的目录（在{_TERM}里执行）"
+            remove_title = (t('第 2 步：移除已搬空的目录（在') + f"{_TERM}" + t('里执行）'))
             remove_cmd = f'rmdir "{link}"'   # 已搬空的真实目录：rmdir 两端同语义
             # 步骤里直接写明第 1 步搬到哪（路径可选中复制）；
             # rmdir 报错是保护这点一并说清。
             # ★ V2 口径：收编不再走"右键确认（手动）"——统一指路入账中心
             steps = (
-                "第 1 步：把这个目录里的内容整体移动到下载目录：\n"
-                f"{target}\n"
-                "（资源管理器剪切 → 粘贴即可）。有工坊编号的 mod 搬过去"
-                "账本照常认识；没有编号的（手动放进去的）会出现在核验页"
-                "「账本外」清单里，属正常——到【入账中心】点【扫描游戏"
-                "目录】即可收编。\n"
-                "第 2 步：移空后执行移除命令。rmdir 只删得动空目录——"
-                "没搬完它会报错拒绝，这是保护，搬完再执行即可。\n"
-                "第 3 步：执行建链命令。建议 steamcmd 空闲时操作。")
+                (t('第 1 步：把这个目录里的内容整体移动到下载目录：\n') + f"{target}" + t('\n（资源管理器剪切 → 粘贴即可）。有工坊编号的 mod 搬过去账本照常认识；没有编号的（手动放进去的）会出现在核验页「账本外」清单里，属正常——到【入账中心】点【扫描游戏目录】即可收编。\n第 2 步：移空后执行移除命令。rmdir 只删得动空目录——没搬完它会报错拒绝，这是保护，搬完再执行即可。\n第 3 步：执行建链命令。建议 steamcmd 空闲时操作。')))
         elif report.state == "missing":
             show_build = True
-            build_title = f"建链命令（在{_TERM}里执行）"
+            build_title = (t('建链命令（在') + f"{_TERM}" + t('里执行）'))
             build_cmd = _mklink(link, target)
-            steps = ("① 确认上方路径的上级文件夹已存在（路径拼错是建链失败"
-                     f"最常见的原因）；② 在{_TERM}里执行建链命令。"
-                     "建议 steamcmd 空闲时操作。")
+            steps = ((t('① 确认上方路径的上级文件夹已存在（路径拼错是建链失败最常见的原因）；② 在') + f"{_TERM}" + t('里执行建链命令。建议 steamcmd 空闲时操作。')))
         elif report.state == "file":
-            steps = ("确认这个文件是什么——若是无关文件，删除或改名后再点"
-                     "【检测】。本工具不会替你删除任何东西。")
+            steps = (t('确认这个文件是什么——若是无关文件，删除或改名后再点【检测】。本工具不会替你删除任何东西。'))
         elif report.state == "no_target":
-            steps = "先解决档案的下载目录问题，再回来做连接。"
+            steps = t('先解决档案的下载目录问题，再回来做连接。')
 
         self._detail_label.setText(detail)
         self._build_title.setText(build_title)

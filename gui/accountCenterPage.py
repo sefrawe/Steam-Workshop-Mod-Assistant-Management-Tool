@@ -189,7 +189,7 @@ class AccountCenterPage(QWidget):
         # 「先读我」：功能介绍 · 名词解释 · 各区步骤（可折叠，交互
         # 对齐异常处置页的同名卡）
         self._sec_guide = CollapsibleSection(
-            "先读我：本页怎么用 · 名词解释 · 各区步骤")
+            t('先读我：本页怎么用 · 名词解释 · 各区步骤'))
         self._sec_guide.set_content(self._build_guide_body(), 300)
         root.addWidget(self._sec_guide)
 
@@ -211,19 +211,19 @@ class AccountCenterPage(QWidget):
         # 四个分区：固定高度 + 点标题折叠。固定高度的用意：每区高度
         # 恒定、互不拉扯；收起只藏内容、标题行常在；内容多时表格内部
         # 出滚动条，分区高度不随内容涨（待认领 242 条也只占自己一格）
-        self._sec_pending = CollapsibleSection("① 待确认——终端判决等背书")
+        self._sec_pending = CollapsibleSection(t('① 待确认——终端判决等背书'))
         self._sec_pending.set_content(self._build_pending_zone(), 600)
         root.addWidget(self._sec_pending)
 
-        self._sec_claims = CollapsibleSection("② 待认领——盘上有文件、账上没版本")
+        self._sec_claims = CollapsibleSection(t('② 待认领——盘上有文件、账上没版本'))
         self._sec_claims.set_content(self._build_claims_zone(), 600)
         root.addWidget(self._sec_claims)
 
-        self._sec_history = CollapsibleSection("③ 最近判决（只读）")
+        self._sec_history = CollapsibleSection(t('③ 最近判决（只读）'))
         self._sec_history.set_content(self._build_history_zone(), 600)
         root.addWidget(self._sec_history)
 
-        self._sec_register = CollapsibleSection("④ 登记（想下载什么）")
+        self._sec_register = CollapsibleSection(t('④ 登记（想下载什么）'))
         self._sec_register.set_content(self._build_register_zone(), 600)
         root.addWidget(self._sec_register)
 
@@ -278,7 +278,7 @@ class AccountCenterPage(QWidget):
 
         self._pending_table = QTableWidget(0, 8, zone)
         self._pending_table.setHorizontalHeaderLabels(
-            ["勾选", "编号", "标题", "触发值", "查询值", "将写入", "大小", "来源"])
+            [t('勾选'), t('编号'), "标题", t('触发值'), t('查询值'), t('将写入'), t('大小'), t('来源')])
         self._style_table(self._pending_table)
         self._pending_table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.Stretch)
@@ -313,7 +313,7 @@ class AccountCenterPage(QWidget):
 
         self._claims_table = QTableWidget(0, 5, zone)
         self._claims_table.setHorizontalHeaderLabels(
-            ["勾选", "编号", "盘面版本", "大小", "说明"])
+            [t('勾选'), t('编号'), t('盘面版本'), t('大小'), t('说明')])
         self._style_table(self._claims_table)
         self._claims_table.horizontalHeader().setSectionResizeMode(
             4, QHeaderView.ResizeMode.Stretch)
@@ -363,7 +363,7 @@ class AccountCenterPage(QWidget):
         lay.addWidget(hint)
         self._history_table = QTableWidget(0, 8, zone)
         self._history_table.setHorizontalHeaderLabels(
-            ["时间", "编号", "标题", "种类", "触发值", "写入值", "来源", "状态"])
+            [t('时间'), t('编号'), "标题", t('种类'), t('触发值'), t('写入值'), t('来源'), t('状态')])
         self._style_table(self._history_table)
         self._history_table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.Stretch)
@@ -413,7 +413,7 @@ class AccountCenterPage(QWidget):
         lay.addWidget(self._mismatch_label)
 
         self._preview_table = QTableWidget(0, 3, zone)
-        self._preview_table.setHorizontalHeaderLabels(["类别", "编号", "说明"])
+        self._preview_table.setHorizontalHeaderLabels([t('类别'), t('编号'), t('说明')])
         self._style_table(self._preview_table)
         self._preview_table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.Stretch)
@@ -430,41 +430,17 @@ class AccountCenterPage(QWidget):
         iv.setContentsMargins(0, 0, 0, 0)
         iv.setSpacing(8)
         paragraphs = (
-            "【这页管什么】下载完成的 mod 不会自动算数——要在这里核对、"
-            "确认之后才进账本（账本 = 软件记住每个 mod 状态的地方）。"
-            "三条来路一个门：①批次收尾的终端判决、②盘点扫出的盘上候选、"
-            "③自己登记的编号，都从「确认」这道门进账本；确认后仍可右键"
-            "撤销。",
+            t('【这页管什么】下载完成的 mod 不会自动算数——要在这里核对、确认之后才进账本（账本 = 软件记住每个 mod 状态的地方）。三条来路一个门：①批次收尾的终端判决、②盘点扫出的盘上候选、③自己登记的编号，都从「确认」这道门进账本；确认后仍可右键撤销。'),
 
-            "【名词解释】判决：软件对一次下载/检测的判定记录（成功、失败、"
-            "超时都记）。待确认：判决说下载成功了，等你核对后背书才正式"
-            "记账。待认领：盘上有以编号命名的文件夹、账本里却没有这个"
-            "编号（手动拷进去的、别的工具下的）——盘点扫出来等你认。"
-            "登记：把「我想下载这个编号」记进账本，状态「待下载」。"
-            "版本未知：入账时没读到版本号（比如文件夹是空的）——重新下载"
-            "并在收尾清单确认后补上。黑名单：彻底清账/忽略过的编号，登记"
-            "与认领都会被拦；反悔去【已清账管理】允许录入。",
+            t('【名词解释】判决：软件对一次下载/检测的判定记录（成功、失败、超时都记）。待确认：判决说下载成功了，等你核对后背书才正式记账。待认领：盘上有以编号命名的文件夹、账本里却没有这个编号（手动拷进去的、别的工具下的）——盘点扫出来等你认。登记：把「我想下载这个编号」记进账本，状态「待下载」。版本未知：入账时没读到版本号（比如文件夹是空的）——重新下载并在收尾清单确认后补上。黑名单：彻底清账/忽略过的编号，登记与认领都会被拦；反悔去【已清账管理】允许录入。'),
 
-            "【① 待确认 怎么用】下载批次收尾后，成功条目在这里排队 →"
-            " 逐条核对标题/大小/将写入的版本 → 勾选 →【确认入账】。"
-            "默认全不勾是刻意的：确认 = 背书 = 写账本，背书必须逐条显式。"
-            "标题/大小暂缺的条目照常入账，更新检测页会补全。",
+            t('【① 待确认 怎么用】下载批次收尾后，成功条目在这里排队 → 逐条核对标题/大小/将写入的版本 → 勾选 →【确认入账】。默认全不勾是刻意的：确认 = 背书 = 写账本，背书必须逐条显式。标题/大小暂缺的条目照常入账，更新检测页会补全。'),
 
-            "【② 待认领 怎么用】点【扫描游戏目录】盘点一次 → 勾选要收编"
-            "的 →【认领入账】（按盘面上读到的版本入账）；不想收的"
-            "【忽略选中…】，今后扫描不再为它们落候选（反悔去已清账管理）。"
-            "重复扫描不会重复落候选；文件夹删掉后下轮扫描自动清。",
+            t('【② 待认领 怎么用】点【扫描游戏目录】盘点一次 → 勾选要收编的 →【认领入账】（按盘面上读到的版本入账）；不想收的【忽略选中…】，今后扫描不再为它们落候选（反悔去已清账管理）。重复扫描不会重复落候选；文件夹删掉后下轮扫描自动清。'),
 
-            "【④ 登记 怎么用】粘贴工坊网址 / 纯数字编号 / steamcmd 下载"
-            "命令（每行一条或空格分隔均可）→【解析预览】先对表（新登记 /"
-            " 已在册 / 黑名单警示 / 错档拦截 / 无法识别，五类分色，不写库）"
-            "→【登记新编号】（自动联网补标题/大小）→ 登记成「待下载」→"
-            " 到【下载命令生成】页勾选下载。",
+            t('【④ 登记 怎么用】粘贴工坊网址 / 纯数字编号 / steamcmd 下载命令（每行一条或空格分隔均可）→【解析预览】先对表（新登记 / 已在册 / 黑名单警示 / 错档拦截 / 无法识别，五类分色，不写库）→【登记新编号】（自动联网补标题/大小）→ 登记成「待下载」→ 到【下载命令生成】页勾选下载。'),
 
-            "【路标】想看/管每个 mod 的状态 →【mod 库】页；批量下载 →"
-            "【下载命令生成】页；删文件 →【清理与删除】页；账与盘逐条"
-            "对账 →【账实核验】页；判决史只读备查，右键已确认行可撤销"
-            "确认（唯一的后悔药：本地版本清空，下次更新检测重新报告）。")
+            t('【路标】想看/管每个 mod 的状态 →【mod 库】页；批量下载 →【下载命令生成】页；删文件 →【清理与删除】页；账与盘逐条对账 →【账实核验】页；判决史只读备查，右键已确认行可撤销确认（唯一的后悔药：本地版本清空，下次更新检测重新报告）。'))
         for text in paragraphs:
             lbl = QLabel(text, inner)
             lbl.setWordWrap(True)
@@ -637,12 +613,12 @@ class AccountCenterPage(QWidget):
             tbl.setItem(i, 1, QTableWidgetItem(str(v.mod_id)))
             tbl.setItem(i, 2, QTableWidgetItem(
                 str(v.version_written) if v.version_written is not None
-                else "读不出（认成版本未知）"))
+                else t('读不出（认成版本未知）')))
             tbl.setItem(i, 3, QTableWidgetItem(
                 fmt_size(v.file_size) if v.file_size else "—"))
             tbl.setItem(i, 4, QTableWidgetItem(
-                f"来自盘点， {relative_time(v.occurred_at)}"
-                if v.occurred_at else "来自盘点"))
+                (t('来自盘点， ') + f"{relative_time(v.occurred_at)}")
+                if v.occurred_at else t('来自盘点')))
         if rows:
             self._claims_hint.setText(
                 f"{len(rows)}" + t(' 条候选。核对后勾选【认领入账】；不想认的先留着（不影响任何功能），文件夹删掉后下轮扫描自动清。'))
@@ -681,7 +657,7 @@ class AccountCenterPage(QWidget):
                    if v.source else None)
             tbl.setItem(i, 6, QTableWidgetItem(src or "—"))
             tbl.setItem(i, 7, QTableWidgetItem(
-                "待确认" if v.confirmed_at is None else "已确认"))
+                t('待确认') if v.confirmed_at is None else t('已确认')))
         # 分区标题带实时计数
         self._sec_history.set_title(
             t("③ 最近判决（只读 · ") + f"{len(self._history_rows)} " + t("条）"))
@@ -699,8 +675,8 @@ class AccountCenterPage(QWidget):
 
         others = total - mine
         self._others.setText(
-            f"当前档案：{self._game.name}（{self._game.app_id}）。"
-            + (f"其他档案还有 {others} 条待确认——切到对应档案即可处理。"
+            (t('当前档案：') + f"{self._game.name}" + '（' + f"{self._game.app_id}" + '）。')
+            + ((t('其他档案还有 ') + f"{others}" + t(' 条待确认——切到对应档案即可处理。'))
                if others > 0 else ""))
 
     # ---------------- 待确认区动作 ----------------
@@ -744,8 +720,8 @@ class AccountCenterPage(QWidget):
             return
         v = self._pending_rows[row]
         menu = QMenu(self)
-        act_open = menu.addAction("↗ 打开工坊页面")
-        act_copy = menu.addAction("复制编号")
+        act_open = menu.addAction(t('↗ 打开工坊页面'))
+        act_copy = menu.addAction(t('复制编号'))
         chosen = menu.exec(self._pending_table.viewport().mapToGlobal(pos))
         if chosen == act_copy:
             QApplication.clipboard().setText(str(v.mod_id))
@@ -763,12 +739,12 @@ class AccountCenterPage(QWidget):
         v = self._history_view[row]
 
         menu = QMenu(self)
-        act_open = menu.addAction("↗ 打开工坊页面")
-        act_copy = menu.addAction("复制编号")
+        act_open = menu.addAction(t('↗ 打开工坊页面'))
+        act_copy = menu.addAction(t('复制编号'))
         act_revoke = None
         if v.confirmed_at is not None:
             menu.addSeparator()
-            act_revoke = menu.addAction("撤销确认（该 mod 的本地版本）")
+            act_revoke = menu.addAction(t('撤销确认（该 mod 的本地版本）'))
         chosen = menu.exec(self._history_table.viewport().mapToGlobal(pos))
         if chosen == act_copy:
             QApplication.clipboard().setText(str(v.mod_id))
@@ -847,7 +823,7 @@ class AccountCenterPage(QWidget):
         if gid is None:
             return
         for mid in ids:  # 逐条独立（repo 单语句方法自带原子性）
-            self._repo.add_purged(mid, gid, note="盘点忽略")
+            self._repo.add_purged(mid, gid, note=t('盘点忽略'))
         self._repo.drop_stale_claims(gid, ids)  # 候选提案随忽略作废
 
         if self._log is not None:
@@ -881,12 +857,8 @@ class AccountCenterPage(QWidget):
                 self._log.error(t('盘点失败：') + f"{error}")
             elif report is not None:
                 self._log.info(
-                    f"盘点完成（{report.mod_dir}）：盘上 {report.folders_found}"
-                    f" 个 mod 文件夹，新候选 {len(report.candidates_new)} 条，"
-                    f"清失效 {len(report.stale_removed)} 条，大小回填 "
-                    f"{report.sizes_backfilled} 条"
-                    + (f"，其中黑名单拦截 {report.skipped_purged} 条"
-                       "（复活条目：处置走清理页④或已清账管理·清除残留）"
+                    (t('盘点完成（') + f"{report.mod_dir}" + t('）：盘上 ') + f"{report.folders_found}" + t(' 个 mod 文件夹，新候选 ') + f"{len(report.candidates_new)}" + t(' 条，清失效 ') + f"{len(report.stale_removed)}" + t(' 条，大小回填 ') + f"{report.sizes_backfilled}" + t(' 条'))
+                    + ((t('，其中黑名单拦截 ') + f"{report.skipped_purged}" + t(' 条（复活条目：处置走清理页④或已清账管理·清除残留）'))
                        if report.skipped_purged else ""))
 
         self._reload_all()
@@ -897,10 +869,10 @@ class AccountCenterPage(QWidget):
             return
         v = self._claims_rows[row]
         menu = QMenu(self)
-        act_folder = (menu.addAction("↗ 打开所在文件夹")
+        act_folder = (menu.addAction(t('↗ 打开所在文件夹'))
                       if self._game is not None else None)
-        act_open = menu.addAction("↗ 打开工坊页面")
-        act_copy = menu.addAction("复制编号")
+        act_open = menu.addAction(t('↗ 打开工坊页面'))
+        act_copy = menu.addAction(t('复制编号'))
         chosen = menu.exec(self._claims_table.viewport().mapToGlobal(pos))
         if chosen == act_copy:
             QApplication.clipboard().setText(str(v.mod_id))
@@ -952,7 +924,7 @@ class AccountCenterPage(QWidget):
                 rows.append((t('新登记'), str(mid), t('将登记为「待下载」'), None))
         for mid, status in p.already_in_ledger:
             rows.append((t('已在册'), str(mid),
-                         "跳过——当前状态："
+                         t('跳过——当前状态：')
                          + constants.STATUS_ZH.get(status, status),
                          _C_MUTED))
         for raw in p.invalid:
