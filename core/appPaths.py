@@ -89,6 +89,9 @@ def writability_problem() -> str | None:
     探测是真刀真枪的：建目录、写一个几字节的小文件、随手删掉——
     毫秒级，比任何"猜权限"的写法都可靠。
     """
+    from core.i18n import t  # 函数内导入：core.i18n 顶层要用 app_root，
+    # 顶层互导会成环
+
     for d in (data_dir(), config_dir()):
         try:
             d.mkdir(parents=True, exist_ok=True)
@@ -103,19 +106,11 @@ def writability_problem() -> str | None:
             # 典型场景：软件被放进 Program Files 等系统目录，
             # 普通权限的进程没有写盘资格
             if sys.platform == "win32":
-                advice = ("解决办法：把整个软件文件夹移动到一个普通文件夹"
-                          "（例如 D:\\SteamModTool），\n"
-                          "不要放在 Program Files、Windows 等系统目录里，"
-                          "然后重新运行。")
+                advice = (t('解决办法：把整个软件文件夹移动到一个普通文件夹（例如 D:\\SteamModTool），\n不要放在 Program Files、Windows 等系统目录里，然后重新运行。'))
             else:
-                advice = ("解决办法：确认上面目录的属主是你当前的用户、"
-                          "且可写；\n或设置 XDG_DATA_HOME 环境变量把数据"
-                          "目录指到别处，然后重新运行。")
+                advice = (t('解决办法：确认上面目录的属主是你当前的用户、且可写；\n或设置 XDG_DATA_HOME 环境变量把数据目录指到别处，然后重新运行。'))
             return (
-                "程序无法在当前位置保存数据（账本、设置等将无处可写），"
-                "因此拒绝启动。\n\n"
-                f"出问题的目录：{d}\n"
-                f"系统原因：{exc}\n\n"
+                (t('程序无法在当前位置保存数据（账本、设置等将无处可写），因此拒绝启动。\n\n出问题的目录：') + f"{d}" + t('\n系统原因：') + f"{exc}" + '\n\n')
                 + advice
             )
     return None

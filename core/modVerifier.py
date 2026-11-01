@@ -79,6 +79,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from core.i18n import t
 
 # ============================================================
 # 第一份对账：账本 ↔ content 磁盘实况
@@ -260,7 +261,7 @@ def verify_junctions(
             # readlink 拿到链接目标；剥扩展前缀后与期望位置比对
             target = Path(_strip_extended_prefix(os.readlink(p)))
         except OSError:
-            wrong.append((mid, "（无法读取链接目标）"))
+            wrong.append((mid, t('（无法读取链接目标）')))
             continue
         if _same_path(target, content_root / str(mid)):
             # 链接方向正确。content 实体在不在归 verify() 的 missing 桶管，

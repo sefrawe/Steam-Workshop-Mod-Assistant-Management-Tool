@@ -108,38 +108,38 @@ class MigrationReport:
     def summary(self) -> str:
         """一行报数（写日志 / 状态栏用），带提醒条数。"""
         parts = [
-            f"档案 {self.games}", f"mod {self.mods}",
-            f"继承本地版本 {self.mods_inherited}",
-            f"版本未知 {self.mods_version_unknown}",
-            f"远端观测史 {self.snapshots}", f"备份登记 {self.backups}",
-            f"操作日志 {self.operations}", f"失效归档 {self.failed}",
-            f"特殊提醒 {self.alerts}", f"黑名单 {self.purged}",
-            f"依赖边 {self.dependency_edges}",
+            (t('档案 ') + f"{self.games}"), f"mod {self.mods}",
+            (t('继承本地版本 ') + f"{self.mods_inherited}"),
+            (t('版本未知 ') + f"{self.mods_version_unknown}"),
+            (t('远端观测史 ') + f"{self.snapshots}"), (t('备份登记 ') + f"{self.backups}"),
+            (t('操作日志 ') + f"{self.operations}"), (t('失效归档 ') + f"{self.failed}"),
+            (t('特殊提醒 ') + f"{self.alerts}"), (t('黑名单 ') + f"{self.purged}"),
+            (t('依赖边 ') + f"{self.dependency_edges}"),
         ]
         text = "；".join(parts)
         if self.purged:
-            text += "（黑名单登记时间统一记为迁移时刻）"
+            text += t('（黑名单登记时间统一记为迁移时刻）')
         if self.warnings:
-            text += f"；⚠ {len(self.warnings)} 条提醒（详见运行日志）"
+            text += ('；⚠ ' + f"{len(self.warnings)}" + t(' 条提醒（详见运行日志）'))
         return text
 
 
 # peek 结果 kind 的人话对照（弹窗/日志共用，别各写各的）
 _KIND_ZH = {
-    "old": "上一代工具的旧账本（可迁移）",
-    "new": "已经是新版账本，无需迁移",
-    "empty": "空库，没有可迁移的数据",
-    "alien": "不是本工具的账本（表结构对不上）",
-    "not_sqlite": "这个文件不是 SQLite 数据库",
-    "missing": "文件不存在",
+    "old": t('上一代工具的旧账本（可迁移）'),
+    "new": t('已经是新版账本，无需迁移'),
+    "empty": t('空库，没有可迁移的数据'),
+    "alien": t('不是本工具的账本（表结构对不上）'),
+    "not_sqlite": t('这个文件不是 SQLite 数据库'),
+    "missing": t('文件不存在'),
 }
 
 # 计数显示顺序与中文标签（弹窗里"档案 2 · mod 237 …"那一行）
 _COUNT_ZH: tuple[tuple[str, str], ...] = (
-    ("games", "档案"), ("mods", "mod"), ("mod_snapshots", "远端观测史"),
-    ("backups", "备份登记"), ("operations_log", "操作日志"),
-    ("failed_mods", "失效归档"), ("special_mod_alerts", "特殊提醒"),
-    ("purged_mods", "黑名单"), ("mod_dependencies", "依赖边"),
+    ("games", t('档案')), ("mods", "mod"), ("mod_snapshots", t('远端观测史')),
+    ("backups", t('备份登记')), ("operations_log", t('操作日志')),
+    ("failed_mods", t('失效归档')), ("special_mod_alerts", t('特殊提醒')),
+    ("purged_mods", t('黑名单')), ("mod_dependencies", t('依赖边')),
 )
 
 
@@ -200,7 +200,7 @@ def _loads_json(text, warnings: list[str], label: str):
     try:
         return json.loads(text)
     except (TypeError, ValueError):
-        warnings.append(f"{label} 的 JSON 字段损坏，已放弃该段内容")
+        warnings.append((f"{label}" + t(' 的 JSON 字段损坏，已放弃该段内容')))
         return None
 
 
@@ -265,7 +265,7 @@ def _remap_mod(old: dict, migration_time: int,
         "favorited": old.get("favorited"),
         "views": old.get("views"),
         "tags": _loads_json(old.get("tags"), warnings,
-                            f"mod {old['mod_id']} 的标签"),
+                            ('mod ' + f"{old['mod_id']}" + t(' 的标签'))),
         "last_checked_at": old.get("last_checked_at"),
         "preview_url": old.get("preview_url"),
         "is_special": bool(old.get("is_special")),
@@ -275,7 +275,7 @@ def _remap_mod(old: dict, migration_time: int,
         "deleted_at": old.get("deleted_at"),
         "deleted_last_state": _remap_state_json(
             old.get("deleted_last_state"), warnings,
-            f"mod {old['mod_id']} 的软删除末态"),
+            ('mod ' + f"{old['mod_id']}" + t(' 的软删除末态'))),
         "first_tracked_at": old.get("first_tracked_at"),
     }
 
@@ -364,7 +364,7 @@ def migrate_old_ledger(old_db_path: str | Path,
                     raw[table] = []
                 else:
                     raw[table] = []
-                    warnings.append(f"旧库里没有 {table} 表，按空表处理")
+                    warnings.append((t('旧库里没有 ') + f"{table}" + t(' 表，按空表处理')))
 
         # ---- games：字段完全同名，原样成行 ----
         game_ids = {g["app_id"] for g in raw["games"]}
@@ -380,12 +380,11 @@ def migrate_old_ledger(old_db_path: str | Path,
                 # 正常旧库不该有（外键管着），防御性跳过不让一条
                 # 脏行炸掉整个迁移
                 warnings.append(
-                    f"mod {row['mod_id']} 所属的档案不存在，已跳过")
+                    ('mod ' + f"{row['mod_id']}" + t(' 所属的档案不存在，已跳过')))
                 continue
             if row["status"] not in valid_statuses:
                 warnings.append(
-                    f"mod {row['mod_id']} 的状态值无法识别"
-                    f"（{row['status']!r}），已跳过")
+                    ('mod ' + f"{row['mod_id']}" + t(' 的状态值无法识别（') + f"{row['status']!r}" + t('），已跳过')))
                 continue
             mods_rows.append(_remap_mod(row, migration_time, warnings))
             mod_ids.add(row["mod_id"])
@@ -408,14 +407,13 @@ def migrate_old_ledger(old_db_path: str | Path,
         for r in raw["backups"]:
             if r["mod_id"] not in mod_ids:
                 warnings.append(
-                    f"备份登记 {r['id']}（{r['backup_path']}）所属的 "
-                    f"mod 不存在，已跳过")
+                    (t('备份登记 ') + f"{r['id']}" + '（' + f"{r['backup_path']}" + t('）所属的 mod 不存在，已跳过')))
                 continue
             if r.get("version_timeupdated") is None:
                 # 新 schema version_timeupdated NOT NULL；硬灌会炸整体回滚。
                 # 诚实跳过（盘上目录不动，账上不收），与 mod 缺失同款处理。
                 warnings.append(
-                    f"备份登记 {r['id']}（{r['backup_path']}）没有版本号，已跳过")
+                    (t('备份登记 ') + f"{r['id']}" + '（' + f"{r['backup_path']}" + t('）没有版本号，已跳过')))
                 continue
             backup_ids.add(r["id"])
             backup_rows.append({**r, "pinned": bool(r["pinned"])})
@@ -430,8 +428,7 @@ def migrate_old_ledger(old_db_path: str | Path,
                     and row["backup_id"] not in backup_ids:
                 row["backup_id"] = None
                 warnings.append(
-                    f"操作日志 {row['id']} 指向的备份登记不存在，"
-                    "已把关联置空")
+                    (t('操作日志 ') + f"{row['id']}" + t(' 指向的备份登记不存在，已把关联置空')))
             op_rows.append(row)
         report.operations = len(op_rows)
 
@@ -439,17 +436,17 @@ def migrate_old_ledger(old_db_path: str | Path,
         failed_rows = []
         for r in raw["failed_mods"]:
             if r["game_id"] not in game_ids:
-                warnings.append(f"失效归档 {r['id']} 所属档案不存在，已跳过")
+                warnings.append((t('失效归档 ') + f"{r['id']}" + t(' 所属档案不存在，已跳过')))
                 continue
             row = dict(r)
             row["last_known_state"] = _remap_state_json(
                 r.get("last_known_state"), warnings,
-                f"失效归档 {r['id']} 的末态快照")
+                (t('失效归档 ') + f"{r['id']}" + t(' 的末态快照')))
             if row.get("replaced_by") is not None \
                     and row["replaced_by"] not in mod_ids:
                 row["replaced_by"] = None
                 warnings.append(
-                    f"失效归档 {r['id']} 指向的新 mod 不存在，已把关联置空")
+                    (t('失效归档 ') + f"{r['id']}" + t(' 指向的新 mod 不存在，已把关联置空')))
             failed_rows.append(row)
         report.failed = len(failed_rows)
 
@@ -458,7 +455,7 @@ def migrate_old_ledger(old_db_path: str | Path,
                       if r["mod_id"] in mod_ids]
         for r in raw["special_mod_alerts"]:
             if r["mod_id"] not in mod_ids:
-                warnings.append(f"特殊提醒 {r['id']} 所属 mod 不存在，已跳过")
+                warnings.append((t('特殊提醒 ') + f"{r['id']}" + t(' 所属 mod 不存在，已跳过')))
         report.alerts = len(alert_rows)
         for r in alert_rows:
             r["was_downloaded"] = bool(r["was_downloaded"])

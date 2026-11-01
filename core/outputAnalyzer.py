@@ -55,6 +55,7 @@ M3 功能模块的地基：终端面板靠它标注"这行输出意味着什么"
 """
 import re
 from dataclasses import dataclass
+from core.i18n import t
 
 # ---------- 结论种类（模块常量：调用方按这里比较，别写裸字符串） ----------
 
@@ -171,42 +172,36 @@ def describe(v: Verdict) -> str:
     可见，不必等用户来问。其余结论文案一字未动。
     """
     if v.kind == KIND_DOWNLOAD_STARTED:
-        return f"开始下载 mod {v.mod_id}"
+        return (t('开始下载 mod ') + f"{v.mod_id}")
     if v.kind == KIND_DOWNLOAD_SUCCESS:
-        return f"mod {v.mod_id} 下载成功（{v.size_bytes} 字节）"
+        return ('mod ' + f"{v.mod_id}" + t(' 下载成功（') + f"{v.size_bytes}" + t(' 字节）'))
     if v.kind == KIND_DOWNLOAD_FAILED:
-        base = f"mod {v.mod_id} 下载失败：{v.reason}"
+        base = ('mod ' + f"{v.mod_id}" + t(' 下载失败：') + f"{v.reason}")
         if "no match" in (v.reason or "").casefold():
             # No match = 该游戏名下没有这个条目：AppID 与编号多半
             # 不匹配（条目属于别的游戏），或条目已不存在
-            base += "（该游戏名下没有此条目：AppID 与编号多半不匹配，" \
-                    "或条目已不存在）"
+            base += t('（该游戏名下没有此条目：AppID 与编号多半不匹配，或条目已不存在）')
         return base
     if v.kind == KIND_DOWNLOAD_TIMEOUT:
         # 任务③：按需求原文带提示，设置名加「」与设置页对齐
-        return (f"mod {v.mod_id} 下载超时（steamcmd 判定）。提示："
-                "如果是在删除 mod 后出现下载超时现象，建议关闭"
-                "「下载前、后清理缓存」，全部下载成功后再开启")
+        return (('mod ' + f"{v.mod_id}" + t(' 下载超时（steamcmd 判定）。提示：如果是在删除 mod 后出现下载超时现象，建议关闭「下载前、后清理缓存」，全部下载成功后再开启')))
     if v.kind == KIND_NOT_LOGGED_ON:
-        return "尚未登录：请先执行登录命令再下载"
+        return t('尚未登录：请先执行登录命令再下载')
     if v.kind == KIND_DISCONNECTED:
         if v.code == 1:
             # result 1 (OK) 出现在登录瞬间 = 旧会话被新登录挤掉的
             # 正常提示，不是断线——照实说，免得用户虚惊
             # （2026-10-06 批次日志实证：报这句的下一秒登录成功、
             # 批次全程无碍）
-            return ("会话提示（result 1 OK）：旧登录会话被本次登录"
-                    "挤掉，无害，无需处理")
-        return (f"与 Steam 断开连接（result {v.code}：{v.note}），"
-                "steamcmd 会自动重试")
+            return (t('会话提示（result 1 OK）：旧登录会话被本次登录挤掉，无害，无需处理'))
+        return ((t('与 Steam 断开连接（result ') + f"{v.code}" + '：' + f"{v.note}" + t('），steamcmd 会自动重试')))
     if v.kind == KIND_COMMAND_NOT_FOUND:
-        return f"steamcmd 不认识这条命令：{v.note}"
+        return (t('steamcmd 不认识这条命令：') + f"{v.note}")
     if v.kind == KIND_LOGIN_OK:
-        return "登录成功"
+        return t('登录成功')
     if v.kind == KIND_READY:
-        return "steamcmd 就绪"
+        return t('steamcmd 就绪')
     if v.kind == KIND_FULL_VALIDATION:
-        return ("steamcmd 正在做工坊全量校验（例行对账，不是卡死"
-                "），请耐心等它走完")
+        return (t('steamcmd 正在做工坊全量校验（例行对账，不是卡死），请耐心等它走完'))
     return v.kind  # 未知种类原样返回，不吞（与 formatters.status_zh 同款口径）
 

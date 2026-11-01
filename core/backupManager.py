@@ -256,12 +256,9 @@ class BackupManager:
         # 「设定本地版本…」——旧版"扫描本地"路径已随判决制退役。
         if mod.version_unknown:
             if mod.status == "downloaded":
-                error = ("本地版本未知：无法确定备份版本。\n"
-                         "可到 mod 库页右键【设定本地版本…】人工认定版本后"
-                         "再备份；或重新下载该 mod 并在收尾清单里确认入账。")
+                error = (t('本地版本未知：无法确定备份版本。\n可到 mod 库页右键【设定本地版本…】人工认定版本后再备份；或重新下载该 mod 并在收尾清单里确认入账。'))
             else:
-                error = ("该 mod 不是已下载状态（或版本未知）："
-                         "备份只服务已下载且版本已确认的条目。")
+                error = (t('该 mod 不是已下载状态（或版本未知）：备份只服务已下载且版本已确认的条目。'))
             return BackupReport(ok=False, error=error)
 
         # ---- 前提二：确定备份根目录（档案值优先，缺省推导并回写）----
@@ -269,15 +266,13 @@ class BackupManager:
         if root is None:
             return BackupReport(
                 ok=False,
-                error="无法确定备份位置：档案未设置备份目录，"
-                      "且未配置 steamcmd 程序路径，无法自动推导。"
-                      "请先在设置页填写 steamcmd 程序。")
+                error=t('无法确定备份位置：档案未设置备份目录，且未配置 steamcmd 程序路径，无法自动推导。请先在设置页填写 steamcmd 程序。'))
         if derived:
             # 与 T10e 同款"推导 + 回写 + 告知"模式：档案当时没存备份目录，
             # 现在补上，下次不再推导
             self._repo.update_game(game.app_id, backup_dir=root)
             warnings.append(
-                f"备份目录未设置，已按 steamcmd 位置推导并写入档案：{root}")
+                (t('备份目录未设置，已按 steamcmd 位置推导并写入档案：') + f"{root}"))
 
         Path(root).mkdir(parents=True, exist_ok=True)
 
@@ -286,32 +281,27 @@ class BackupManager:
         if not source.is_dir():
             return BackupReport(
                 ok=False,
-                error=f"未找到本地内容：{source}\n"
-                      "（档案的下载目录下没有这个 mod 的文件夹）")
+                error=(t('未找到本地内容：') + f"{source}" + t('\n（档案的下载目录下没有这个 mod 的文件夹）')))
 
         # ---- 环境检查：只警告，不拦截 ----
         if steamcmd_running():
             warnings.append(
-                "检测到 steamcmd 正在运行：此时备份可能拿到不完整的副本"
-                "（下载仍在写入）。建议等下载结束再备份。")
+                t('检测到 steamcmd 正在运行：此时备份可能拿到不完整的副本（下载仍在写入）。建议等下载结束再备份。'))
         for p in (source, Path(root)):
             if len(str(p)) > _PATH_WARN_LEN:
                 warnings.append(
-                    f"路径过长（{len(str(p))} 字符）：{p}\n"
-                    "robocopy 可处理，但游戏侧工具可能读不到。")
+                    (t('路径过长（') + f"{len(str(p))}" + t(' 字符）：') + f"{p}" + t('\nrobocopy 可处理，但游戏侧工具可能读不到。')))
 
         if mod.local_size is not None:
             free = shutil.disk_usage(root).free
             if free < mod.local_size:
                 return BackupReport(
                     ok=False,
-                    error=f"磁盘空间不足：预计需要 "
-                          f"{mod.local_size / 2**30:.2f} GiB，"
-                          f"备份盘仅剩 {free / 2**30:.2f} GiB。")
+                    error=(t('磁盘空间不足：预计需要 ') + f"{mod.local_size / 2 ** 30:'.2f'}" + t(' GiB，备份盘仅剩 ') + f"{free / 2 ** 30:'.2f'}" + ' GiB。'))
             if free < mod.local_size * 1.1:
-                warnings.append("备份盘剩余空间偏紧，建议尽快清理旧备份。")
+                warnings.append(t('备份盘剩余空间偏紧，建议尽快清理旧备份。'))
         else:
-            warnings.append("该 mod 缺少本地大小记录，跳过空间预检。")
+            warnings.append(t('该 mod 缺少本地大小记录，跳过空间预检。'))
 
         # ---- 复制 ----
         # 版本号进目录名（<modid>_v<版本>_<时间戳>）：v2 取确认版本
@@ -328,8 +318,7 @@ class BackupManager:
                     pass
             return BackupReport(
                 ok=False,
-                error=f"robocopy 失败（退出码 {rc}，≥8 才算失败）：\n"
-                      f"{out[-800:]}")
+                error=(t('robocopy 失败（退出码 ') + f"{rc}" + t('，≥8 才算失败）：\n') + f"{out[-800:]}"))
 
         # ---- 登记（存相对路径，R1）----
         record = self._repo.add_backup(
@@ -352,8 +341,7 @@ class BackupManager:
         cleaned, quota_tight = self._prune(exclude_id=record.id)
         if quota_tight:
             warnings.append(
-                "备份总量超出配额，但可清理的备份都已钉住或只剩本次备份——"
-                "请到备份管理页手动处理。")
+                t('备份总量超出配额，但可清理的备份都已钉住或只剩本次备份——请到备份管理页手动处理。'))
 
         return BackupReport(ok=True, backup=record, warnings=warnings,
                             cleaned=cleaned)
@@ -368,8 +356,7 @@ class BackupManager:
         if steamcmd_running():
             return RestoreReport(
                 ok=False,
-                error="检测到 steamcmd 正在运行：恢复会与下载争用同一目录，"
-                      "请先退出 steamcmd 再恢复。")
+                error=t('检测到 steamcmd 正在运行：恢复会与下载争用同一目录，请先退出 steamcmd 再恢复。'))
 
         warnings: list[str] = []
         record = self._repo.get_backup(backup_id)
@@ -380,14 +367,13 @@ class BackupManager:
         if mod is None or game is None:
             raise ValueError(t('备份对应的 mod 或游戏档案不存在（数据不一致）'))
         if mod.status == "deleted":
-            warnings.append("该 mod 当前状态为已删除：恢复会把文件放回下载目录，"
-                            "但数据库状态不变。")
+            warnings.append(t('该 mod 当前状态为已删除：恢复会把文件放回下载目录，但数据库状态不变。'))
 
         # ---- 解析两个位置：备份在哪、恢复到哪 ----
         if not (game.backup_dir or "").strip():
             return RestoreReport(
                 ok=False, warnings=warnings,
-                error="档案未设置备份目录，无法解析备份记录的相对路径。")
+                error=t('档案未设置备份目录，无法解析备份记录的相对路径。'))
         backup_root = Path(game.backup_dir)
         src = backup_root / record.backup_path
         try:
@@ -397,19 +383,18 @@ class BackupManager:
         if not src.is_dir():
             return RestoreReport(
                 ok=False, warnings=warnings,
-                error=f"备份目录在盘上不存在：{src}\n"
-                      "（可能已被手动移动或删除）")
+                error=(t('备份目录在盘上不存在：') + f"{src}" + t('\n（可能已被手动移动或删除）')))
         if not str(game.download_dir or "").strip():
             return RestoreReport(
                 ok=False, warnings=warnings,
-                error="档案未设置下载目录，无法确定恢复位置。")
+                error=t('档案未设置下载目录，无法确定恢复位置。'))
         dest = Path(game.download_dir) / str(mod.mod_id)
         if _is_link_or_junction(dest):
             # 恢复位置的 mod 目录是 junction = 档案的 download_dir 配到了
             # 游戏侧（决策 21④ 的反向），拒绝动手
             return RestoreReport(
                 ok=False, warnings=warnings,
-                error=f"下载目录中的 mod 位置是链接/junction，拒绝恢复：{dest}")
+                error=(t('下载目录中的 mod 位置是链接/junction，拒绝恢复：') + f"{dest}"))
 
         # ---- ① R8：先强制备份当前版本（没有现状则跳过）----
         # 两分（备份轮拍板）：当前版本已知 → 走正经备份、入账；
@@ -425,22 +410,19 @@ class BackupManager:
                 if pre_err is not None:
                     return RestoreReport(
                         ok=False, warnings=warnings,
-                        error="恢复前保命备份失败（要求先备份当前版本，"
-                              "已中止恢复）：\n" + pre_err)
+                        error=t('恢复前保命备份失败（要求先备份当前版本，已中止恢复）：\n') + pre_err)
                 warnings.append(
-                    "当前版本未知：恢复前的保命副本已存到下面位置"
-                    "（不入备份账，恢复确认无误后可手动删除）：\n"
+                    t('当前版本未知：恢复前的保命副本已存到下面位置（不入备份账，恢复确认无误后可手动删除）：\n')
                     + str(pre_copy))
             else:
-                pre_report = self.backup_mod(mod.mod_id, note="恢复前自动备份")
+                pre_report = self.backup_mod(mod.mod_id, note=t('恢复前自动备份'))
                 if not pre_report.ok:
                     return RestoreReport(
                         ok=False, warnings=warnings,
-                        error=f"恢复前备份失败（要求先备份当前版本，已中止恢复）：\n"
-                              f"{pre_report.error}")
+                        error=(t('恢复前备份失败（要求先备份当前版本，已中止恢复）：\n') + f"{pre_report.error}"))
                 pre = pre_report.backup
         else:
-            warnings.append("当前没有本地内容，跳过恢复前备份。")
+            warnings.append(t('当前没有本地内容，跳过恢复前备份。'))
 
         # ---- ② 当前文件夹改名挪走（仅当当前版本真实存在；同盘改名 = 原子）----
         # 无现状时 aside 保持 None：没有东西可挪，"原状"就是没有这个目录。
@@ -454,7 +436,7 @@ class BackupManager:
             except OSError as exc:
                 return RestoreReport(
                     ok=False, warnings=warnings,
-                    error=f"无法挪动当前版本（未做任何改动）：{exc}")
+                    error=(t('无法挪动当前版本（未做任何改动）：') + f"{exc}"))
 
         # ---- ③ 复制备份回原位 ----
         rc, out = self._run(str(src), str(dest))
@@ -470,13 +452,11 @@ class BackupManager:
                     aside.rename(dest)
                 except OSError:
                     warnings.append(
-                        f"回退时改回原名失败，旧内容仍在：{aside}\n请手动改回"
-                        f" {dest.name}")
+                        (t('回退时改回原名失败，旧内容仍在：') + f"{aside}" + t('\n请手动改回 ') + f"{dest.name}"))
 
             return RestoreReport(
                 ok=False, pre_backup=pre, warnings=warnings,
-                error=f"恢复复制失败（robocopy 退出码 {rc}），已回退原状：\n"
-                      f"{out[-800:]}")
+                error=(t('恢复复制失败（robocopy 退出码 ') + f"{rc}" + t('），已回退原状：\n') + f"{out[-800:]}"))
 
         # ---- ⑤ 成功：删掉挪走的旧目录（无现状路径没有可删的东西）----
         if aside is not None:
@@ -484,7 +464,7 @@ class BackupManager:
                 _safe_rmtree(aside, dest.parent)
             except (RuntimeError, OSError) as exc:
                 warnings.append(
-                    f"旧版本目录删除失败（恢复本身已成功）：{aside}\n{exc}")
+                    (t('旧版本目录删除失败（恢复本身已成功）：') + f"{aside}" + '\n' + f"{exc}"))
         return RestoreReport(ok=True, pre_backup=pre, pre_copy_dir=pre_copy,warnings=warnings)
     def _pre_backup_unversioned(self, mod, game) -> tuple[Path | None, str | None]:
         """版本未知时的恢复前保命副本（两分的"未知"侧）。
@@ -503,13 +483,11 @@ class BackupManager:
         """
         root, _derived = self._resolve_root(game)
         if root is None:
-            return None, ("档案未设置备份目录，且未配置 steamcmd 程序路径，"
-                          "保命副本没有可放的位置。请先在设置页填写"
-                          " steamcmd 程序，或给档案设置备份目录。")
+            return None, (t('档案未设置备份目录，且未配置 steamcmd 程序路径，保命副本没有可放的位置。请先在设置页填写 steamcmd 程序，或给档案设置备份目录。'))
         try:
             Path(root).mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            return None, f"备份目录无法创建：{root}\n{exc}"
+            return None, (t('备份目录无法创建：') + f"{root}" + '\n' + f"{exc}")
         source = Path(game.download_dir or "") / str(mod.mod_id)
         # 目录名与 _fresh_target 同款三段式，版本段写"未知"——
         # 正经备份的版本段是数字，一眼可辨不会混淆。
@@ -519,11 +497,11 @@ class BackupManager:
         try:
             mod_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            return None, f"备份目录无法创建：{mod_dir}\n{exc}"
-        dst = mod_dir / f"{mod.mod_id}_v未知_{stamp}"
+            return None, (t('备份目录无法创建：') + f"{mod_dir}" + '\n' + f"{exc}")
+        dst = mod_dir / (f"{mod.mod_id}" + t('_v未知_') + f"{stamp}")
         n = 2
         while dst.exists():
-            dst = mod_dir / f"{mod.mod_id}_v未知_{stamp}_{n}"
+            dst = mod_dir / (f"{mod.mod_id}" + t('_v未知_') + f"{stamp}" + '_' + f"{n}")
             n += 1
 
         rc, out = self._run(str(source), str(dst))
@@ -534,8 +512,7 @@ class BackupManager:
                     _safe_rmtree(dst, Path(root))
                 except (RuntimeError, OSError):
                     pass
-            return None, (f"robocopy 失败（退出码 {rc}，≥8 才算失败）：\n"
-                          f"{out[-800:]}")
+            return None, ((t('robocopy 失败（退出码 ') + f"{rc}" + t('，≥8 才算失败）：\n') + f"{out[-800:]}"))
         return dst, None
 
     # ---------- 对外：删除 ----------
@@ -555,17 +532,15 @@ class BackupManager:
         game = self._repo.get_game(mod.game_id) if mod else None
         if game is None or not (game.backup_dir or "").strip():
             self._repo.delete_backup_record(record.id)
-            return True, ("无法解析备份位置（mod 或档案的备份目录缺失），"
-                          "仅删除了记录")
+            return True, (t('无法解析备份位置（mod 或档案的备份目录缺失），仅删除了记录'))
         target = Path(game.backup_dir) / record.backup_path
         if not target.is_dir():
             self._repo.delete_backup_record(record.id)
-            return True, (f"盘上本已不存在（可能已被手动删除）：{target}\n"
-                          "仅删除了记录")
+            return True, ((t('盘上本已不存在（可能已被手动删除）：') + f"{target}" + t('\n仅删除了记录')))
         try:
             _safe_rmtree(target, Path(game.backup_dir))
         except (RuntimeError, OSError) as exc:
-            return False, f"磁盘目录删除失败，记录保留（安全保险丝或权限问题）：{exc}"
+            return False, (t('磁盘目录删除失败，记录保留（安全保险丝或权限问题）：') + f"{exc}")
         self._repo.delete_backup_record(record.id)
         return True, None
 
@@ -692,5 +667,5 @@ class BackupManager:
         try:
             shutil.copytree(src, dst, dirs_exist_ok=True, symlinks=True)
         except Exception as exc:
-            return 8, f"copytree 失败：{exc}"
+            return 8, (t('copytree 失败：') + f"{exc}")
         return 0, ""

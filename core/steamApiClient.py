@@ -387,19 +387,17 @@ class SteamApiClient:
                 last_exc = exc
                 if attempt < self._max_retries:
                     logger.warning(
-                        "Steam 请求失败（第 {}/{} 次）：{}；{} 秒后自动重试"
-                        "（不是卡死，是在重试）",
+                        t('Steam 请求失败（第 {}/{} 次）：{}；{} 秒后自动重试（不是卡死，是在重试）'),
                         attempt + 1, self._max_retries + 1, exc,
                         self._interval_ms / 1000 * (2 ** attempt))
                 # 最后一次失败不打日志：紧接着的抛错由调用方上报
             else:
                 if resp.status_code in _RETRY_STATUSES:
                     last_exc = SteamApiError(
-                        f"HTTP {resp.status_code}（疑似限流）")
+                        ('HTTP ' + f"{resp.status_code}" + t('（疑似限流）')))
                     if attempt < self._max_retries:
                         logger.warning(
-                            "Steam 接口限流（HTTP {}，第 {}/{} 次）；"
-                            "{} 秒后自动重试",
+                            t('Steam 接口限流（HTTP {}，第 {}/{} 次）；{} 秒后自动重试'),
                             resp.status_code, attempt + 1,
                                               self._max_retries + 1,
                                               self._interval_ms / 1000 * (2 ** attempt))
@@ -413,8 +411,7 @@ class SteamApiClient:
                         last_exc = exc
                         if attempt < self._max_retries:
                             logger.warning(
-                                "Steam 响应不是合法 JSON（第 {}/{} 次）；"
-                                "{} 秒后自动重试",
+                                t('Steam 响应不是合法 JSON（第 {}/{} 次）；{} 秒后自动重试'),
                                 attempt + 1, self._max_retries + 1,
                                 self._interval_ms / 1000 * (2 ** attempt))
             if attempt < self._max_retries:

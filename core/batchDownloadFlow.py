@@ -57,6 +57,7 @@ Timeout …），而且大 mod 下载几个小时都正常——用时间判断"
   steamcmd 会丢登录缓存，不划算。
 """
 from core import outputAnalyzer
+from core.i18n import t
 
 # ---------- 批次状态（模块常量：比较用这里的名，别写裸字符串） ----------
 ST_IDLE = "idle"                    # 未开始 / 已结束，可以 start()
@@ -182,9 +183,9 @@ class BatchDownloadFlow:
             self._state = ST_LOGGING_IN
             if not self._try_send(
                     self._login_cmd,
-                    fail_note="登录命令发送失败（steamcmd 没在运行？）"):
+                    fail_note=t('登录命令发送失败（steamcmd 没在运行？）')):
                 return False
-            self._emit("login_started", note="登录命令已按设置原样发送")
+            self._emit("login_started", note=t('登录命令已按设置原样发送'))
             return True
         return self._advance()
 
@@ -224,10 +225,10 @@ class BatchDownloadFlow:
                 and self._current is not None:
             self._failed.append(ItemResult(
                 self._current, ok=False,
-                reason=reason or "steamcmd 已退出",
+                reason=reason or t('steamcmd 已退出'),
                 trigger=self._trigger_for(self._current)))
             self._emit("item_done", mod_id=self._current, ok=False,
-                       reason=reason or "steamcmd 已退出",
+                       reason=reason or t('steamcmd 已退出'),
                        done=self._done_count())
         self._finish(stopped=True)
 
@@ -270,9 +271,7 @@ class BatchDownloadFlow:
             # 登录没成（比如密码错）——转等手动登录；登录成功后
             # 批次自动继续（决策 94），「继续批次」保留当手动兜底
             self._state = ST_NEED_LOGIN
-            self._emit("need_login", note="登录命令没有成功，"
-                                          "请在终端里完成登录，登录成功后批次自动继续"
-                                          "（也可点「继续批次」）")
+            self._emit("need_login", note=t('登录命令没有成功，请在终端里完成登录，登录成功后批次自动继续（也可点「继续批次」）'))
             return
         # 其余结论（断线等）不影响等待登录，忽略
 
@@ -311,10 +310,10 @@ class BatchDownloadFlow:
                 # 记账不悄悄消失，留在 STOPPING 等 on_idle 收尾
                 # （steamcmd 报错后必回提示符；进程真退了由 abort() 兜底）。
                 self._failed.append(ItemResult(
-                    self._current, ok=False, reason="未登录（批次停止中）",
+                    self._current, ok=False, reason=t('未登录（批次停止中）'),
                     trigger=self._trigger_for(self._current)))
                 self._item_done(self._current, ok=False,
-                                reason="未登录（批次停止中）")
+                                reason=t('未登录（批次停止中）'))
                 self._current = None
                 return
             # 未登录：当前条放回队首，暂停等登录（决策 94：终端里
@@ -322,9 +321,7 @@ class BatchDownloadFlow:
             self._pending.insert(0, self._current)
             self._current = None
             self._state = ST_NEED_LOGIN
-            self._emit("need_login", note="steamcmd 未登录——请在终端"
-                                          "里完成登录，登录成功后批次自动继续"
-                                          "（也可点「继续批次」手动催一下）")
+            self._emit("need_login", note=t('steamcmd 未登录——请在终端里完成登录，登录成功后批次自动继续（也可点「继续批次」手动催一下）'))
             return
         if kind == outputAnalyzer.KIND_DOWNLOAD_SUCCESS:
             self._ok.append(ItemResult(
@@ -336,10 +333,10 @@ class BatchDownloadFlow:
         if kind == outputAnalyzer.KIND_DOWNLOAD_FAILED:
             self._failed.append(ItemResult(
                 verdict.mod_id, ok=False,
-                reason=verdict.reason or "未知",
+                reason=verdict.reason or t('未知'),
                 trigger=self._trigger_for(verdict.mod_id)))
             self._item_done(verdict.mod_id, ok=False,
-                            reason=verdict.reason or "未知")
+                            reason=verdict.reason or t('未知'))
             return
         if kind == outputAnalyzer.KIND_DOWNLOAD_TIMEOUT:
             self._timeout.append(ItemResult(
@@ -390,7 +387,7 @@ class BatchDownloadFlow:
         if self._send(text):
             return True
         self._emit("send_failed", note=fail_note or text)
-        self._finish(stopped=False, error=fail_note or f"命令发送失败：{text}")
+        self._finish(stopped=False, error=fail_note or (t('命令发送失败：') + f"{text}"))
         return False
 
     def _done_count(self) -> int:

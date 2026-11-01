@@ -64,10 +64,7 @@ def missing_packages_message() -> str | None:
     missing = missing_packages()
     if not missing:
         return None
-    return ("实时采集缺 " + "、".join(missing) + "。\n\n"
-            "安装命令（复制到 cmd 执行）：\n"
-            "pip install pywinauto pyautogui pyperclip psutil\n\n"
-            "装完后无需重启本工具，再点一次本按钮即可继续。")
+    return (t('实时采集缺 ') + "、".join(missing) + t('。\n\n安装命令（复制到 cmd 执行）：\npip install pywinauto pyautogui pyperclip psutil\n\n装完后无需重启本工具，再点一次本按钮即可继续。'))
 
 
 @dataclass
@@ -126,9 +123,7 @@ def collect_tabs(driver, *, max_tabs: int = 300,
             start_title = driver.window_title(win)
             start_url = _current_url(driver, should_stop)
             if start_url is None and on_note is not None:
-                on_note("起点标签是空白页/首页，没有网址指纹——绕回判定"
-                        "改按「本轮已见过的真网址再次出现」识别，空白页"
-                        "一律跳过，不影响采集")
+                on_note(t('起点标签是空白页/首页，没有网址指纹——绕回判定改按「本轮已见过的真网址再次出现」识别，空白页一律跳过，不影响采集'))
             # 本轮（本窗口遍历）已见的真网址 = 绕回信号。空白页没
             # 唯一指纹，不能当绕回信号：两个空白页标题、网址全同，
             # 会把"绕回起点"误判成中间那个空白页，提前收工漏掉后面
@@ -158,9 +153,7 @@ def collect_tabs(driver, *, max_tabs: int = 300,
                 stall = 0 if len(out) > grew else stall + 1
                 if stall >= stall_limit:
                     if on_note is not None:
-                        on_note(f"连续 {stall_limit} 个标签没采到新网址"
-                                "——提前收工（防死绕圈保险丝；已采到的"
-                                "照常在清单里）")
+                        on_note((t('连续 ') + f"{stall_limit}" + t(' 个标签没采到新网址——提前收工（防死绕圈保险丝；已采到的照常在清单里）')))
                     break
     finally:
         driver.clipboard_set(saved_clip)

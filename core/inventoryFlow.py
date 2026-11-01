@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from core import acfParser
+from core.i18n import t
 
 _INT_DIR = re.compile(r"^[0-9]+$")
 
@@ -59,12 +60,12 @@ def scan_game(repo, game, *, steamcmd_path: str | None = None) -> ScanReport:
     抛只抛真异常（权限等 OSError 由调用方兜）。"""
     base = _pick_mod_dir(game)
     if base is None:
-        return ScanReport(acf_note="档案没设 mod 目录/下载目录，无从盘点")
+        return ScanReport(acf_note=t('档案没设 mod 目录/下载目录，无从盘点'))
     if not base.is_dir():
         # 不清提案：目录看不见 ≠ 盘面没了（移动盘没挂载、网络盘掉线
         # 都长这样）——提案跟随"看清楚的盘面"，看不清就不动
         return ScanReport(mod_dir=str(base),
-                          acf_note="目录不存在（先到档案设置里确认路径）")
+                          acf_note=t('目录不存在（先到档案设置里确认路径）'))
 
     report = ScanReport(mod_dir=str(base))
 
@@ -84,7 +85,7 @@ def scan_game(repo, game, *, steamcmd_path: str | None = None) -> ScanReport:
         if pending:
             report.stale_removed = sorted(pending)
             repo.drop_stale_claims(game.app_id, pending)
-        report.acf_note = "目录里没有整数命名的 mod 文件夹"
+        report.acf_note = t('目录里没有整数命名的 mod 文件夹')
         return report
 
     versions = _read_versions(game.app_id, base, steamcmd_path, report)
@@ -171,12 +172,11 @@ def _read_versions(app_id: int, mod_dir: Path,
         try:
             table = acfParser.read_workshop_versions(p)
         except (OSError, ValueError) as exc:
-            report.acf_note = f"acf 读取失败（{p}）：{exc}"
+            report.acf_note = (t('acf 读取失败（') + f"{p}" + '）：' + f"{exc}")
             return {}
-        report.acf_note = f"acf 正常：{len(table)} 条盘面版本"
+        report.acf_note = (t('acf 正常：') + f"{len(table)}" + t(' 条盘面版本'))
         return table
-    report.acf_note = ("没找到 appworkshop acf——手动拷入的 mod 没有"
-                       "acf 记录，照常盘点，候选按版本未知落")
+    report.acf_note = (t('没找到 appworkshop acf——手动拷入的 mod 没有acf 记录，照常盘点，候选按版本未知落'))
     return {}
 
 

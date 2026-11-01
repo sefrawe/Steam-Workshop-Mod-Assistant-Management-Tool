@@ -42,7 +42,7 @@ from core.i18n import t
 
 # 质量谓词拦下的跳过原因统一用这个前缀：
 # ScanResult.interrupted 靠它把"疑似下载中断"和"格式不完整"分开算数
-_INTERRUPTED_PREFIX = "疑似下载中断"
+_INTERRUPTED_PREFIX = t('疑似下载中断')
 
 
 @dataclass
@@ -124,11 +124,11 @@ def scan_acf(path: str | Path) -> ScanResult:
 
     for raw_id, block in installed.items():
         if not isinstance(block, dict):
-            skipped.append((str(raw_id), "条目不是键值块"))
+            skipped.append((str(raw_id), t('条目不是键值块')))
             continue
         mod_id = _to_int(raw_id)
         if mod_id is None:
-            skipped.append((str(raw_id), "编号不是纯数字"))
+            skipped.append((str(raw_id), t('编号不是纯数字')))
             continue
 
         # ---- 质量谓词：两道硬门，拦下的统一按"疑似下载中断"记 ----
@@ -138,7 +138,7 @@ def scan_acf(path: str | Path) -> ScanResult:
             # （steamcmd/客户端中断时账本里会留下 0）
             skipped.append(
                 (str(raw_id),
-                 f"{_INTERRUPTED_PREFIX}：timeupdated 缺失或为 0"))
+                 (f"{_INTERRUPTED_PREFIX}" + t('：timeupdated 缺失或为 0'))))
             continue
         # 空串/缺失一律视为没有 manifest
         manifest = str(block["manifest"]) if block.get("manifest") else None
@@ -147,7 +147,7 @@ def scan_acf(path: str | Path) -> ScanResult:
             # 内容没有完整落地。没有 manifest 就无法定位具体版本
             skipped.append(
                 (str(raw_id),
-                 f"{_INTERRUPTED_PREFIX}：manifest 缺失或为 -1"))
+                 (f"{_INTERRUPTED_PREFIX}" + t('：manifest 缺失或为 -1'))))
             continue
 
         # size 只影响展示（备份空间预检另有兜底），缺失/为 0 不拦，
@@ -170,8 +170,7 @@ def scan_acf(path: str | Path) -> ScanResult:
         # 编号列表太长就截断，日志里给人看个意思即可，全量以 acf 为准
         preview = "、".join(no_size[:10]) + ("…" if len(no_size) > 10 else "")
         warnings.append(
-            f"{len(no_size)} 个条目 size 缺失或为 0（不影响纳入，仅影响"
-            f"大小展示）：{preview}")
+            (f"{len(no_size)}" + t(' 个条目 size 缺失或为 0（不影响纳入，仅影响大小展示）：') + f"{preview}"))
 
     return ScanResult(acf_path=p, items=items,
                       skipped=skipped, warnings=warnings)

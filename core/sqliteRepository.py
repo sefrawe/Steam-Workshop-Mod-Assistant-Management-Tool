@@ -408,7 +408,7 @@ class SQLiteRepository(ModRepository):
         if not fields:  # 全 None = 无事可做
             return
         self._require(self._dynamic_update("games", "app_id", app_id, fields),
-                      f"游戏档案 {app_id} 不存在")
+                      (t('游戏档案 ') + f"{app_id}" + t(' 不存在')))
 
     def delete_game(self, app_id: int) -> None:
         # 档案下还有 mod 时外键 RESTRICT 会让 SQLite 直接抛
@@ -677,7 +677,7 @@ class SQLiteRepository(ModRepository):
         if not fields:
             return
         self._require(self._dynamic_update("mods", "mod_id", mod_id, fields),
-                      f"mod {mod_id} 不存在")
+                      ('mod ' + f"{mod_id}" + t(' 不存在')))
 
     def save_translation_segments(self, mod_id: int, *, segments: list,
                                   at: int) -> None:
@@ -688,7 +688,7 @@ class SQLiteRepository(ModRepository):
             "mods", "mod_id", mod_id,
             {"description_trans": _dumps(list(segments)),
              "translation_at": int(at)}),
-            f"mod {mod_id} 不存在")
+            ('mod ' + f"{mod_id}" + t(' 不存在')))
 
     def touch_checked(self, mod_ids: Iterable[int], *,
                       checked_at: int | None = None) -> None:
@@ -714,7 +714,7 @@ class SQLiteRepository(ModRepository):
             "deleted_at": _now(),
             "deleted_last_state": _dumps(last_state),
         })
-        self._require(rc, f"mod {mod_id} 不存在")
+        self._require(rc, ('mod ' + f"{mod_id}" + t(' 不存在')))
 
     def mark_restored(self, mod_id: int) -> None:
         """软删除恢复：status 按"有没有确认版本"回推——
@@ -793,7 +793,7 @@ class SQLiteRepository(ModRepository):
             self._require(self._conn.execute(
                 "UPDATE failed_mods SET replaced_by = ? WHERE mod_id = ?",
                 (new_mod_id, old_mod_id)).rowcount,
-                          f"failed_mods 中没有 {old_mod_id} 的归档（请先 mark_failed）")
+                          (t('failed_mods 中没有 ') + f"{old_mod_id}" + t(' 的归档（请先 mark_failed）')))
 
     def purge_mod(self, mod_id: int, *, purge_backups: bool = False) -> int:
         """彻底清账。规则沿旧版：备份去留必须先有明确决策（RESTRICT 闸
@@ -831,7 +831,7 @@ class SQLiteRepository(ModRepository):
             # 旧行 note 为空显示"未知"，不做迁移
             self._conn.execute(
                 """INSERT OR REPLACE INTO purged_mods (mod_id, game_id, title, note) VALUES (?, ?, ?, ?)""",
-                (mod_id, mod.game_id, mod.title, "彻底清账自动登记"))
+                (mod_id, mod.game_id, mod.title, t('彻底清账自动登记')))
 
         return n_backups
 
@@ -840,17 +840,17 @@ class SQLiteRepository(ModRepository):
     def set_note(self, mod_id: int, note: str | None) -> None:
         self._require(self._conn.execute(
             "UPDATE mods SET note = ? WHERE mod_id = ?",
-            (note, mod_id)).rowcount, f"mod {mod_id} 不存在")
+            (note, mod_id)).rowcount, ('mod ' + f"{mod_id}" + t(' 不存在')))
 
     def set_color_tag(self, mod_id: int, color_tag: str | None) -> None:
         self._require(self._conn.execute(
             "UPDATE mods SET color_tag = ? WHERE mod_id = ?",
-            (color_tag, mod_id)).rowcount, f"mod {mod_id} 不存在")
+            (color_tag, mod_id)).rowcount, ('mod ' + f"{mod_id}" + t(' 不存在')))
 
     def set_special(self, mod_id: int, is_special: bool) -> None:
         self._require(self._conn.execute(
             "UPDATE mods SET is_special = ? WHERE mod_id = ?",
-            (int(is_special), mod_id)).rowcount, f"mod {mod_id} 不存在")
+            (int(is_special), mod_id)).rowcount, ('mod ' + f"{mod_id}" + t(' 不存在')))
 
     # ============ ★ 确认门（红线 R17：本地版本的唯一写入点） ============
     # 门开三扇，对应三种确认来路：
@@ -1137,7 +1137,7 @@ class SQLiteRepository(ModRepository):
             """UPDATE mods SET confirmed_version = NULL,
                                confirmed_at = NULL, confirmed_source = NULL
                WHERE mod_id = ?""", (mod_id,)).rowcount
-        self._require(rc, f"mod {mod_id} 不存在")
+        self._require(rc, ('mod ' + f"{mod_id}" + t(' 不存在')))
 
     def list_verdicts(self, mod_id: int, limit: int = 10) -> list[Verdict]:
         """某 mod 的最近判决（详情面板"判决史"小节），新→旧。
@@ -1255,14 +1255,14 @@ class SQLiteRepository(ModRepository):
         self._require(self._conn.execute(
             "UPDATE backups SET pinned = ? WHERE id = ?",
             (int(pinned), backup_id)).rowcount,
-                      f"备份记录 {backup_id} 不存在")
+                      (t('备份记录 ') + f"{backup_id}" + t(' 不存在')))
 
     def delete_backup_record(self, backup_id: int) -> None:
         """只删数据库记录。磁盘目录归 backupManager——两层职责严格
         分开，本方法绝不碰文件系统。"""
         self._require(self._conn.execute(
             "DELETE FROM backups WHERE id = ?", (backup_id,)).rowcount,
-                      f"备份记录 {backup_id} 不存在")
+                      (t('备份记录 ') + f"{backup_id}" + t(' 不存在')))
 
     def sum_backup_bytes(self) -> int:
         return self._conn.execute(
@@ -1324,7 +1324,7 @@ class SQLiteRepository(ModRepository):
         self._require(self._dynamic_update(
             "operations_log", "id", op_id,
             {"error_count": error_count, "result": result}),
-            f"操作记录 {op_id} 不存在")
+            (t('操作记录 ') + f"{op_id}" + t(' 不存在')))
 
     def list_operations(self, limit: int = 50) -> list[OperationLog]:
         rows = self._conn.execute(

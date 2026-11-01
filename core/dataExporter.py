@@ -237,10 +237,8 @@ def _check_tables(payload: dict) -> None:
 
 def ledger_summary(payload: dict) -> str:
     """确认弹窗的一句摘要（清库重灌前必须让用户看清代价）。"""
-    t = payload["tables"]
-    return (f"该账本包含 {len(t['games'])} 个游戏档案、"
-            f"{len(t['mods'])} 条 mod 记录（含已删除/已失效）。"
-            "导入将整体替换当前账本。")
+    tbl = payload["tables"]
+    return ((t('该账本包含 ') + f"{len(tbl['games'])}" + t(' 个游戏档案、') + f"{len(tbl['mods'])}" + t(' 条 mod 记录（含已删除/已失效）。导入将整体替换当前账本。')))
 
 
 def import_ledger(payload: dict, repo: ModRepository) -> dict[str, int]:

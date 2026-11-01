@@ -16,6 +16,7 @@ setup_theme 可重复调用——运行中切换不重启；"装了但应用失�
 才打印提示。启动路径：main.py 调 apply_theme(app)（读设置）；
 设置页切换后调 reapply_theme()（无参，内部自取 QApplication）。
 """
+from core.i18n import t
 _KEY = "theme_mode"
 _VALID = ("auto", "dark", "light")
 
@@ -51,15 +52,14 @@ def _setup(app, mode: str) -> str:
         if mode != "auto":
             # 没库还想固定深/浅：说一声再静默降级
             import sys
-            print("[theme] 未找到可用的 qdarktheme 模块，无法固定深/浅色，"
-                  "改用系统配色（pip install pyqtdarktheme-fork）", file=sys.stderr)
+            print(t('[theme] 未找到可用的 qdarktheme 模块，无法固定深/浅色，改用系统配色（pip install pyqtdarktheme-fork）'), file=sys.stderr)
         _ACTIVE_MODE = None  # QSS 未生效：斑马纹按"无"处理（踩坑51）
         return mode  # auto = 交给 Qt 自带跟随
     try:
         qdarktheme.setup_theme(mode)
     except Exception as exc:
         import sys
-        print(f"[theme] 主题应用失败（{mode}），改用系统配色：{exc}", file=sys.stderr)
+        print((t('[theme] 主题应用失败（') + f"{mode}" + t('），改用系统配色：') + f"{exc}"), file=sys.stderr)
         _ACTIVE_MODE = None  # 应用失败同上
         return mode
     _ACTIVE_MODE = mode  # QSS 真实生效的档位，zebra_colors 的唯一依据

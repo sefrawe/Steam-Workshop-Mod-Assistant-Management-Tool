@@ -28,6 +28,7 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass
+from core.i18n import t
 
 
 # ---------- 块模型 ----------
@@ -104,7 +105,7 @@ def parse_description(raw: str | None) -> list[DescBlock]:
 
     def on_yt(m: re.Match) -> str:
         url = _youtube_url(m.group(1))
-        return (stash(DescBlock("link", "▶ 视频 · 点击打开", url))
+        return (stash(DescBlock("link", t('▶ 视频 · 点击打开'), url))
                 if url else m.group(1))
 
     img_n = 0
@@ -114,7 +115,7 @@ def parse_description(raw: str | None) -> list[DescBlock]:
         u = m.group(1).strip()
         if u.lower().startswith(("http://", "https://")):
             img_n += 1
-            return stash(DescBlock("link", f"🖼 图片 {img_n} · 点击打开", u))
+            return stash(DescBlock("link", (t('🖼 图片 ') + f"{img_n}" + t(' · 点击打开')), u))
         return u  # 不是网址的 [img] 内容当正文留下
 
     def on_url(m: re.Match) -> str:
@@ -264,11 +265,9 @@ def blocks_to_html(blocks: list[DescBlock], *,
             elif seg:
                 out.append(f"<p>{_html_text(seg)}</p>")
             elif seg is None:
-                out.append(f'<p>{orig}<br><span style="color:{dim}">'
-                           "⚠ 该段翻译失败</span></p>")
+                out.append(('<p>' + f"{orig}" + '<br><span style="color:' + f"{dim}" + t('">⚠ 该段翻译失败</span></p>')))
             else:
-                out.append(f'<p><span style="color:{dim}">（译文为空）'
-                           "</span></p>")
+                out.append(('<p><span style="color:' + f"{dim}" + t('">（译文为空）</span></p>')))
         else:
             body = orig
             if translations is not None:
@@ -276,10 +275,8 @@ def blocks_to_html(blocks: list[DescBlock], *,
                     body += (f'<br><span style="color:{dim}">'
                              f"{_html_text(seg)}</span>")
                 elif seg is None:
-                    body += (f'<br><span style="color:{dim}">'
-                             "⚠ 该段翻译失败</span>")
+                    body += (('<br><span style="color:' + f"{dim}" + t('">⚠ 该段翻译失败</span>')))
                 else:
-                    body += (f'<br><span style="color:{dim}">'
-                             "（译文为空）</span>")
+                    body += (('<br><span style="color:' + f"{dim}" + t('">（译文为空）</span>')))
             out.append(f"<p>{body}</p>")
     return "\n".join(out)
