@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 from gui.theme import reapply_theme, font_px
 from core.appSettings import DEFAULTS, AppSettings
 from core.i18n import available_languages, t  # 语言下拉选项：扫 gui/i18n_*.json 自动发现
+from core.translateProvider import TARGET_OPTIONS  # 翻译目标语言表
 from core.steamPaths import (clear_download_caches, ensure_steamcmd_exe,
                               steamcmd_exe_names)
 from gui.logBus import LogBus
@@ -246,6 +247,9 @@ class SettingsPage(QWidget):
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         # 语言下拉同规矩：初值就位后再接信号，构造期不空跑落盘
         self._lang_combo.currentIndexChanged.connect(self._on_language_changed)
+        # 翻译目标语言同规矩：初值就位后再接信号
+        self._trans_combo.currentIndexChanged.connect(
+            self._on_translate_target_changed)
 
     # ---------- UI ----------
     def _build_ui(self) -> None:
@@ -383,6 +387,24 @@ class SettingsPage(QWidget):
         theme_row.addStretch(1)
         root.addLayout(theme_row)
 
+        # 翻译目标语言（2026-11）：与界面语言正交——英文界面也可能想读
+        # 中文译文，所以单独一行、独立落盘，只在用户没表态时默认跟界面
+        # 语言一致（解析规则在 core.translateProvider.resolve_target）
+        trans_row = QHBoxLayout()
+        trans_row.addWidget(QLabel(t("翻译目标语言：")))
+        self._trans_combo = QComboBox()
+        for code, name in TARGET_OPTIONS:
+            # 语言名用各自的自称（不翻译）；只有「跟随界面语言」按界面走
+            self._trans_combo.addItem(t(name) if code == "auto" else name, code)
+        self._trans_combo.setToolTip(t(
+            "工坊描述翻译成哪种语言，只影响「翻译本条」的译文，不改界面。\n"
+            "默认「跟随界面语言」：界面中文→简体中文，界面 English→English；\n"
+            "两边不一致时在这里单独选。语言名用各自的自称，方便直接找"))
+        trans_row.addWidget(self._trans_combo)
+        trans_row.addStretch(1)
+        root.addLayout(trans_row)
+
+
         # 按钮与反馈行在滚动区外：保存动作和它的结果永远可见
         btn_row = QWidget()
         h = QHBoxLayout(btn_row)
@@ -461,6 +483,11 @@ class SettingsPage(QWidget):
         lang = str(self._settings.get("language") or "zh").strip()
         i = self._lang_combo.findData(lang)
         self._lang_combo.setCurrentIndex(max(i, 0))
+        # 翻译目标语言初始值：空串=跟随界面语言（下拉第一项 auto）；
+        # 不认识的代码 findData 给 -1，max(i,0) 落回 auto
+        tt = str(self._settings.get("translate_target") or "").strip()
+        i = self._trans_combo.findData(tt or "auto")
+        self._trans_combo.setCurrentIndex(max(i, 0))
 
     def _field_text(self, key: str) -> str:
         """读字段现值：单行走 QLineEdit.text()，多行走 toPlainText()。
@@ -599,6 +626,17 @@ class SettingsPage(QWidget):
         self._saved_label.setText(
             t("界面语言已保存为「") + self._lang_combo.currentText()
             + t("」——重启程序后生效"))
+        self._saved_label.setStyleSheet("color: #46a758;")
+
+    def _on_translate_target_changed(self) -> None:
+        """翻译目标语言（2026-11）：只影响「翻译本条」，不需要重启，
+        也不改界面——落盘即可。存空串表示「跟随界面语言」这个语义，
+        而不是把当前界面语言固化成默认值（将来换界面语言仍跟着变）。"""
+        code = self._trans_combo.currentData()
+        self._settings.set("translate_target", "" if code == "auto" else code)
+        self._settings.save()
+        self._saved_label.setText(
+            t("描述译文将翻译成：") + self._trans_combo.currentText())
         self._saved_label.setStyleSheet("color: #46a758;")
 
     def _reset(self) -> None:

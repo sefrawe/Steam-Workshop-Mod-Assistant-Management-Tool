@@ -40,6 +40,42 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0")
 
 
+# ---- 翻译目标语言（2026-11）----
+# 设置项 translate_target 只存"用户的明确选择"：空串或 "auto" 表示跟随
+# 界面语言。界面语言与译文语言是两个正交的轴（英文界面照样可能想读中文
+# 译文），所以不把两者硬绑在一起，只在用户没表态时给一致的默认值。
+UI_DEFAULT_TARGET = {"zh": "zh-CN", "en": "en"}
+
+# (代码, 下拉显示名)。显示名一律用各语言的自称、不跟界面语言走——
+# 「日本語」在英文界面里也叫 日本語，用户不必在自己看不懂的语言名里
+# 找自己的语言；只有「跟随界面语言」这项需要按界面语言翻译
+TARGET_OPTIONS: list[tuple[str, str]] = [
+    ("auto", "跟随界面语言"),
+    ("zh-CN", "简体中文"),
+    ("zh-TW", "繁體中文"),
+    ("en", "English"),
+    ("ja", "日本語"),
+    ("ko", "한국어"),
+    ("ru", "Русский"),
+]
+
+
+def resolve_target(stored: str, ui_lang: str) -> str:
+    """设置值 → 真正的目标语言代码（空/auto 时按界面语言兜底）。"""
+    code = (stored or "").strip()
+    if not code or code == "auto":
+        return UI_DEFAULT_TARGET.get((ui_lang or "zh").strip(), "zh-CN")
+    return code
+
+
+def target_display(code: str) -> str:
+    """目标语言代码 → 显示名；表里没有的代码原样返回，不抛异常。"""
+    for opt, name in TARGET_OPTIONS:
+        if opt == code and opt != "auto":
+            return name
+    return code
+
+
 class BaseProvider:
     """通道基类：单段 translate + 批量 plan_batches/translate_batch。
     worker 的批量循环只认这三个动词；不支持批量的通道用默认实现

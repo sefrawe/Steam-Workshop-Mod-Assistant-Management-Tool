@@ -44,7 +44,8 @@ from core.constants import (CONFIRMED_SOURCE_ZH, NET_GATE_TRANSLATE,
                             STATUS_DELETED, STATUS_DOWNLOADED, VERDICT_KIND_ZH)
 from core.formatters import abs_time, fmt_size, relative_time, status_zh
 from core.urlParser import workshop_url
-from core.i18n import t
+from core.i18n import current_lang, t
+from core.translateProvider import resolve_target, target_display
 from gui.theme import font_px  # 字号单源（D25）
 from gui.translateWorker import TranslateWorker
 
@@ -1543,9 +1544,15 @@ class ModDetailPanel(QWidget):
         self._trans_mid = self._mod.mod_id  # 归属：回执只对这条 mod 生效
         self._trans_total = len(segs_src)
         self._trans_done = 0
+        # 目标语言：设置页的 translate_target（空/auto = 跟随界面语言）；
+        # 解析规则集中在 core.translateProvider.resolve_target
+        target = resolve_target(
+            self._settings.get("translate_target")
+            if self._settings is not None else "",
+            current_lang())
         self._trans_worker = TranslateWorker(
             segs_src, provider_name="edge", interval_ms=interval,
-            max_retries=retries, parent=self)
+            max_retries=retries, target_lang=target, parent=self)
         self._trans_worker.progress.connect(self._on_trans_progress)
         self._trans_worker.succeeded.connect(self._on_trans_succeeded)
         self._trans_worker.failed.connect(self._on_trans_failed)
@@ -1554,7 +1561,8 @@ class ModDetailPanel(QWidget):
         self._trans_worker.start()
         self._sync_translate_actions()
         self._set_desc_note(
-            t('翻译中（') + f"{self._trans_total}" + t(' 段，Edge 通道）…'))
+            t('翻译中（') + f"{self._trans_total}" + t(' 段，Edge 通道 → ')
+            + target_display(target) + t('）…'))
 
     def _on_trans_progress(self, done: int, total: int) -> None:
         self._trans_done, self._trans_total = done, total

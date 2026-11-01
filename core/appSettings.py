@@ -61,6 +61,12 @@ DEFAULTS: dict[str, str] = {
     # 都在 DEFAULTS，反向不要求）。改后重启生效
     "language": "zh",
 
+    # 翻译目标语言（2026-11）：空串 / "auto" = 跟随界面语言，其余是
+    # 具体语言代码（zh-CN/zh-TW/en/ja/ko/ru），解析见
+    # core.translateProvider.resolve_target。只影响「翻译本条」的译文，
+    # 与界面语言正交；同 theme_mode/language 惯例，就地开关不进 _FIELDS
+    "translate_target": "",
+
     # ↓ 一个"日常更新一条龙"开关（决策 26）：界面就地开关，不进设置页
 
     "auto_download_after_check": "0",  # 检测到新版本后跳过询问直接下载（默认关=每次弹窗确认；勾选框在更新检测页）
