@@ -48,28 +48,20 @@ from core.i18n import current_lang, t
 from core.translateProvider import resolve_target, target_display
 from gui.theme import font_px  # 字号单源（D25）
 from gui.translateWorker import TranslateWorker
+from core.i18n import t
 
 # 未验证/旧账两档来源的灰色说明（一次性文案，留本模块——D37 准入）
 _SOURCE_NOTES = {
-    "unverified": "这一版没有终端「下载成功」判决背书（批查失败但照常"
-                  "确认）——要重认一遍：右键「设定本地版本…」，或重新"
-                  "下载后确认。",
-    "inherited_acf": "旧账：一次性迁移时继承的记录——右键「设定本地"
-                     "版本…」可重新认定。",
+    "unverified": t('这一版没有终端「下载成功」判决背书（批查失败但照常确认）——要重认一遍：右键「设定本地版本…」，或重新下载后确认。'),
+    "inherited_acf": t('旧账：一次性迁移时继承的记录——右键「设定本地版本…」可重新认定。'),
 }
 
 _DIM = "#8a8a8a"      # 弱化信息统一灰（与列表模型同拍）
 _VERDICT_SHOW = 5     # 最近判决展示条数（D22）
 
 # 查远端信息 / 送登记 按钮共用说明（页 1 卡片与依赖子页两处按钮同文案）
-_FETCH_TIP = ("对依赖清单做一轮匿名批量查询（无需 key、不写账本）："
-              "账外与未下载的依赖补出「远端在架」（蓝）或「远端查无」"
-              "（灰），大小与远端更新时间一并补上。\n"
-              "回执只进显示、不入账本——账外编号想收录，送"
-              "【入账中心 · 登记】。与其它联网功能共用互斥闸")
-_SEND_TIP = ("把清单里「账外」的依赖编号直接送【入账中心 · 登记】："
-             "预填粘贴框、自动解析预览（不写库）——核对后点"
-             "【登记新编号】入账")
+_FETCH_TIP = (t('对依赖清单做一轮匿名批量查询（无需 key、不写账本）：账外与未下载的依赖补出「远端在架」（蓝）或「远端查无」（灰），大小与远端更新时间一并补上。\n回执只进显示、不入账本——账外编号想收录，送【入账中心 · 登记】。与其它联网功能共用互斥闸'))
+_SEND_TIP = (t('把清单里「账外」的依赖编号直接送【入账中心 · 登记】：预填粘贴框、自动解析预览（不写库）——核对后点【登记新编号】入账'))
 
 class ModDetailPanel(QWidget):
     """详情面板。open_folder_requested(编号)：打开文件夹按钮发出，
@@ -102,49 +94,49 @@ class ModDetailPanel(QWidget):
 
     # 分区与字段清单（单源：构建与赋值都按它走；键 = _vals 索引）
     _SECTIONS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
-        ("基本档案", (
+        (t('基本档案'), (
             ("title", "标题", "title"),
-            ("mod_id", "Mod 编号", "mod_id"),
-            ("status", "状态", "status"),
-            ("game_id", "所属游戏", "game_id"),
-            ("creator", "作者", "creator"),
-            ("url", "工坊链接", "url"),
-            ("time_created", "创建时间", "time_created"),
-            ("first_tracked_at", "收录时间", "first_tracked_at"),
-            ("local_path", "本地位置", "（推导：下载目录\\编号，不入库）"),
+            ("mod_id", t('Mod 编号'), "mod_id"),
+            ("status", t('状态'), "status"),
+            ("game_id", t('所属游戏'), "game_id"),
+            ("creator", t('作者'), "creator"),
+            ("url", t('工坊链接'), "url"),
+            ("time_created", t('创建时间'), "time_created"),
+            ("first_tracked_at", t('收录时间'), "first_tracked_at"),
+            ("local_path", t('本地位置'), t('（推导：下载目录\\编号，不入库）')),
 
         )),
-        ("版本对照（本地 ↔ 远端）", (
-            ("confirmed", "本地版本", "confirmed_version"),
-            ("confirmed_at", "确认时间", "confirmed_at"),
-            ("local_size", "本地大小", "local_size"),
-            ("remote", "远端版本", "time_updated"),
-            ("last_time_updated", "上次远端更新", "last_time_updated"),
-            ("file_size", "远端大小", "file_size"),
-            ("last_checked_at", "上次检测时间", "last_checked_at"),
+        (t('版本对照（本地 ↔ 远端）'), (
+            ("confirmed", t('本地版本'), "confirmed_version"),
+            ("confirmed_at", t('确认时间'), "confirmed_at"),
+            ("local_size", t('本地大小'), "local_size"),
+            ("remote", t('远端版本'), "time_updated"),
+            ("last_time_updated", t('上次远端更新'), "last_time_updated"),
+            ("file_size", t('远端大小'), "file_size"),
+            ("last_checked_at", t('上次检测时间'), "last_checked_at"),
         )),
         # 依赖（⑪）：明细住依赖子页（栈页 2），本区只摆入口行——
         # 值 = 三态摘要（未获取/无依赖/分布计数+链接）；条目留这份
         # 清单只为显示顺序单源
-        ("依赖（必需物品）", (
-            ("deps", "依赖", "（依赖检测页拉取后入账）"),
+        (t('依赖（必需物品）'), (
+            ("deps", t('依赖'), t('（依赖检测页拉取后入账）')),
         )),
 
-        ("Steam 数据", (
-            ("subscriptions", "订阅数", "subscriptions"),
-            ("favorited", "收藏数", "favorited"),
-            ("views", "浏览数", "views"),
-            ("tags", "标签", "tags"),
-            ("preview_url", "预览图链接", "preview_url"),
+        (t('Steam 数据'), (
+            ("subscriptions", t('订阅数'), "subscriptions"),
+            ("favorited", t('收藏数'), "favorited"),
+            ("views", t('浏览数'), "views"),
+            ("tags", t('标签'), "tags"),
+            ("preview_url", t('预览图链接'), "preview_url"),
         )),
-        ("标记与备注", (
-            ("is_special", "特别关注", "is_special"),
-            ("color_tag", "颜色标记", "color_tag"),
-            ("note", "备注", "note"),
+        (t('标记与备注'), (
+            ("is_special", t('特别关注'), "is_special"),
+            ("color_tag", t('颜色标记'), "color_tag"),
+            ("note", t('备注'), "note"),
         )),
-        ("软删除", (
-            ("deleted_at", "删除时间", "deleted_at"),
-            ("deleted_last_state", "删除前快照", "deleted_last_state"),
+        (t('软删除'), (
+            ("deleted_at", t('删除时间'), "deleted_at"),
+            ("deleted_last_state", t('删除前快照'), "deleted_last_state"),
         )),
     )
 
@@ -183,7 +175,7 @@ class ModDetailPanel(QWidget):
         self._tabs = QTabBar(self)
         # 页签导航（基本信息/描述/依赖）：点页签切下方内容区；
         # 描述 = 三态渲染+翻译正身页，依赖 = 原子页
-        for _n in ("基本信息", "描述", "依赖"):
+        for _n in (t('基本信息'), t('描述'), t('依赖')):
             self._tabs.addTab(_n)
 
         self._tabs.currentChanged.connect(self._on_tab_changed)
@@ -261,7 +253,7 @@ class ModDetailPanel(QWidget):
                 name = QLabel(zh, body)
                 # 推导类字段（field 以"（"开头）不是库字段，提示照实说
                 name.setToolTip(field if field.startswith("（")
-                                else f"数据库字段：{field}")
+                                else (t('数据库字段：') + f"{field}"))
                 val = QLabel("—", body)
                 val.setWordWrap(True)
                 val.setTextInteractionFlags(
@@ -325,7 +317,7 @@ class ModDetailPanel(QWidget):
         dv.addWidget(self._deps_hint)
         self._deps_table = QTableWidget(0, 6, deps_page)
         self._deps_table.setHorizontalHeaderLabels(
-            ["勾", "编号", "名称", "状态", "大小", "远端更新"])
+            [t('勾'), t('编号'), t('名称'), t('状态'), t('大小'), t('远端更新')])
         self._deps_table.verticalHeader().setVisible(False)
         self._deps_table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -424,7 +416,7 @@ class ModDetailPanel(QWidget):
             self._stack.setCurrentIndex(1)
         self._tabs.setEnabled(True)
 
-        title = mod.title or "（无标题）"
+        title = mod.title or t('（无标题）')
         self._title.setText(title)
         self._title.setToolTip(title)
         v = self._vals
@@ -452,8 +444,7 @@ class ModDetailPanel(QWidget):
         else:
             v["confirmed"].setText(t("未知"))
         if cv is None:
-            tip = ("还没有确认过本地版本：批次收尾清单里勾选确认，"
-                   "或右键「设定本地版本…」手工认定。")
+            tip = (t('还没有确认过本地版本：批次收尾清单里勾选确认，或右键「设定本地版本…」手工认定。'))
         else:
             tip = _SOURCE_NOTES.get(source, "")
         self._src_note.setText(tip)
@@ -462,7 +453,7 @@ class ModDetailPanel(QWidget):
         v["local_size"].setText(self._size(mod.local_size))
         rt = getattr(mod, "time_updated", None)
         v["remote"].setText(
-            f"{relative_time(rt)}（{abs_time(rt)}）" if rt else "从未检测")
+            f"{relative_time(rt)}（{abs_time(rt)}）" if rt else t('从未检测'))
         v["last_time_updated"].setText(self._ts(mod.last_time_updated))
         v["file_size"].setText(self._size(mod.file_size))
         v["last_checked_at"].setText(self._ts(mod.last_checked_at))
@@ -476,7 +467,7 @@ class ModDetailPanel(QWidget):
         v["preview_url"].setText(self._link(mod.preview_url))
 
         # —— 标记与备注 ——
-        v["is_special"].setText("★ 是" if mod.is_special else "否")
+        v["is_special"].setText(t('★ 是') if mod.is_special else t('否'))
         v["color_tag"].setText(getattr(mod, "color_tag", "") or "—")
         v["note"].setText(getattr(mod, "note", "") or "—")
 
@@ -514,9 +505,9 @@ class ModDetailPanel(QWidget):
         点 = 打开文件夹；不在盘上照样显示，点了一样发请求、
         opener 会就地说明。"""
         if not self._download_dir:
-            return "—（档案还没设下载目录）"
+            return t('—（档案还没设下载目录）')
         p = Path(self._download_dir) / str(mod_id)
-        text = f"{p}（{'在盘上' if p.is_dir() else '不在盘上'}）"
+        text = f"{p}（{t('在盘上') if p.is_dir() else t('不在盘上')}）"
         return f'<a href="open">{text}</a>'
 
     def _emit_open_folder(self) -> None:
@@ -622,9 +613,9 @@ class ModDetailPanel(QWidget):
                     upd = relative_time(it["time_updated"])
                 else:
                     upd = "—"
-                tip = "账上在管、本地缺失：双击跳到该 mod 的详情"
+                tip = t('账上在管、本地缺失：双击跳到该 mod 的详情')
                 if m.time_updated is None and live:
-                    tip += "（远端更新时间来自匿名批查回执——账本还没检测过）"
+                    tip += t('（远端更新时间来自匿名批查回执——账本还没检测过）')
                 rows.append((d, m.title or "—", t('未下载'),
                              QColor("#e5484d"), size, upd, True, tip))
         return rows
@@ -637,25 +628,23 @@ class ModDetailPanel(QWidget):
         三数。"""
         state, deps = self._deps_state(mod)
         n_rev = len(self._dependents_map().get(mod.mod_id, []))
-        rev = f" · 被依赖 {n_rev}"
+        rev = (t(' · 被依赖 ') + f"{n_rev}")
         if state == "none":
-            return ('<span style="color:#8a8a8f">未获取——到'
-                    f"【依赖检测】页拉取后入账{rev}</span>")
+            return ((t('<span style="color:#8a8a8f">未获取——到【依赖检测】页拉取后入账') + f"{rev}" + '</span>'))
         if state == "empty":
-            return f'<span style="color:#8a8a8f">无依赖{rev}</span>'
+            return (t('<span style="color:#8a8a8f">无依赖') + f"{rev}" + '</span>')
         counts: dict[str, int] = {}
         for x in self._build_dep_rows(deps):
             counts[x[2]] = counts.get(x[2], 0) + 1
-        parts = [f"本地 {counts.get('已下载', 0)}",
-                 f"缺 {counts.get('未下载', 0)}",
-                 f"已删 {counts.get('已删除', 0)}"]
+        parts = [(t('本地 ') + f"{counts.get('已下载', 0)}"),
+                 (t('缺 ') + f"{counts.get('未下载', 0)}"),
+                 (t('已删 ') + f"{counts.get('已删除', 0)}")]
         n_live = counts.get('远端在架', 0)
         n_dead = counts.get('远端查无', 0)
-        n_unk = counts.get('账外·未查', 0)
+        n_unk = counts.get(t('账外·未查'), 0)
         if n_live or n_dead or n_unk:
             parts.append(t('账外 在架') + f"{n_live}" + t('/查无') + f"{n_dead}" + t('/未查') + f"{n_unk}")
-        return (f"{len(deps)} 个（{' · '.join(parts)}）{rev} "
-                '<a href="deps">打开依赖页 →</a>')
+        return ((f"{len(deps)}" + t(' 个（') + f"{' · '.join(parts)}" + '）' + f"{rev}" + t(' <a href="deps">打开依赖页 →</a>')))
 
     def _open_deps_tab(self) -> None:
         """依赖入口行链接落点：切到与基本信息并列的「依赖」页签
@@ -691,12 +680,12 @@ class ModDetailPanel(QWidget):
         mf.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         mf.setContentsMargins(2, 0, 2, 0)
         self._mini_vals: dict[str, QLabel] = {}
-        for key, zh in (("mid", "编号"), ("status", "状态"),
-                        ("local", "本地版本"), ("remote", "远端版本"),
-                        ("size", "大小"), ("checked", "上次检测"),
-                        ("tags", "标签"), ("subs", "订阅 · 收藏"),
-                        ("subdeps", "自身依赖"), ("revdeps", "被谁依赖"),
-                        ("note", "备注")):
+        for key, zh in (("mid", t('编号')), ("status", t('状态')),
+                        ("local", t('本地版本')), ("remote", t('远端版本')),
+                        ("size", t('大小')), ("checked", t('上次检测')),
+                        ("tags", t('标签')), ("subs", t('订阅 · 收藏')),
+                        ("subdeps", t('自身依赖')), ("revdeps", t('被谁依赖')),
+                        ("note", t('备注'))):
             name = QLabel(zh, form_w)
             val = QLabel("—", form_w)
             val.setWordWrap(True)
@@ -773,9 +762,7 @@ class ModDetailPanel(QWidget):
         如实披露：依赖数据只覆盖"拉取过依赖"的条目。"""
         ids = sorted(self._dependents_map().get(mid, []))
         if not ids:
-            return ('<span style="color:#8a8a8f">（账本内暂无条目依赖'
-                    "它——依赖数据只覆盖拉取过依赖的条目，没拉过的"
-                    "不算）</span>")
+            return (t('<span style="color:#8a8a8f">（账本内暂无条目依赖它——依赖数据只覆盖拉取过依赖的条目，没拉过的不算）</span>'))
         parts: list[str] = []
         for d in ids[:6]:
             m = self._repo.get_mod(d)
@@ -886,7 +873,7 @@ class ModDetailPanel(QWidget):
             dm = self._repo.get_mod(d)
             t = dm.title if dm is not None and dm.title else str(d)
             names.append(f'<a href="{d}">{t}（{d}）</a>')
-        tail = f" …共 {len(deps)} 个" if len(deps) > 6 else ""
+        tail = (t(' …共 ') + f"{len(deps)}" + t(' 个')) if len(deps) > 6 else ""
         return ("、".join(names) + tail) if names else "—"
 
     def _show_dep_mini(self, mid: int) -> None:
@@ -898,7 +885,7 @@ class ModDetailPanel(QWidget):
         v = self._mini_vals
         m = self._repo.get_mod(mid)
         if m is not None:
-            self._mini_title.setText(m.title or f"（无标题）· {mid}")
+            self._mini_title.setText(m.title or (t('（无标题）· ') + f"{mid}"))
             v["mid"].setText(str(mid))
             word = status_zh(m.status)
             v["status"].setText(word)
@@ -915,7 +902,7 @@ class ModDetailPanel(QWidget):
             rt = getattr(m, "time_updated", None)
             v["remote"].setText(
                 f"{relative_time(rt)}（{abs_time(rt)}）"
-                if rt else "从未检测")
+                if rt else t('从未检测'))
             v["size"].setText(
                 t('本地 ') + f"{fmt_size(m.local_size) if m.local_size else '—'}" + t(' · 远端 ') + f"{fmt_size(m.file_size) if m.file_size else '—'}")
             v["checked"].setText(self._ts(m.last_checked_at))
@@ -924,7 +911,7 @@ class ModDetailPanel(QWidget):
             sub = getattr(m, "subscriptions", None)
             fav = getattr(m, "favorited", None)
             v["subs"].setText(
-                f"{sub:,} · 收藏 {fav:,}"
+                (f"{sub:','}" + t(' · 收藏 ') + f"{fav:','}")
                 if sub is not None and fav is not None else "—")
             # —— 自身依赖（它自己还要装什么）——
             st2, sub_deps = self._deps_state(m)
@@ -948,7 +935,7 @@ class ModDetailPanel(QWidget):
             it = self._dep_meta.get(mid)
             if it is not None and it.get("result") == 1:
                 self._mini_title.setText(
-                    it.get("title") or f"（账外条目）· {mid}")
+                    it.get("title") or (t('（账外条目）· ') + f"{mid}"))
                 v["status"].setText(t("远端在架（未入账）"))
                 v["status"].setStyleSheet(
                     "color: #5aa9ff; font-weight: 600;")
@@ -956,8 +943,8 @@ class ModDetailPanel(QWidget):
                     relative_time(it["time_updated"])
                     if it.get("time_updated") else "—")
                 v["size"].setText(
-                    f"远端 {fmt_size(it.get('file_size'))}"
-                    if it.get("file_size") else "远端 —")
+                    (t('远端 ') + f"{fmt_size(it.get('file_size'))}")
+                    if it.get("file_size") else t('远端 —'))
                 v["note"].setText(
                     t("Steam 远端有此条、本地账本未收录——要收录点下方"
                     "【送登记】，或回清单双击开工坊网页看看。"))
@@ -1030,8 +1017,8 @@ class ModDetailPanel(QWidget):
                 t.setItem(r, c, cell)
             t.item(r, 0).setToolTip(tip)
             t.item(r, 1).setToolTip(
-                ("双击跳到该 mod 的详情" if in_ledger
-                 else "账外条目：双击打开工坊网页") + "\n" + tip)
+                (t('双击跳到该 mod 的详情') if in_ledger
+                 else t('账外条目：双击打开工坊网页')) + "\n" + tip)
 
     def _on_tab_changed(self, idx: int) -> None:
         """页签点击 → 切栈页。"""
@@ -1052,22 +1039,18 @@ class ModDetailPanel(QWidget):
         内容串档）。空态说明住这里；渲染走 _render_dep_table 单源。"""
         self._hide_dep_mini()
         state, deps = self._deps_state(mod)
-        title = mod.title or "（无标题）"
+        title = mod.title or t('（无标题）')
         self._deps_title.setText(
-            f"依赖 · {title}"
-            + (f"（{len(deps)} 个）" if state == "list" else ""))
+            (t('依赖 · ') + f"{title}")
+            + (('（' + f"{len(deps)}" + t(' 个）')) if state == "list" else ""))
         self._render_dep_table(self._deps_table,
                                deps if state == "list" else [])
         self._fill_dependents()
 
         if state != "list":
             self._deps_hint.setText(
-                "还没拉取过依赖——到【依赖检测】页拉取一次，清单就会"
-                "记在这里。" if state == "none" else
-                "最近一次拉取时该 mod 没有必需物品。多档案账本里若"
-                "本档案还没拉取过（是别的档案拉的），这里可能是"
-                "「未拉取」——本档案拉取一遍即明确。已入账的条目双击"
-                "可在 mod 库页内转跳。")
+                t('还没拉取过依赖——到【依赖检测】页拉取一次，清单就会记在这里。') if state == "none" else
+                t('最近一次拉取时该 mod 没有必需物品。多档案账本里若本档案还没拉取过（是别的档案拉的），这里可能是「未拉取」——本档案拉取一遍即明确。已入账的条目双击可在 mod 库页内转跳。'))
             self._sync_dep_actions(0, 0)
             return
         self._deps_hint.setText(
@@ -1084,12 +1067,12 @@ class ModDetailPanel(QWidget):
         has = n_total > 0
         busy = self._fetch_worker is not None
         self._btn_deps_fetch.setEnabled(has and not busy)
-        self._btn_deps_fetch.setText("查远端信息…" if not busy
-                                     else f"正在查询（{n_total} 个）…")
+        self._btn_deps_fetch.setText(t('查远端信息…') if not busy
+                                     else (t('正在查询（') + f"{n_total}" + t(' 个）…')))
         self._btn_deps_copy.setEnabled(has)
         self._btn_deps_send.setEnabled(n_out > 0)
-        self._btn_deps_send.setText(f"送登记账外编号（{n_out}）…" if n_out
-                                    else "送登记账外编号…")
+        self._btn_deps_send.setText((t('送登记账外编号（') + f"{n_out}" + '）…') if n_out
+                                    else t('送登记账外编号…'))
 
     # ---- 查远端信息（匿名批查；与依赖检测页【查远端信息】同哲学）----
 
@@ -1154,16 +1137,13 @@ class ModDetailPanel(QWidget):
                if e.get("mod_id") is not None}
         self._dep_meta.update(got)
         n_live = sum(1 for e in got.values() if e.get("result") == 1)
-        self._meta_note = (f"远端信息已补：{len(got)} 条（在架 {n_live}、"
-                           f"查无 {len(got) - n_live}）——回执只进显示、"
-                           "不入账本；账外条目要收录请送【入账中心 · 登记】。")
+        self._meta_note = ((t('远端信息已补：') + f"{len(got)}" + t(' 条（在架 ') + f"{n_live}" + t('、查无 ') + f"{len(got) - n_live}" + t('）——回执只进显示、不入账本；账外条目要收录请送【入账中心 · 登记】。')))
 
     def _on_dep_meta_failed(self, message: str) -> None:
-        self._meta_note = (f"远端信息查询失败：{message}\n"
-                           "（依赖清单不受影响，可稍后再查。）")
+        self._meta_note = ((t('远端信息查询失败：') + f"{message}" + t('\n（依赖清单不受影响，可稍后再查。）')))
 
     def _on_dep_meta_stopped(self) -> None:
-        self._meta_note = "已停止查询（本次回执未使用）。"
+        self._meta_note = t('已停止查询（本次回执未使用）。')
 
     def _on_dep_meta_finished(self) -> None:
         """收尾纪律（0xC0000409 家族口径）：finished 里摘引用 → 置
@@ -1354,7 +1334,7 @@ class ModDetailPanel(QWidget):
             note = str(getattr(vrow, "note", "") or "")
             line = f"{abs_time(when)} {kind}"
             if vw:
-                line += f" 版本 {abs_time(vw)}"
+                line += (t(' 版本 ') + f"{abs_time(vw)}")
             if note:
                 line += f" {note}"
             lines.append(line)
@@ -1375,12 +1355,11 @@ class ModDetailPanel(QWidget):
         bar.setContentsMargins(0, 0, 0, 0)
         self._desc_mode_btns: dict[str, QPushButton] = {}
         for key, label, tip in (
-                ("original", "原文",
-                 "只看工坊描述原文（BBCode 已转链接行——图片/视频不下载，"
-                 "点开浏览器看）"),
-                ("translated", "译文", "只看翻译（未翻译时不可用）"),
-                ("compare", "对照",
-                 "一段原文一段译文对照着看（未翻译时不可用）"),
+                ("original", t('原文'),
+                 t('只看工坊描述原文（BBCode 已转链接行——图片/视频不下载，点开浏览器看）')),
+                ("translated", t('译文'), t('只看翻译（未翻译时不可用）')),
+                ("compare", t('对照'),
+                 t('一段原文一段译文对照着看（未翻译时不可用）')),
         ):
             btn = QPushButton(label, page)
             btn.setCheckable(True)
@@ -1516,7 +1495,7 @@ class ModDetailPanel(QWidget):
             self._btn_translate.setEnabled(True)
             return
         self._btn_translate.setText(
-            "重新翻译…" if self._desc_segs is not None else "翻译本条")
+            t('重新翻译…') if self._desc_segs is not None else t('翻译本条'))
         self._btn_translate.setEnabled(has)
 
     def _on_translate_clicked(self) -> None:
@@ -1588,8 +1567,8 @@ class ModDetailPanel(QWidget):
             self.translation_ready.emit(mid, list(segments))
         n_fail = sum(1 for s in segments if s is None)
         self._set_desc_note(
-            f"翻译完成：{len(segments)} 段"
-            + (f"（{n_fail} 段失败，显示「⚠ 该段翻译失败」+原文）"
+            (t('翻译完成：') + f"{len(segments)}" + t(' 段'))
+            + (('（' + f"{n_fail}" + t(' 段失败，显示「⚠ 该段翻译失败」+原文）'))
                if n_fail else "。"))
         self._sync_translate_actions()
 

@@ -187,7 +187,7 @@ class ExceptionPage(QWidget):
         # 的节奏不断——V1 口径）
         self._b4_rows: list[dict] = []
         self._b4_filter = "全部"
-        self._b4_sort = "编号"
+        self._b4_sort = t('编号')
         self._b4_group = False
         self._b4_table: QTableWidget | None = None
         self._b4_combo_sort: QComboBox | None = None
@@ -229,10 +229,8 @@ class ExceptionPage(QWidget):
         # "先读我"说明卡（常驻、可折叠、不随检测重建——重建会收走
         # 用户刚展开的内容）
         self._guide_card = _BucketCard(
-            "guide", "先读我：本页怎么用 · 名词解释 · 处置方式",
-            tip="展开看详细说明：六个桶各是什么、两种检测的分工、"
-                "失效 mod 的三步处置法与「关联替换」进阶用法。"
-                "不想读可以一直收着。")
+            "guide", t('先读我：本页怎么用 · 名词解释 · 处置方式'),
+            tip=t('展开看详细说明：六个桶各是什么、两种检测的分工、失效 mod 的三步处置法与「关联替换」进阶用法。不想读可以一直收着。'))
         self._fill_guide_card()
         root.addWidget(self._guide_card)
 
@@ -391,8 +389,8 @@ class ExceptionPage(QWidget):
             # 深检进行中：只更新标签，不动结果区——结果仍归属开始
             # 深检时的档案（渲染按 rep.game_id 取数，不会串）
             self._game_label.setText(
-                f"当前游戏：{game.name}（{game.app_id}）"
-                if game is not None else "当前游戏：（未选择）")
+                (t('当前游戏：') + f"{game.name}" + '（' + f"{game.app_id}" + '）')
+                if game is not None else t('当前游戏：（未选择）'))
             return
         self._last_local = None
         self._last_remote = None
@@ -594,7 +592,7 @@ class ExceptionPage(QWidget):
         self._empty_hint.setVisible(False)
         owner = self._repo.get_game(rep.game_id)
         self._owner_game = owner
-        owner_name = owner.name if owner is not None else f"档案 {rep.game_id}"
+        owner_name = owner.name if owner is not None else (t('档案 ') + f"{rep.game_id}")
         self._mods_by_id = {
             m.mod_id: m for m in self._repo.list_mods(rep.game_id)}
         lib_ids = set(self._mods_by_id)
@@ -607,9 +605,8 @@ class ExceptionPage(QWidget):
                 t('下载目录不存在——盘面三桶（①②③）无法检测；已按当前 steamcmd 位置重推导仍无效，请检查设置页 steamcmd 路径与该档案是否匹配'))
         if flags:
             card = self._card(
-                "flags", "本次未能检查的部分",
-                tip="有些前提没满足，一部分检查没跑成——原因与"
-                    "解决办法看下面几行。", attention=True)
+                "flags", t('本次未能检查的部分'),
+                tip=t('有些前提没满足，一部分检查没跑成——原因与解决办法看下面几行。'), attention=True)
             card.set_status(f"{len(flags)}" + t(' 项前提不满足'), _C_WARN)
             for f in flags:
                 card.add_text("· " + f, _C_WARN)
@@ -618,9 +615,8 @@ class ExceptionPage(QWidget):
         # ---- 排队中（非异常）：待下载且盘上已有内容 ----
         if rep.tracked_on_disk:
             card = self._card(
-                "tq", "排队中：待下载且盘上已有内容（非异常）",
-                tip="账本记「待下载」、盘上已有文件的条目——正常排队，"
-                    "不是异常。确认补版本在入账中心。",
+                "tq", t('排队中：待下载且盘上已有内容（非异常）'),
+                tip=t('账本记「待下载」、盘上已有文件的条目——正常排队，不是异常。确认补版本在入账中心。'),
                 attention=False)
             card.set_status(f"{len(rep.tracked_on_disk)}" + t(' 个'), _C_MUTED)
             card.add_text(
@@ -628,7 +624,7 @@ class ExceptionPage(QWidget):
                 "待认领，确认后补上盘面版本、转「已下载」。"), _C_MUTED)
             self._add_id_list(
                 card,
-                [(mid, self._title_of(mid), "盘上已有内容")
+                [(mid, self._title_of(mid), t('盘上已有内容'))
                  for mid in rep.tracked_on_disk],
                 allow_cmd=False)
             card.set_expanded(False)
@@ -636,9 +632,8 @@ class ExceptionPage(QWidget):
         # ---- 桶① 下载未完成（V2：只剩空目录半边）----
         b1_ids = list(rep.empty_dirs)
         card = self._card(
-            "b1", "桶① 下载未完成（空目录残留）",
-            tip="盘上留下的空目录（下载中断的断点残留）；修法 = "
-                "重新下载。",
+            "b1", t('桶① 下载未完成（空目录残留）'),
+            tip=t('盘上留下的空目录（下载中断的断点残留）；修法 = 重新下载。'),
             attention=bool(b1_ids) and disk_ok)
         if not disk_ok:
             card.set_status(t("未能检查（原因见横幅）"), _C_MUTED)
@@ -653,7 +648,7 @@ class ExceptionPage(QWidget):
                 "【入账中心】点【扫描游戏目录】入账。"))
             self._add_id_list(
                 card,
-                [(mid, self._title_of(mid), "盘上空目录（断点残留）")
+                [(mid, self._title_of(mid), t('盘上空目录（断点残留）'))
                  for mid in b1_ids],
                 allow_cmd=True)
             card.add_button(
@@ -666,9 +661,8 @@ class ExceptionPage(QWidget):
 
         # ---- 桶② 账实不符 ----
         card = self._card(
-            "b2", "桶② 账实不符（账本记已下载、盘上没有）",
-            tip="账本里记着已下载，下载目录里却找不到——可能被手动"
-                "删除或杀毒软件清理。快捷修法 = 重新下载。",
+            "b2", t('桶② 账实不符（账本记已下载、盘上没有）'),
+            tip=t('账本里记着已下载，下载目录里却找不到——可能被手动删除或杀毒软件清理。快捷修法 = 重新下载。'),
             attention=bool(rep.missing) and disk_ok)
         if not disk_ok:
             card.set_status(t("未能检查（原因见横幅）"), _C_MUTED)
@@ -684,7 +678,7 @@ class ExceptionPage(QWidget):
                 "三选在【账实核验】页对应行里。"))
             self._add_id_list(
                 card,
-                [(mid, self._title_of(mid), "目录不存在")
+                [(mid, self._title_of(mid), t('目录不存在'))
                  for mid in rep.missing],
                 allow_cmd=True)
             card.add_button(
@@ -696,9 +690,8 @@ class ExceptionPage(QWidget):
 
         # ---- 桶③ 孤儿目录 ----
         card = self._card(
-            "b3", "桶③ 孤儿目录（盘上有、账本不认识）",
-            tip="下载目录里有以编号命名的文件夹，账本里却没有这个"
-                "编号——可能是手动放进去的，或别的工具下的。",
+            "b3", t('桶③ 孤儿目录（盘上有、账本不认识）'),
+            tip=t('下载目录里有以编号命名的文件夹，账本里却没有这个编号——可能是手动放进去的，或别的工具下的。'),
             attention=bool(rep.orphans) and disk_ok)
         if not disk_ok:
             card.set_status(t("未能检查（原因见横幅）"), _C_MUTED)
@@ -716,7 +709,7 @@ class ExceptionPage(QWidget):
             # 按账本勾选）——行菜单只给查看类
             self._add_id_list(
                 card,
-                [(mid, "（未入账）", "账本没有这个编号")
+                [(mid, t('（未入账）'), t('账本没有这个编号'))
                  for mid in rep.orphans],
                 allow_cmd=False)
             card.set_expanded(True)
@@ -729,12 +722,8 @@ class ExceptionPage(QWidget):
         recovered = sorted(
             set(rep.failed_ids) & (set(remote.ok) if remote else set()))
         card = self._card(
-            "b4", "桶④ 远端失效（result=9：删除/下架/转私有等）",
-            tip="Steam 匿名接口看不见这个条目（result=9）。注意："
-                "接口看不见 ≠ 一定下载不了——实测有的条目 steamcmd "
-                "仍能下载成功。建议先右键行【跳到命令生成页】试下"
-                "一次，下不回来再走三步（见引导文字）。进阶："
-                "「关联替换」（右键菜单，仅限有失效归档的行）。",
+            "b4", t('桶④ 远端失效（result=9：删除/下架/转私有等）'),
+            tip=t('Steam 匿名接口看不见这个条目（result=9）。注意：接口看不见 ≠ 一定下载不了——实测有的条目 steamcmd 仍能下载成功。建议先右键行【跳到命令生成页】试下一次，下不回来再走三步（见引导文字）。进阶：「关联替换」（右键菜单，仅限有失效归档的行）。'),
             attention=bool(all_invalid))
         if not all_invalid:
             if remote is None:
@@ -770,29 +759,24 @@ class ExceptionPage(QWidget):
                     cat = "归档失效"
                     can_repl, can_del = rec is not None, True
                 if st == "deleted":
-                    note = "已软删除——恢复到【mod 库】页右键「恢复」"
+                    note = t('已软删除——恢复到【mod 库】页右键「恢复」')
                 elif replaced:
-                    note = f"已替换 → mod {replaced}"
+                    note = (t('已替换 → mod ') + f"{replaced}")
                 elif m is None:
-                    note = ("已彻底清账（在【清理与删除】执行）：账本条目"
-                            "与盘上文件均已清除；本行为失效归档的历史证据，"
-                            "默认不显示，状态筛「已清账」可查")
+                    note = (t('已彻底清账（在【清理与删除】执行）：账本条目与盘上文件均已清除；本行为失效归档的历史证据，默认不显示，状态筛「已清账」可查'))
                 elif rec and rec.reason:
                     note = rec.reason
                     if m is not None and m.local_size:
-                        note += "（本地文件仍在，照常用）"
+                        note += t('（本地文件仍在，照常用）')
                 elif st == "tracked":
-                    note = ("result=9 确认（未下载过；偶尔仍能下载，"
-                            "建议先试）" if mid in remote_invalid
-                            else "远端已失效（从未下载过）")
+                    note = (t('result=9 确认（未下载过；偶尔仍能下载，建议先试）') if mid in remote_invalid
+                            else t('远端已失效（从未下载过）'))
                 elif st == "downloaded" and mid in remote_invalid:
-                    note = ("本地已有文件——result=9 有时仍能下载成功，"
-                            "已在本地就照常用（每次深检仍会列在本表，"
-                            "属 Steam 接口判定边界）")
+                    note = (t('本地已有文件——result=9 有时仍能下载成功，已在本地就照常用（每次深检仍会列在本表，属 Steam 接口判定边界）'))
                 elif mid in remote_invalid:
-                    note = "本次联网确认 result=9"
+                    note = t('本次联网确认 result=9')
                 else:
-                    note = "（无归档：仅有 failed 状态）"
+                    note = t('（无归档：仅有 failed 状态）')
                 rows.append({"mid": mid, "title": self._title_of(mid),
                              "cat": cat, "note": note,
                              "can_replace": can_repl,
@@ -807,31 +791,17 @@ class ExceptionPage(QWidget):
             n_live = len(all_invalid) - n_arch
             live = [c for c in _CAT_ORDER if c != "已清账"]
             stat = " · ".join(f"{c} {n_cat[c]}" for c in live if n_cat[c])
-            extra = f"（含联网新确认 {len(newly)} 个）" if newly else ""
+            extra = (t('（含联网新确认 ') + f"{len(newly)}" + t(' 个）')) if newly else ""
             if n_live:
                 if n_arch:
-                    stat += (f" · 已清账 {n_arch}（历史归档，默认不显示，"
-                             "状态筛「已清账」可查）")
+                    stat += ((t(' · 已清账 ') + f"{n_arch}" + t('（历史归档，默认不显示，状态筛「已清账」可查）')))
                 card.set_status(f"{n_live}" + t(' 个') + f"{extra}" + f'：' + f"{stat}", _C_FAIL)
             else:
                 card.set_status(
                     t('无待处置异常 · 已清账 ') + f"{n_arch}" + t('（彻底清账的历史归档，默认不显示，状态筛「已清账」可查）'),
                     _C_MUTED)
             card.add_text(
-                "result=9 = Steam 接口看不见条目（作者删除/下架/"
-                "转私有等）——接口看不见 ≠ 一定下载不了：实测有的"
-                "result=9 条目 steamcmd 仍能下载成功，有的报 File "
-                "Not Found（真没了）。建议先右键行【跳到命令生成页】"
-                "试下载一次（成本极低）。下不回来再走三步：① 右键行"
-                "【打开工坊页面】找作者的续作/重传 → ② 到【入账中心" + "· 登记】添加新编号 → ③ 回本行右键【软删除此记录】"
-                "（记录保留可恢复，盘上文件不动）。「关联替换」（进阶）"
-                "只对有失效归档的行可用——菜单里该项是活的即有归档、"
-                "置灰即没有（悬停看原因）。表格可按分类筛选/分组/排序。\n"
-                "处置闭环：右键软删除的行变「已删除」（记录保留，可到"
-                "【mod 库】页恢复）；在【清理与删除】彻底清账的行变"
-                "「已清账」——账本条目与盘上文件都已清除，不会再出现在"
-                "任何待办里，本表默认也不再显示（状态筛「已清账」可查"
-                "历史归档）。")
+                t('result=9 = Steam 接口看不见条目（作者删除/下架/转私有等）——接口看不见 ≠ 一定下载不了：实测有的result=9 条目 steamcmd 仍能下载成功，有的报 File Not Found（真没了）。建议先右键行【跳到命令生成页】试下载一次（成本极低）。下不回来再走三步：① 右键行【打开工坊页面】找作者的续作/重传 → ② 到【入账中心') + t('· 登记】添加新编号 → ③ 回本行右键【软删除此记录】（记录保留可恢复，盘上文件不动）。「关联替换」（进阶）只对有失效归档的行可用——菜单里该项是活的即有归档、置灰即没有（悬停看原因）。表格可按分类筛选/分组/排序。\n处置闭环：右键软删除的行变「已删除」（记录保留，可到【mod 库】页恢复）；在【清理与删除】彻底清账的行变「已清账」——账本条目与盘上文件都已清除，不会再出现在任何待办里，本表默认也不再显示（状态筛「已清账」可查历史归档）。'))
             n_no_arch = sum(1 for r in rows
                             if r["cat"] == "归档失效"
                             and not r["can_replace"])
@@ -841,10 +811,9 @@ class ExceptionPage(QWidget):
             self._build_b4_card(card)
             if recovered:
                 card.add_text(
-                    "本地记为失效、本次远端查询却正常（未列入上表）："
+                    t('本地记为失效、本次远端查询却正常（未列入上表）：')
                     + _ids_text(recovered)
-                    + "（可能是作者恢复了条目——要不要继续用自行判断；"
-                      "更新检测会照常盯它们）", _C_WARN)
+                    + t('（可能是作者恢复了条目——要不要继续用自行判断；更新检测会照常盯它们）'), _C_WARN)
             card.add_text(
                 t("处置后点【开始检测】复检（软删除的行会变「已删除」）；"
                 "远端数字要重跑【联网深度检测】才会刷新。已清账的历史行"
@@ -854,11 +823,8 @@ class ExceptionPage(QWidget):
 
         # ---- 桶⑤ 查询失败 / 疑似合集 ----
         card = self._card(
-            "b5", "桶⑤ 查询失败 / 疑似合集",
-            tip="查询失败 = Steam 接口返回了异常结果码（可能私有/"
-                "地区限制/远端波动），稍后重测；疑似合集 = 看着像"
-                "一个 mod、实际可能是一整个合集，要展开确认后才能"
-                "入库。",
+            "b5", t('桶⑤ 查询失败 / 疑似合集'),
+            tip=t('查询失败 = Steam 接口返回了异常结果码（可能私有/地区限制/远端波动），稍后重测；疑似合集 = 看着像一个 mod、实际可能是一整个合集，要展开确认后才能入库。'),
             attention=bool(remote is not None and (
                     remote.query_failed or remote.suspected_collection)))
         if remote is None:
@@ -893,7 +859,7 @@ class ExceptionPage(QWidget):
                         "按钮）——本页是纯读诊断，不做登记。"))
                     self._add_id_list(
                         card,
-                        [(mid, self._title_of(mid), "疑似合集")
+                        [(mid, self._title_of(mid), t('疑似合集'))
                          for mid in remote.suspected_collection],
                         allow_cmd=False)
                 if remote.malformed:
@@ -904,10 +870,8 @@ class ExceptionPage(QWidget):
         # ---- 附加发现：非数字内容 ----
         if rep.non_numeric:
             card = self._card(
-                "nn", "附加发现：非数字内容（编号之外的目录/文件）",
-                tip="下载目录树里只应存在以编号命名的文件夹；其他"
-                    "来路的目录/文件列在这里。本工具不代删：人工确认"
-                    "后自行处理。", attention=True)
+                "nn", t('附加发现：非数字内容（编号之外的目录/文件）'),
+                tip=t('下载目录树里只应存在以编号命名的文件夹；其他来路的目录/文件列在这里。本工具不代删：人工确认后自行处理。'), attention=True)
             card.set_status(f"{len(rep.non_numeric)}" + t(' 项'), _C_WARN)
             for name in rep.non_numeric[:_ID_LIMIT]:
                 card.add_text("· " + name)
@@ -918,10 +882,8 @@ class ExceptionPage(QWidget):
 
         # ---- 桶⑥ 多前端环境冲突（静态自查清单）----
         card = self._card(
-            "b6", "桶⑥ 多前端环境冲突（无法自动检测，自查）",
-            tip="同一个 steamcmd 目录可能被多个工具指挥（如 RimSort），"
-                "删掉的 mod 可能被别的工具下回来。无法程序化检测，"
-                "对照卡里的清单自查。", attention=False)
+            "b6", t('桶⑥ 多前端环境冲突（无法自动检测，自查）'),
+            tip=t('同一个 steamcmd 目录可能被多个工具指挥（如 RimSort），删掉的 mod 可能被别的工具下回来。无法程序化检测，对照卡里的清单自查。'), attention=False)
         card.set_status(t("自查清单"), _C_MUTED)
         card.add_text(exceptionFlow.MULTIFRONTEND_NOTE)
         card.set_expanded(False)
@@ -941,7 +903,7 @@ class ExceptionPage(QWidget):
             remote_total = None
         if (local_total == 0 and n_arch_failed == 0 and not flags
                 and not (remote_total or 0)):
-            tail = "（含联网深度检测）" if remote is not None else ""
+            tail = t('（含联网深度检测）') if remote is not None else ""
             self._summary.setStyleSheet(f"color: {_C_OK};")
             self._summary.setText(t('六桶检查完毕') + f"{tail}" + t('：未发现异常。'))
             self._log.ok(t('异常检测（') + f"{owner_name}" + t('）：未发现异常'))
@@ -970,8 +932,8 @@ class ExceptionPage(QWidget):
         self._summary.setStyleSheet(f"color: {_C_WARN};")
         self._summary.setText(
             f"「{owner_name}」：" + "；".join(parts)
-            + "。各桶卡片内有明细与修法引导，修完复检。")
-        self._log.warn(f"异常检测（{owner_name}）："
+            + t('。各桶卡片内有明细与修法引导，修完复检。'))
+        self._log.warn((t('异常检测（') + f"{owner_name}" + '）：')
                        + "；".join(parts))
         self._apply_card_filter()
 
@@ -1006,7 +968,7 @@ class ExceptionPage(QWidget):
 
     def _title_of(self, mid: int) -> str:
         m = self._mods_by_id.get(mid)
-        return (m.title if m is not None and m.title else None) or "（无标题）"
+        return (m.title if m is not None and m.title else None) or t('（无标题）')
 
     # ---------- 桶④管理台（V1 全量保留；分类名随 D30）----------
     def _build_b4_card(self, card: _BucketCard) -> None:
@@ -1031,7 +993,7 @@ class ExceptionPage(QWidget):
         lbl_v.setStyleSheet("color: gray;")
         bh.addWidget(lbl_v)
         combo_view = QComboBox(bar)
-        combo_view.addItems(["平铺", "按分类分组"])
+        combo_view.addItems([t('平铺'), t('按分类分组')])
         combo_view.setCurrentIndex(1 if self._b4_group else 0)
         combo_view.setToolTip(
             t("平铺 = 全部行一张表；按分类分组 = 表内插分类标题行。"))
@@ -1041,7 +1003,7 @@ class ExceptionPage(QWidget):
         lbl_s.setStyleSheet("color: gray;")
         bh.addWidget(lbl_s)
         self._b4_combo_sort = QComboBox(bar)
-        self._b4_combo_sort.addItems(["编号", "标题", "分类"])
+        self._b4_combo_sort.addItems([t('编号'), "标题", "分类"])
         self._b4_combo_sort.setCurrentText(self._b4_sort)
         self._b4_combo_sort.setEnabled(not self._b4_group)
         self._b4_combo_sort.setToolTip(
@@ -1084,7 +1046,7 @@ class ExceptionPage(QWidget):
 
         tbl = QTableWidget(0, 6, card)
         tbl.setHorizontalHeaderLabels(
-            ["✓", "↗", "mod 标题", "mod 编号", "分类", "说明 / 原因"])
+            ["✓", "↗", t('mod 标题'), t('mod 编号'), "分类", t('说明 / 原因')])
         tbl.verticalHeader().setVisible(False)
         tbl.setAlternatingRowColors(True)
         tbl.setWordWrap(False)   # 踩坑④：表格关换行，全文进 tooltip
@@ -1240,7 +1202,7 @@ class ExceptionPage(QWidget):
         n = len(self._b4_checked)
         if self._b4_batch_btn is not None:
             self._b4_batch_btn.setText(
-                f"对勾选项({n}) ▾" if n else "对勾选项 ▾")
+                (t('对勾选项(') + f"{n}" + ') ▾') if n else t('对勾选项 ▾'))
 
     def _b4_checked_rows(self) -> list[dict]:
         mids = set(self._b4_checked)
@@ -1282,7 +1244,7 @@ class ExceptionPage(QWidget):
         preview = "\n".join(f"· {r['mid']} {r['title']}"
                             for r in rows[:20]) \
                   + ("\n…" if len(rows) > 20 else "")
-        tail = (f"\n\n另有 {skipped} 个勾选行不可清账，将自动跳过。"
+        tail = ((t('\n\n另有 ') + f"{skipped}" + t(' 个勾选行不可清账，将自动跳过。'))
                 if skipped else "")
         box = QMessageBox(self)
         box.setWindowTitle(t("批量彻底清账"))
@@ -1291,8 +1253,8 @@ class ExceptionPage(QWidget):
             t('把以下 ') + f"{len(rows)}" + t(' 条记录从账本里彻底清除？\n') + f"{preview}" + f"{tail}" + t('\n\n· 记录、版本快照、特别关注提醒：物理删除，不可恢复；\n· 自动登记「已清账」黑名单：扫描不再录入（含 steamcmd 复活）；\n· 磁盘一个字节不动；\n· 名下有备份登记的条目会被跳过（勾选下方复选框才连带删登记，磁盘备份文件夹仍保留）。'))
         cb = QCheckBox(t("同时删除备份登记（磁盘上的备份文件夹仍保留）"), box)
         box.setCheckBox(cb)
-        b_no = box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-        b_yes = box.addButton("彻底清账",
+        b_no = box.addButton(t('取消'), QMessageBox.ButtonRole.RejectRole)
+        b_yes = box.addButton(t('彻底清账'),
                               QMessageBox.ButtonRole.DestructiveRole)
         box.setDefaultButton(b_no)   # 默认永远保守
         box.exec()
@@ -1308,9 +1270,8 @@ class ExceptionPage(QWidget):
             except ValueError:
                 blocked += 1
         self._log.warn(
-            f"批量彻底清账完成：{done} 条记录物理删除、已登记黑名单"
-            + (f"；{blocked} 条被跳过（名下有备份登记未一并删除——到"
-               "【备份总览】页处置登记后再来）" if blocked else ""))
+            (t('批量彻底清账完成：') + f"{done}" + t(' 条记录物理删除、已登记黑名单'))
+            + (('；' + f"{blocked}" + t(' 条被跳过（名下有备份登记未一并删除——到【备份总览】页处置登记后再来）')) if blocked else ""))
         self._refresh_after_dispose()
 
     def _b4_batch_soft_delete(self) -> None:
@@ -1324,8 +1285,7 @@ class ExceptionPage(QWidget):
         preview = "\n".join(f"· {r['mid']} {r['title']}"
                             for r in rows[:20]) \
                   + ("\n…" if len(rows) > 20 else "")
-        tail = (f"\n\n另有 {skipped} 个勾选行不可处置（已替换/已删除），"
-                "将自动跳过。") if skipped else ""
+        tail = ((t('\n\n另有 ') + f"{skipped}" + t(' 个勾选行不可处置（已替换/已删除），将自动跳过。'))) if skipped else ""
         ret = QMessageBox.question(
             self, t("批量软删除"),
             t('把以下 ') + f"{len(rows)}" + t(' 条失效记录整批软删除？\n') + f"{preview}" + f"{tail}" + t('\n\n· 记录保留（含删除前快照），可到【mod 库】页右键「恢复」；\n· 盘上文件不动。'),
@@ -1582,5 +1542,5 @@ class ExceptionPage(QWidget):
 def _ids_text(ids: list[int], limit: int = _ID_LIMIT) -> str:
     head = "、".join(str(i) for i in ids[:limit])
     if len(ids) > limit:
-        head += f" …（共 {len(ids)} 个）"
+        head += (t(' …（共 ') + f"{len(ids)}" + t(' 个）'))
     return head

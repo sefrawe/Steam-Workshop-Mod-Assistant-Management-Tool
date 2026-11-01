@@ -75,8 +75,8 @@ def _copy_cmd(old: str, new: str) -> str:
 def _rename_cmd(old: str, tail: str) -> str:
     """改名让路命令：Windows=ren（第二个参数只能是要改成的名字），POSIX=mv。"""
     if os.name == "nt":
-        return f'ren "{old}" "{tail}_搬家旧目录"'
-    return f'mv "{old}" "{old}_搬家旧目录"'
+        return ('ren "' + f"{old}" + '" "' + f"{tail}" + t('_搬家旧目录"'))
+    return ('mv "' + f"{old}" + '" "' + f"{old}" + t('_搬家旧目录"'))
 
 
 def _mklink(link: str, target: str) -> str:
@@ -94,15 +94,15 @@ def _rmlink(path: str) -> str:
 
 
 # 命令执行环境提示词（文案里「在 X 里执行」的 X）
-_TERM = "cmd" if os.name == "nt" else "终端"
+_TERM = "cmd" if os.name == "nt" else t('终端')
 
 # 旧位置形态 → (颜色, 结论一句话)。命令与步骤在 _refresh 里按形态分派
 _STATE_LOOKS = {
-    "real_dir": ("#f5a623", "可搬家：旧位置是真实目录，里面有备份内容"),
-    "empty_dir": ("#46a758", "可接通：旧位置是空目录，无需复制，两步就能接上"),
-    "linked": ("#46a758", "旧位置已经是联接（之前搬家留下的）——本次是「换目标」"),
-    "missing": ("#e5484d", "旧位置当前不存在——没有可搬的东西"),
-    "file": ("#e5484d", "旧位置被一个普通文件占用，无法操作"),
+    "real_dir": ("#f5a623", t('可搬家：旧位置是真实目录，里面有备份内容')),
+    "empty_dir": ("#46a758", t('可接通：旧位置是空目录，无需复制，两步就能接上')),
+    "linked": ("#46a758", t('旧位置已经是联接（之前搬家留下的）——本次是「换目标」')),
+    "missing": ("#e5484d", t('旧位置当前不存在——没有可搬的东西')),
+    "file": ("#e5484d", t('旧位置被一个普通文件占用，无法操作')),
 }
 
 
@@ -147,7 +147,7 @@ class BackupMoveDialog(QDialog):
 
         # 档案信息 + 预填说明（可选中复制，方便核对路径）
         stored = str(self._game.backup_dir or "").strip().strip('"').strip()
-        info_lines = [f"当前游戏：{self._game.name}（{self._game.app_id}）"]
+        info_lines = [(t('当前游戏：') + f"{self._game.name}" + '（' + f"{self._game.app_id}" + '）')]
         if stored:
             info_lines.append(t('它记录的备份目录：') + f"{stored}")
         info = QLabel("\n".join(info_lines), self)
@@ -183,10 +183,10 @@ class BackupMoveDialog(QDialog):
         self._old_input = QLineEdit(body)
         self._new_input = QLineEdit(body)
         v.addWidget(self._make_path_row(
-            "旧位置（备份现在在哪）：", guess,
-            "选择备份现在的位置", self._old_input))
+            t('旧位置（备份现在在哪）：'), guess,
+            t('选择备份现在的位置'), self._old_input))
         v.addWidget(self._make_path_row(
-            "新位置（想搬去哪）：", "", "选择新位置", self._new_input))
+            t('新位置（想搬去哪）：'), "", t('选择新位置'), self._new_input))
 
         btn_row = QWidget(body)
         bh = QHBoxLayout(btn_row)
@@ -327,15 +327,15 @@ class BackupMoveDialog(QDialog):
         if not old or not new:
             self._show_idle()
             if not old and not new:
-                msg = "把新旧两个位置都填上，再点【检测并生成命令】。"
+                msg = t('把新旧两个位置都填上，再点【检测并生成命令】。')
             elif not old:
-                msg = "还差旧位置（备份现在在哪里）。"
+                msg = t('还差旧位置（备份现在在哪里）。')
             else:
-                msg = "还差新位置（想搬去哪里）。"
+                msg = t('还差新位置（想搬去哪里）。')
             self._state_label.setText(msg)
             return
         if old.casefold() == new.casefold():
-            self._note("新旧位置是同一个地方，无需搬家。", "#e5484d")
+            self._note(t('新旧位置是同一个地方，无需搬家。'), "#e5484d")
             return
         # 嵌套拦截：新位置在旧位置里面（或反过来）时，复制会变成
         # "把目录复制进它自己的子目录"，永远复制不完，必须拦下。
@@ -344,19 +344,18 @@ class BackupMoveDialog(QDialog):
         n = str(Path(new).resolve()).rstrip("\\/").casefold()
         if n.startswith(o + "\\") or o.startswith(n + "\\"):
             self._note(
-                "新位置不能放在旧位置里面（或反过来）——"
-                "两层套着的目录没法互相复制。", "#e5484d")
+                t('新位置不能放在旧位置里面（或反过来）——两层套着的目录没法互相复制。'), "#e5484d")
             return
         new_path = Path(new)
         if new_path.exists() and not new_path.is_dir():
-            self._note("新位置被一个普通文件占用，换一个目录。", "#e5484d")
+            self._note(t('新位置被一个普通文件占用，换一个目录。'), "#e5484d")
             return
         try:
             os.readlink(new)
         except OSError:
             pass  # 不是联接，正常
         else:
-            self._note("新位置本身是个联接——请填它指向的最终实体目录。",
+            self._note(t('新位置本身是个联接——请填它指向的最终实体目录。'),
                        "#e5484d")
             return
 
@@ -376,8 +375,7 @@ class BackupMoveDialog(QDialog):
                 state = "linked"
                 resolved = os.path.realpath(old)
                 if resolved.casefold() == new.casefold():
-                    self._note("新位置就是旧联接现在指的地方——"
-                               "已经搬过了，无需操作。", "#46a758")
+                    self._note(t('新位置就是旧联接现在指的地方——已经搬过了，无需操作。'), "#46a758")
                     return
         elif old_path.exists():
             state = "file"
@@ -391,7 +389,7 @@ class BackupMoveDialog(QDialog):
 
         形态 → 行动的对照就铺在这一个方法里。
         """
-        color, text = _STATE_LOOKS.get(state, ("gray", f"未知形态：{state}"))
+        color, text = _STATE_LOOKS.get(state, ("gray", (t('未知形态：') + f"{state}")))
         self._state_label.setText(text)
         self._state_label.setStyleSheet(f"color: {color}; font-weight: 600;")
         detail = ""
@@ -401,109 +399,71 @@ class BackupMoveDialog(QDialog):
         extra = ""
         np = Path(new)
         if np.is_dir() and next(np.iterdir(), None) is not None:
-            extra = "\n（提示：新位置已有内容，复制会把两边合并，已有文件不会被删除。）"
+            extra = t('\n（提示：新位置已有内容，复制会把两边合并，已有文件不会被删除。）')
         # ren 命令的第二个参数不能带路径，只能是要改成的名字——
         # 所以取旧路径的最后一段来拼
-        tail = Path(old).name or "旧目录"
+        tail = Path(old).name or t('旧目录')
         if state == "real_dir":
-            detail = f"旧位置：{old}"
-            copy_hint = ("执行完看末尾 Failed 为 0 才继续" if os.name == "nt"
-                         else "cp 无报错才继续")
-            link_word = "联接" if os.name == "nt" else "符号链接"
+            detail = (t('旧位置：') + f"{old}")
+            copy_hint = (t('执行完看末尾 Failed 为 0 才继续') if os.name == "nt"
+                         else t('cp 无报错才继续'))
+            link_word = t('联接') if os.name == "nt" else t('符号链接')
             cmds = [
-                (f"第 1 步：复制到新位置（{copy_hint}）", _copy_cmd(old, new)),
-                ("第 2 步：旧目录改名让路（改名不是删除，出错改回名字就恢复原样）",
+                ((t('第 1 步：复制到新位置（') + f"{copy_hint}" + '）'), _copy_cmd(old, new)),
+                (t('第 2 步：旧目录改名让路（改名不是删除，出错改回名字就恢复原样）'),
                  _rename_cmd(old, tail)),
-                (f"第 3 步：原地建{link_word}指到新位置（与第 2 步连着执行）",
+                ((t('第 3 步：原地建') + f"{link_word}" + t('指到新位置（与第 2 步连着执行）')),
                  _mklink(old, new)),
             ]
             if os.name == "nt":
                 steps = (
-                    "① 打开 cmd（开始菜单搜「命令提示符」），按第 1→2→3 的顺序执行，"
-                    "顺序不能换；第 2 步到第 3 步之间旧路径会短暂消失，请连着做完。\n"
-                    "② 第 1 步结束后看输出末尾统计：Failed 为 0 才继续。不放心可以先只执行"
-                    "第 1 步，打开新位置核对文件都到了。\n"
-                    "③ 完成后回到本工具点【刷新】：「盘上」列应全部是 ✓；再做一次小备份，"
-                    "确认新文件真的落在新位置。\n"
-                    "④ 用几天、确认无误后，把第 2 步改名出来的旧文件夹删掉腾空间"
-                    "（资源管理器删除即可；或在 cmd 里手打 rmdir /S /Q 加上它的完整路径"
-                    "——这条删除命令故意不给复制按钮，大体量的删除多一道手写的闸门）。\n"
-                    "⑤ 第 2 步若报「已存在」：之前搬家留下的旧文件夹还占着这个名字，"
-                    "把命令里的名字换一个再执行。"
+                    t('① 打开 cmd（开始菜单搜「命令提示符」），按第 1→2→3 的顺序执行，顺序不能换；第 2 步到第 3 步之间旧路径会短暂消失，请连着做完。\n② 第 1 步结束后看输出末尾统计：Failed 为 0 才继续。不放心可以先只执行第 1 步，打开新位置核对文件都到了。\n③ 完成后回到本工具点【刷新】：「盘上」列应全部是 ✓；再做一次小备份，确认新文件真的落在新位置。\n④ 用几天、确认无误后，把第 2 步改名出来的旧文件夹删掉腾空间（资源管理器删除即可；或在 cmd 里手打 rmdir /S /Q 加上它的完整路径——这条删除命令故意不给复制按钮，大体量的删除多一道手写的闸门）。\n⑤ 第 2 步若报「已存在」：之前搬家留下的旧文件夹还占着这个名字，把命令里的名字换一个再执行。')
                 )
             else:
                 steps = (
-                    "① 打开终端，按第 1→2→3 的顺序执行，顺序不能换；第 2 步到第 3 步"
-                    "之间旧路径会短暂消失，请连着做完。\n"
-                    "② 第 1 步（cp）报错即失败，无报错才继续。不放心可以先只执行"
-                    "第 1 步，打开新位置核对文件都到了。\n"
-                    "③ 完成后回到本工具点【刷新】：「盘上」列应全部是 ✓；再做一次小备份，"
-                    "确认新文件真的落在新位置。\n"
-                    "④ 用几天、确认无误后，把第 2 步改名出来的旧文件夹删掉腾空间"
-                    "（文件管理器删除即可；或在终端里手打 rm -rf 加上它的完整路径"
-                    "——这条删除命令故意不给复制按钮，大体量的删除多一道手写的闸门）。\n"
-                    "⑤ 第 2 步若报「已存在」：之前搬家留下的旧文件夹还占着这个名字，"
-                    "把命令里的名字换一个再执行。"
+                    t('① 打开终端，按第 1→2→3 的顺序执行，顺序不能换；第 2 步到第 3 步之间旧路径会短暂消失，请连着做完。\n② 第 1 步（cp）报错即失败，无报错才继续。不放心可以先只执行第 1 步，打开新位置核对文件都到了。\n③ 完成后回到本工具点【刷新】：「盘上」列应全部是 ✓；再做一次小备份，确认新文件真的落在新位置。\n④ 用几天、确认无误后，把第 2 步改名出来的旧文件夹删掉腾空间（文件管理器删除即可；或在终端里手打 rm -rf 加上它的完整路径——这条删除命令故意不给复制按钮，大体量的删除多一道手写的闸门）。\n⑤ 第 2 步若报「已存在」：之前搬家留下的旧文件夹还占着这个名字，把命令里的名字换一个再执行。')
                 )
         elif state == "empty_dir":
-            detail = f"旧位置：{old}"
-            link_word = "联接" if os.name == "nt" else "符号链接"
+            detail = (t('旧位置：') + f"{old}")
+            link_word = t('联接') if os.name == "nt" else t('符号链接')
             cmds = [
-                ("第 1 步：移除空目录（rmdir 只删得动空目录，里面有东西会报错，这是保护）",
+                (t('第 1 步：移除空目录（rmdir 只删得动空目录，里面有东西会报错，这是保护）'),
                  f'rmdir "{old}"'),
-                (f"第 2 步：原地建{link_word}指到新位置",
+                ((t('第 2 步：原地建') + f"{link_word}" + t('指到新位置')),
                  _mklink(old, new)),
             ]
             steps = (
-                "旧位置是空目录，没有东西要复制：两步接通即可。\n"
-                "完成后回本工具点【刷新】确认，之后的新备份会直接落在新位置。"
+                t('旧位置是空目录，没有东西要复制：两步接通即可。\n完成后回本工具点【刷新】确认，之后的新备份会直接落在新位置。')
             )
         elif state == "linked":
-            detail = f"旧联接现在指向：{resolved}"
-            copy_hint = ("执行完看末尾 Failed 为 0" if os.name == "nt"
-                         else "cp 无报错")
+            detail = (t('旧联接现在指向：') + f"{resolved}")
+            copy_hint = (t('执行完看末尾 Failed 为 0') if os.name == "nt"
+                         else t('cp 无报错'))
             strip_flag = "/S" if os.name == "nt" else "-r"
-            link_word = "联接" if os.name == "nt" else "符号链接"
+            link_word = t('联接') if os.name == "nt" else t('符号链接')
             cmds = [
-                (f"第 1 步：把现有内容复制到新位置（{copy_hint}）",
+                ((t('第 1 步：把现有内容复制到新位置（') + f"{copy_hint}" + '）'),
                  _copy_cmd(resolved, new)),
-                (f"第 2 步：摘掉旧{link_word}（只摘链接本体；绝对不要加 {strip_flag}）",
+                ((t('第 2 步：摘掉旧') + f"{link_word}" + t('（只摘链接本体；绝对不要加 ') + f"{strip_flag}" + '）'),
                  _rmlink(old)),
-                (f"第 3 步：原地重建{link_word}指到新位置（与第 2 步连着执行）",
+                ((t('第 3 步：原地重建') + f"{link_word}" + t('指到新位置（与第 2 步连着执行）')),
                  _mklink(old, new)),
             ]
             if os.name == "nt":
                 steps = (
-                    f"旧位置已经是一个联接（指向 {resolved}）——上次搬家留下的，"
-                    "本次是「换目标」：\n"
-                    "① 第 1 步把现有内容复制到新位置（Failed 为 0）。\n"
-                    "② 第 2、3 步连着执行，中间不要让本工具做任何备份/恢复操作："
-                    "摘旧联接（rmdir 不带 /S，只摘链接本体、绝不动里面的内容），"
-                    "再原地重建指到新位置。\n"
-                    "③ 回本工具点【刷新】验收；旧实体目录（上面指向的那个）"
-                    "确认无误后自行删除。"
+                    (t('旧位置已经是一个联接（指向 ') + f"{resolved}" + t('）——上次搬家留下的，本次是「换目标」：\n① 第 1 步把现有内容复制到新位置（Failed 为 0）。\n② 第 2、3 步连着执行，中间不要让本工具做任何备份/恢复操作：摘旧联接（rmdir 不带 /S，只摘链接本体、绝不动里面的内容），再原地重建指到新位置。\n③ 回本工具点【刷新】验收；旧实体目录（上面指向的那个）确认无误后自行删除。'))
                 )
             else:
                 steps = (
-                    f"旧位置已经是一个符号链接（指向 {resolved}）——上次搬家留下的，"
-                    "本次是「换目标」：\n"
-                    "① 第 1 步把现有内容复制到新位置（cp 无报错即可）。\n"
-                    "② 第 2、3 步连着执行，中间不要让本工具做任何备份/恢复操作："
-                    "摘旧链接（rm 只摘链接本体、绝不动里面的内容），"
-                    "再原地重建指到新位置。\n"
-                    "③ 回本工具点【刷新】验收；旧实体目录（上面指向的那个）"
-                    "确认无误后自行删除。"
+                    (t('旧位置已经是一个符号链接（指向 ') + f"{resolved}" + t('）——上次搬家留下的，本次是「换目标」：\n① 第 1 步把现有内容复制到新位置（cp 无报错即可）。\n② 第 2、3 步连着执行，中间不要让本工具做任何备份/恢复操作：摘旧链接（rm 只摘链接本体、绝不动里面的内容），再原地重建指到新位置。\n③ 回本工具点【刷新】验收；旧实体目录（上面指向的那个）确认无误后自行删除。'))
                 )
         elif state == "missing":
             steps = (
-                "旧位置当前不存在，没有可搬的东西。\n"
-                "如果备份页「盘上」列有失联记录（记录还指向这里），该用的是"
-                "【重定位备份目录】——指认新位置、只改记录，不需要搬家。"
+                t('旧位置当前不存在，没有可搬的东西。\n如果备份页「盘上」列有失联记录（记录还指向这里），该用的是【重定位备份目录】——指认新位置、只改记录，不需要搬家。')
             )
         elif state == "file":
             steps = (
-                "旧位置被一个普通文件占用（不是目录）。先弄清这个文件是什么、"
-                "处理妥当后再点【检测并生成命令】。本对话框不会动任何东西。"
+                t('旧位置被一个普通文件占用（不是目录）。先弄清这个文件是什么、处理妥当后再点【检测并生成命令】。本对话框不会动任何东西。')
             )
         self._detail_label.setText(detail + extra)
         self._put_commands(cmds)

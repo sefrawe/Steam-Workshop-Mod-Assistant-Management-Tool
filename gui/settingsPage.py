@@ -382,7 +382,7 @@ class SettingsPage(QWidget):
             "采集页等操作面，其余页面仍显示中文。\n"
             "想加新语言：把 i18n_xx.json 翻译文件放进 gui/ 文件夹即可，"
             "下拉框会自动多出这一项"))
-        theme_row.addWidget(QLabel("界面语言 / Language："))
+        theme_row.addWidget(QLabel(t('界面语言 / Language：')))
         theme_row.addWidget(self._lang_combo)
         theme_row.addStretch(1)
         root.addLayout(theme_row)
