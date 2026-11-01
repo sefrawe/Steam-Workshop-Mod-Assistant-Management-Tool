@@ -42,9 +42,11 @@ _KEY_AUTO_SHOW = "console_auto_show"
 
 
 class ConsolePanel(QWidget):
-    """控制台停靠窗的内容；show_requested 在需要弹出时发出。"""
+    """控制台停靠窗的内容；show_requested 在需要弹出时发出，
+    redock_requested 在用户要求把浮动窗停回底部时发出。"""
 
     show_requested = Signal()  # 请 MainWindow 把停靠窗拉回屏幕
+    redock_requested = Signal()  # 请 MainWindow 把浮动窗停回底部
 
     def __init__(self, log_bus: LogBus, parent: QWidget | None = None,
                  settings=None) -> None:
@@ -54,6 +56,26 @@ class ConsolePanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        # ---- 浮动提醒行（默认藏）----
+        # QDockWidget 拖出/双击标题栏会变浮动，且 saveState 连浮动状态
+        # 一起记忆——一次意外拖动就被永久记住（2026-10-31 用户踩坑：
+        # "控制台自己变成独立窗口了"）。给一条明面出口：浮动时亮出
+        # 按钮，点了请 MainWindow 停回底部；停靠时这行不占地方。
+        self._redock_row = QWidget(self)
+        redock_layout = QHBoxLayout(self._redock_row)
+        redock_layout.setContentsMargins(4, 2, 4, 0)
+        redock = QPushButton("⤵ 回主窗停靠", self._redock_row)
+        redock.setToolTip(
+            "控制台现在是独立浮动窗口，点这里停回主窗口底部。\n"
+            "小知识：拖住停靠窗标题栏可拖动，双击标题栏可在"
+            "「停靠 ↔ 浮动」之间切换")
+        redock.setFixedHeight(24)
+        redock.clicked.connect(self.redock_requested.emit)
+        redock_layout.addWidget(redock)
+        redock_layout.addStretch(1)
+        self._redock_row.setVisible(False)  # 停靠状态不占这一行
+        layout.addWidget(self._redock_row)
 
         self._tabs = QTabWidget(self)
         layout.addWidget(self._tabs)
@@ -118,6 +140,12 @@ class ConsolePanel(QWidget):
         """切到「下载批次」标签：开批次时 MainWindow 调用，让用户
         第一眼看到进度卡片（红点逻辑只服务运行日志页，本页不用）。"""
         self._tabs.setCurrentWidget(self._step_list)
+
+    def set_floating(self, floating: bool) -> None:
+        """停靠窗浮/停状态变化（MainWindow 把 QDockWidget.topLevelChanged
+        转发进来）：浮动时亮出「回主窗停靠」按钮行，停靠时收回——
+        给不知道"能拖回去 / 能双击标题栏"的用户一个看得见的出口。"""
+        self._redock_row.setVisible(bool(floating))
 
 
     # ---------------- "有新消息时弹出控制台" ----------------
