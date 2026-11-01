@@ -349,7 +349,7 @@ class BackupOverviewPage(QWidget):
         bdir = (g.backup_dir or "").strip() if g else ""
         if not bdir:
             return "—"
-        return "✓" if (Path(bdir) / r.backup_path).is_dir() else t('失联')
+        return "✓" if (Path(bdir) / r.backup_path).is_dir() else '失联'
 
     def _fill_table(self) -> None:
         """重建表格。时序纪律与备份页相同：先关排序 → 灌数据 → 再开。"""
@@ -422,7 +422,7 @@ class BackupOverviewPage(QWidget):
             _SortItem(abs_time(r.version_timeupdated), r.version_timeupdated or 0))
         self._table.setItem(
             row, COL_SIZE, _SortItem(fmt_size(r.size_bytes), r.size_bytes or 0))
-        disk_item = _SortItem(d, _DISK_RANK.get(d, 2))
+        disk_item = _SortItem(t(d), _DISK_RANK.get(d, 2))
         if d == "失联":
             disk_item.setForeground(QBrush(QColor(_C_FAIL)))
         elif d == "✓":

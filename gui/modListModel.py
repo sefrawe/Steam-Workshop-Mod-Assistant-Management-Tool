@@ -362,14 +362,14 @@ class ModListModel(QStandardItemModel):
         unknown 按状态落「版本未知/未下载」；有确认版本后先看有没
         有远端观测（无 = 远端未知），有则按码给需更新/最新。"""
         if m.status == "deleted":
-            return t('已删除')
+            return '已删除'
         code = update_status_code(m)
         if code == "unknown":
-            return t('版本未知') if m.status == STATUS_DOWNLOADED else t('未下载')
+            return '版本未知' if m.status == STATUS_DOWNLOADED else '未下载'
         rt = getattr(m, "time_updated", None)
         if rt is None:
-            return t('远端未知')
-        return t('需更新') if code == "need_update" else t('最新')
+            return '远端未知'
+        return '需更新' if code == "need_update" else '最新'
 
 
     def _mk_update_item(self, mod, bg: QBrush | None) -> QStandardItem:

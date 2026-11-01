@@ -432,13 +432,13 @@ class UpdateCheckPage(QWidget):
         downloaded 且确认基准为空 = 版本未知；downloaded 且远端更新 >
         确认基准 = 需更新；其余（已最新 / 未下载 / 远端未知）不进表。"""
         if m.status != "downloaded":
-            return t('未下载')
+            return '未下载'
         if m.confirmed_version is None:
-            return t('版本未知')
+            return '版本未知'
         if (m.time_updated is not None
                 and m.time_updated > m.confirmed_version):
-            return t('需更新')
-        return t('已最新')
+            return '需更新'
+        return '已最新'
     def _apply_results(self, ok_items: list[WorkshopItem],
                        suspected_ids: set[int],
                        failed: dict[int, int]) -> tuple[int, dict, int]:
@@ -592,9 +592,9 @@ class UpdateCheckPage(QWidget):
             title = (fresh.title if fresh is not None else None) \
                     or m.title or t('（无标题）')
             if m.mod_id in failed:
-                kind = t('查询失败')
+                kind = '查询失败'
             elif m.mod_id in suspected_ids:
-                kind = t('疑似合集/异常')
+                kind = '疑似合集/异常'
             else:
                 kind = self._kind_of(fresh)
             if kind in ("需更新", "版本未知", "查询失败", "疑似合集/异常"):
@@ -625,7 +625,7 @@ class UpdateCheckPage(QWidget):
             self._set_cell(r, 1, title)
             counts["需更新"] += kind == "需更新"
             counts["版本未知"] += kind == "版本未知"
-            self._set_cell(r, 2, kind)
+            self._set_cell(r, 2, t(kind))
             if m.mod_id in failed:
                 code = failed[m.mod_id]
                 if code == 9:

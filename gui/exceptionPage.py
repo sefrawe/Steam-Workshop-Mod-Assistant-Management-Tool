@@ -71,7 +71,9 @@ _C_MUTED = "#8a8a8f"   # 说明文字/未检测
 # "待下载·未下载过" = 账本记「待下载」（从未下载过）而远端已确认失效
 # （V1 分类名"已收录·未下载"按 D30 改词）；
 # "已清账" = 彻底清账后的历史归档：默认视图不显示、状态筛可查
-_CAT_ORDER = (t('归档失效'), t('待下载·未下载过'), t('已替换'), t('已删除'), t('已清账'))
+_CAT_ORDER = ('归档失效', '待下载·未下载过', '已替换', '已删除', '已清账')
+_B4_FILTER_KEYS = ('全部',) + _CAT_ORDER
+_B4_SORT_KEYS = ('编号', '标题', '分类')
 _CAT_COLORS = {
     "归档失效": _C_FAIL,
     "待下载·未下载过": _C_WARN,
@@ -186,8 +188,8 @@ class ExceptionPage(QWidget):
         # 桶④管理台状态（页面级：卡片重建不重置，"筛着修、修完复检"
         # 的节奏不断——V1 口径）
         self._b4_rows: list[dict] = []
-        self._b4_filter = t('全部')
-        self._b4_sort = t('编号')
+        self._b4_filter = '全部'
+        self._b4_sort = '编号'
         self._b4_group = False
         self._b4_table: QTableWidget | None = None
         self._b4_combo_sort: QComboBox | None = None
@@ -745,18 +747,18 @@ class ExceptionPage(QWidget):
                 st = m.status if m is not None else None
                 replaced = rec.replaced_by if rec else None
                 if st == "deleted":
-                    cat, can_repl, can_del = t('已删除'), False, False
+                    cat, can_repl, can_del = '已删除', False, False
                 elif replaced:
-                    cat, can_repl, can_del = t('已替换'), False, False
+                    cat, can_repl, can_del = '已替换', False, False
                 elif st == "tracked":
-                    cat, can_repl, can_del = t('待下载·未下载过'), False, True
+                    cat, can_repl, can_del = '待下载·未下载过', False, True
                 elif m is None:
                     # 账本条目已不存在（彻底清账后 mods 行物理删除，
                     # failed_mods 证据行按决策刻意存活）——终结历史，
                     # 不再给任何处置入口
-                    cat, can_repl, can_del = t('已清账'), False, False
+                    cat, can_repl, can_del = '已清账', False, False
                 else:
-                    cat = t('归档失效')
+                    cat = '归档失效'
                     can_repl, can_del = rec is not None, True
                 if st == "deleted":
                     note = t('已软删除——恢复到【mod 库】页右键「恢复」')
@@ -980,8 +982,10 @@ class ExceptionPage(QWidget):
         lbl_f.setStyleSheet("color: gray;")
         bh.addWidget(lbl_f)
         combo_filter = QComboBox(bar)
-        combo_filter.addItems([t('全部'), *_CAT_ORDER])
-        combo_filter.setCurrentText(self._b4_filter)
+        for _k in _B4_FILTER_KEYS:
+            combo_filter.addItem(t(_k), _k)
+        combo_filter.setCurrentIndex(_B4_FILTER_KEYS.index(self._b4_filter))
+        self._b4_combo_filter = combo_filter
         combo_filter.setToolTip(
             t("只显示所选分类的失效条目。「待下载·未下载过」= 从未下载过"
             "就失效的条目（无可转移的整理内容，直接软删除即可）；"
@@ -1003,8 +1007,9 @@ class ExceptionPage(QWidget):
         lbl_s.setStyleSheet("color: gray;")
         bh.addWidget(lbl_s)
         self._b4_combo_sort = QComboBox(bar)
-        self._b4_combo_sort.addItems([t('编号'), t('标题'), t('分类')])
-        self._b4_combo_sort.setCurrentText(self._b4_sort)
+        for _k in _B4_SORT_KEYS:
+            self._b4_combo_sort.addItem(t(_k), _k)
+        self._b4_combo_sort.setCurrentIndex(_B4_SORT_KEYS.index(self._b4_sort))
         self._b4_combo_sort.setEnabled(not self._b4_group)
         self._b4_combo_sort.setToolTip(
             t("平铺视图下生效；分组视图下组内固定按编号排列。"))
@@ -1065,7 +1070,7 @@ class ExceptionPage(QWidget):
         self._rebuild_b4_table()
 
     def _on_b4_filter(self, text: str) -> None:
-        self._b4_filter = text
+        self._b4_filter = self._b4_combo_filter.currentData()
         self._rebuild_b4_table()
 
     def _on_b4_view(self, index: int) -> None:
@@ -1075,7 +1080,7 @@ class ExceptionPage(QWidget):
         self._rebuild_b4_table()
 
     def _on_b4_sort(self, text: str) -> None:
-        self._b4_sort = text
+        self._b4_sort = self._b4_combo_sort.currentData()
         self._rebuild_b4_table()
 
     def _rebuild_b4_table(self) -> None:
@@ -1111,7 +1116,7 @@ class ExceptionPage(QWidget):
                 subset = [r for r in rows if r["cat"] == cat]
                 if not subset:
                     continue
-                self._append_b4_group_header(tbl, f"{cat}" + f'（' + f"{len(subset)}" + t(' 条）'))
+                self._append_b4_group_header(tbl, t(cat) + f'（' + f"{len(subset)}" + t(' 条）'))
                 for r in subset:
                     self._append_b4_row(tbl, r)
         else:
@@ -1152,7 +1157,7 @@ class ExceptionPage(QWidget):
         mi = QTableWidgetItem(str(r["mid"]))
         mi.setData(Qt.ItemDataRole.UserRole, r["mid"])
         tbl.setItem(row, 3, mi)
-        ci = QTableWidgetItem(r["cat"])
+        ci = QTableWidgetItem(t(r["cat"]))
         ci.setForeground(QBrush(QColor(
             _CAT_COLORS.get(r["cat"], _C_MUTED))))
         tbl.setItem(row, 4, ci)

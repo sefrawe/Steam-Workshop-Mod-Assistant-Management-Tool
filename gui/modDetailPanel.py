@@ -41,7 +41,8 @@ from PySide6.QtWidgets import (
 from core import netGate
 from core.bbcodeParser import blocks_to_html, parse_description, text_segments
 from core.constants import (CONFIRMED_SOURCE_ZH, NET_GATE_TRANSLATE,
-                            STATUS_DELETED, STATUS_DOWNLOADED, VERDICT_KIND_ZH)
+                            STATUS_DELETED, STATUS_DOWNLOADED,
+                            STATUS_ZH, VERDICT_KIND_ZH)
 from core.formatters import abs_time, fmt_size, relative_time, status_zh
 from core.urlParser import workshop_url
 from core.i18n import current_lang, t
@@ -440,7 +441,7 @@ class ModDetailPanel(QWidget):
         if cv:
             word = CONFIRMED_SOURCE_ZH.get(source, source) or "—"
             v["confirmed"].setText(
-                f"{relative_time(cv)}（{abs_time(cv)}）· {word}")
+                f"{relative_time(cv)}（{abs_time(cv)}）· {t(word)}")
         else:
             v["confirmed"].setText(t("未知"))
         if cv is None:
@@ -802,7 +803,7 @@ class ModDetailPanel(QWidget):
                 title = (m.title if m is not None and m.title else str(d))
                 if m is not None:
                     word = status_zh(m.status)
-                    color = self._mini_status_color(word)
+                    color = self._mini_status_color(m.status)
                 else:
                     word, color = "—", "#8a8a8f"
                 row = QLabel(
@@ -836,8 +837,11 @@ class ModDetailPanel(QWidget):
     # ---- 依赖速览（详情页的详情页）：单击行就地看，不跳页 ----
 
     @staticmethod
-    def _mini_status_color(word: str) -> str:
-        """速览状态词的配色（与 _build_dep_rows 五色同拍）。"""
+    def _mini_status_color(status: str) -> str:
+        """速览状态词的配色（与 _build_dep_rows 五色同拍）。
+        入参 = 库内状态码；先经 STATUS_ZH 映射成原词再判定，
+        不能拿 status_zh 的译文来比（英文模式会失配）。"""
+        word = STATUS_ZH.get(status, status)
         if word in ("已下载", "远端在架"):
             return "#46a758" if word == "已下载" else "#5aa9ff"
         if word == "已删除":
@@ -890,13 +894,13 @@ class ModDetailPanel(QWidget):
             word = status_zh(m.status)
             v["status"].setText(word)
             v["status"].setStyleSheet(
-                f"color: {self._mini_status_color(word)}; font-weight: 600;")
+                f"color: {self._mini_status_color(m.status)}; font-weight: 600;")
             cv = getattr(m, "confirmed_version", None)
             if cv:
                 src = getattr(m, "confirmed_source", "") or ""
                 w2 = CONFIRMED_SOURCE_ZH.get(src, src) or "—"
                 v["local"].setText(
-                    f"{relative_time(cv)}（{abs_time(cv)}）· {w2}")
+                    f"{relative_time(cv)}（{abs_time(cv)}）· {t(w2)}")
             else:
                 v["local"].setText(t("未知"))
             rt = getattr(m, "time_updated", None)
@@ -1332,7 +1336,7 @@ class ModDetailPanel(QWidget):
             when = getattr(vrow, "occurred_at", None)
             vw = getattr(vrow, "version_written", None)
             note = str(getattr(vrow, "note", "") or "")
-            line = f"{abs_time(when)} {kind}"
+            line = f"{abs_time(when)} {t(kind)}"
             if vw:
                 line += (t(' 版本 ') + f"{abs_time(vw)}")
             if note:

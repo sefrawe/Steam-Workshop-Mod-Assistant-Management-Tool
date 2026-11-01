@@ -3414,5 +3414,6 @@
   "起点标签是空白页/首页，没有网址指纹——绕回判定改按「本轮已见过的真网址再次出现」识别，空白页一律跳过，不影响采集": "The starting tab is a blank page/home page with no URL fingerprint — wrap detection now uses \"a real URL already seen this round appears again\"; blank pages are always skipped and collection is unaffected",
   " 个标签没采到新网址——提前收工（防死绕圈保险丝；已采到的照常在清单里）": " tabs with no new URL — finishing early (anti-loop fuse; whatever was collected stays in the list)",
   "连续 ": "Consecutive ",
-  "__batch19__": "core/gui 零散文案"
+  "__batch19__": "core/gui 零散文案",
+  "下载成功": "Download succeeded"
 }

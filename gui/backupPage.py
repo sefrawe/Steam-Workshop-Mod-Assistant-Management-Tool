@@ -875,7 +875,7 @@ class BackupPage(QWidget):
             elif (bdir / b.backup_path).is_dir():
                 disk_map[b.id] = "✓"
             else:
-                disk_map[b.id] = t('失联')
+                disk_map[b.id] = '失联'
                 lost += 1
 
         if self._view_mode == "flat":
@@ -970,7 +970,7 @@ class BackupPage(QWidget):
         self._table.setItem(
             r, COL_SIZE, _SortItem(fmt_size(b.size_bytes), b.size_bytes or 0))
 
-        disk_item = _SortItem(on_disk, _DISK_RANK.get(on_disk, 2))
+        disk_item = _SortItem(t(on_disk), _DISK_RANK.get(on_disk, 2))
         if on_disk == "失联":
             disk_item.setForeground(QBrush(QColor(_C_FAIL)))
         elif on_disk == "✓":

@@ -1559,18 +1559,21 @@ class ModListPage(QWidget):
             QMessageBox.information(
                 self, t("批量编辑备注"), t("先在表格第一列勾选要编辑的 mod。"))
             return
-        mode, ok = QInputDialog.getItem(
+        _modes = ('在开头插入…', '在结尾插入…', '替换为…', '清空备注')
+        _labels = [t(m) for m in _modes]
+        picked, ok = QInputDialog.getItem(
             self, t("批量编辑备注"),
             t('对勾选的 ') + f"{len(ids)}" + t(' 个 mod 的备注执行：'),
-            (t('在开头插入…'), t('在结尾插入…'), t('替换为…'), t('清空备注')),
-            current=0, editable=False)
+            _labels, current=0, editable=False)
         if not ok:
             return
+        # 列表是译文，按序号映射回原词做判定（dict 键与比较都用原词）
+        mode = _modes[_labels.index(picked)]
         text = ""
         if mode != "清空备注":
             text, ok = QInputDialog.getMultiLineText(
                 self, t("批量编辑备注"),
-                f"{mode.rstrip('…')}" + t('（确定后对 ') + f"{len(ids)}" + t(' 个 mod 生效）：'),
+                f"{t(mode.rstrip('…'))}" + t('（确定后对 ') + f"{len(ids)}" + t(' 个 mod 生效）：'),
                 "")
             if not ok:
                 return
