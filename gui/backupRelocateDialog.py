@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import backupRelocate, steamPaths
+from core.i18n import t
 from core.models import Game
 from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
@@ -76,44 +77,45 @@ class BackupRelocateDialog(QDialog):
 
     # ---------- UI ----------
     def _build_ui(self) -> None:
-        self.setWindowTitle("备份目录重定位")
+        self.setWindowTitle(t("备份目录重定位"))
         v = QVBoxLayout(self)
 
-        title = QLabel("重定位备份目录", self)
+        title = QLabel(t("重定位备份目录"), self)
         title.setStyleSheet(f"font-size: {font_px(16)}px; font-weight: 600;")
         v.addWidget(title)
 
-        cur_text = self._current if self._current else "（未设置）"
+        cur_text = self._current if self._current else t("（未设置）")
         if self._current:
-            state = "盘上存在" if Path(self._current).is_dir() \
-                else "盘上不存在"
+            state = t("盘上存在") if Path(self._current).is_dir() \
+                else t("盘上不存在")
             cur_text += f"（{state}）"
         head = QLabel(
-            f"档案「{self._game.name}」当前备份目录：\n{cur_text}\n"
-            f"该档案现有 {len(self._rels)} 份备份记录。"
-            "重定位只改这个指针，不动任何备份文件、不改任何记录。",
+            t("档案「") + f"{self._game.name}" + t("」当前备份目录：")
+            + f"\n{cur_text}\n"
+            + t("该档案现有 ") + f"{len(self._rels)}" + t(" 份备份记录。")
+            + t("重定位只改这个指针，不动任何备份文件、不改任何记录。"),
             self)
         head.setWordWrap(True)  # 踩坑 ⑨
         v.addWidget(head)
 
-        v.addWidget(QLabel("备份文件夹现在的位置：", self))
+        v.addWidget(QLabel(t("备份文件夹现在的位置："), self))
         row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
         self._edit = QLineEdit(row)
         self._edit.textChanged.connect(self._update_preview)
-        browse = QPushButton("浏览…", row)
+        browse = QPushButton(t("浏览…"), row)
         # T15 批 3：补 tooltip（决策 22①）
-        browse.setToolTip("打开系统目录选择窗口，选中备份文件夹现在所在的位置")
+        browse.setToolTip(t("打开系统目录选择窗口，选中备份文件夹现在所在的位置"))
         browse.clicked.connect(self._browse)
         h.addWidget(self._edit, 1)
         h.addWidget(browse)
         v.addWidget(row)
 
         hint = QLabel(
-            "预填的是按当前 steamcmd 位置推导的默认备份位置"
-            "（steamcmd 挪走、备份跟着搬的情形直接命中）；"
-            "备份文件夹搬去了别处，就把它现在真正在的路径填进来。",
+            t("预填的是按当前 steamcmd 位置推导的默认备份位置"
+              "（steamcmd 挪走、备份跟着搬的情形直接命中）；"
+              "备份文件夹搬去了别处，就把它现在真正在的路径填进来。"),
             self)
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
@@ -127,14 +129,14 @@ class BackupRelocateDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel, self)
         self._ok_btn = bb.button(QDialogButtonBox.StandardButton.Ok)
-        self._ok_btn.setText("确认重定位")
+        self._ok_btn.setText(t("确认重定位"))
         # T15 批 3：补 tooltip（决策 22①）
         self._ok_btn.setToolTip(
-            "把档案记录的备份目录改为上面填的位置（只改记录，不动文件）；"
-            "预演对不上时不可确认")
+            t("把档案记录的备份目录改为上面填的位置（只改记录，不动文件）；"
+              "预演对不上时不可确认"))
         self._ok_btn.setEnabled(False)
         bb.setCenterButtons(True)
-        bb.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText(t("取消"))
         bb.accepted.connect(self._confirm)
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
@@ -150,7 +152,7 @@ class BackupRelocateDialog(QDialog):
     def _browse(self) -> None:
         start = self._edit.text().strip() or self._current
         d = QFileDialog.getExistingDirectory(
-            self, "选择备份文件夹现在的位置", start)
+            self, t("选择备份文件夹现在的位置"), start)
         if d:
             self._edit.setText(str(d))
 
@@ -164,42 +166,43 @@ class BackupRelocateDialog(QDialog):
         color = _C_MUTED
         ok = False
         if not self._rels:
-            lines.append("该档案没有备份记录，无需重定位。")
+            lines.append(t("该档案没有备份记录，无需重定位。"))
         elif not rep.root_exists:
             color = _C_FAIL
-            lines.append("候选目录在盘上不存在（或为空）——无法预演。")
+            lines.append(t("候选目录在盘上不存在（或为空）——无法预演。"))
         elif _norm(rep.candidate_root) == _norm(self._current):
-            lines.append("与档案当前备份目录相同——无需重定位。")
+            lines.append(t("与档案当前备份目录相同——无需重定位。"))
         elif rep.non_relative_count == rep.total:
             # 全是绝对路径行：重定位既救不了也影响不了，不放开确认
             color = _C_WARN
-            lines.append("该档案的备份记录存的都是绝对路径（旧版遗留），"
-                         "重定位帮不上——请人工核对。")
+            lines.append(t("该档案的备份记录存的都是绝对路径（旧版遗留），"
+                           "重定位帮不上——请人工核对。"))
         else:
-            hit_line = (f"可对回 {rep.hit} / {rep.relocatable}"
-                        " 份备份记录。")
+            hit_line = (t("可对回 ") + f"{rep.hit} / {rep.relocatable}"
+                        + t(" 份备份记录。"))
             if rep.all_hit:
                 color = _C_OK
-                lines.append("✓ " + hit_line + "全部记录都能在这个位置找到。")
+                lines.append("✓ " + hit_line + t("全部记录都能在这个位置找到。"))
                 ok = True
             elif rep.any_hit:
                 color = _C_WARN
-                lines.append("△ " + hit_line + "部分对不上，例如：")
+                lines.append("△ " + hit_line + t("部分对不上，例如："))
                 for s in rep.missed_samples:
-                    lines.append(f"   找不到：{s}")
+                    lines.append(t("   找不到：") + f"{s}")
                 if rep.missed > len(rep.missed_samples):
                     lines.append(
-                        f"   ……以及另外 {rep.missed - len(rep.missed_samples)} 条")
-                lines.append("部分命中 = 位置像新家但不完整。确认前想清楚："
-                             "指认错了会让记录离真相更远。")
+                        t("   ……以及另外 ")
+                        + f"{rep.missed - len(rep.missed_samples)}" + t(" 条"))
+                lines.append(t("部分命中 = 位置像新家但不完整。确认前想清楚："
+                               "指认错了会让记录离真相更远。"))
                 ok = True
             else:
                 color = _C_FAIL
-                lines.append("✗ 一条都对不上——请重新指认"
-                             "（0 命中时不能确认）。")
+                lines.append(t("✗ 一条都对不上——请重新指认"
+                               "（0 命中时不能确认）。"))
         if 0 < rep.non_relative_count < rep.total:
-            lines.append(f"另有 {rep.non_relative_count} 条记录存的是"
-                         "绝对路径，不受重定位影响。")
+            lines.append(t("另有 ") + f"{rep.non_relative_count}"
+                         + t(" 条记录存的是绝对路径，不受重定位影响。"))
         self._preview.setText("\n".join(lines))
         self._preview.setStyleSheet(f"color: {color};")
         self._ok_enabled = ok
@@ -211,13 +214,13 @@ class BackupRelocateDialog(QDialog):
         if rep is None or not self._ok_enabled:
             return  # 双保险：按钮禁用时本就走不到这里
         ret = QMessageBox.question(
-            self, "确认重定位",
-            f"把档案「{self._game.name}」的备份目录改为：\n"
-            f"{rep.candidate_root}\n\n"
-            f"预演结果：可对回 {rep.hit} / {rep.relocatable}"
-            " 份备份记录。\n\n"
-            "只修改档案的备份目录一个字段，不动任何备份文件；\n"
-            "确认后备份页的「盘上」列会按新位置重新核对。",
+            self, t("确认重定位"),
+            t("把档案「") + f"{self._game.name}" + t("」的备份目录改为：") + "\n"
+            + f"{rep.candidate_root}" + "\n\n"
+            + t("预演结果：可对回 ") + f"{rep.hit} / {rep.relocatable}"
+            + t(" 份备份记录。") + "\n\n"
+            + t("只修改档案的备份目录一个字段，不动任何备份文件；") + "\n"
+            + t("确认后备份页的「盘上」列会按新位置重新核对。"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             # T15 批 3：默认"否"——回车不会误触发（决策 69⒋ 口径）
             QMessageBox.StandardButton.No)
@@ -226,11 +229,12 @@ class BackupRelocateDialog(QDialog):
         self._repo.update_game(self._game.app_id,
                                backup_dir=rep.candidate_root)
         self._log.ok(
-            f"备份目录已重定位（{self._game.name}）→ "
-            f"{rep.candidate_root}"
-            f"（对回 {rep.hit}/{rep.relocatable} 份记录）")
+            t("备份目录已重定位（") + f"{self._game.name}" + t("）→ ")
+            + f"{rep.candidate_root}"
+            + t("（对回 ") + f"{rep.hit}/{rep.relocatable}" + t(" 份记录）"))
         QMessageBox.information(
-            self, "重定位完成",
-            f"备份目录已更新为：\n{rep.candidate_root}\n\n"
-            f"对回 {rep.hit} / {rep.relocatable} 份备份记录。")
+            self, t("重定位完成"),
+            t("备份目录已更新为：") + f"\n{rep.candidate_root}\n\n"
+            + t("对回 ") + f"{rep.hit} / {rep.relocatable}"
+            + t(" 份备份记录。"))
         self.accept()

@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.backupManager import safe_rmtree
+from core.i18n import t
 from core.modRepository import ModRepository
 from core.formatters import fmt_size
 
@@ -56,10 +57,10 @@ class _DeleteWorker(QThread):
                         "dirs_failed": [], "summary": None}
         try:
             if self._db_backup is not None:
-                self.step.emit("正在生成数据库快照（兜底）…")
+                self.step.emit(t("正在生成数据库快照（兜底）…"))
                 # 快照失败在此抛出：账没动、盘没动，是最安全的失败点
                 report["db_backup"] = self._db_backup()
-            self.step.emit("正在清除账本（一个事务）…")
+            self.step.emit(t("正在清除账本（一个事务）…"))
             report["summary"] = self._repo.delete_game_deep(self._app_id)
             total = len(self._dirs)
             for i, full in enumerate(self._dirs, 1):
@@ -104,7 +105,7 @@ class GameDeleteDialog(QDialog):
         if game is None:
             # 正常流程到不了这里（切换器只对现存档案开门）；
             # 与 backupManager 同一口径：调用方传错按 bug 处理，直接炸
-            raise ValueError(f"游戏档案 {app_id} 不存在")
+            raise ValueError(t("游戏档案 ") + f"{app_id}" + t(" 不存在"))
         self._summary = repo.game_deletion_summary(app_id)
 
         stored = (game.backup_dir or "").strip()
@@ -113,27 +114,31 @@ class GameDeleteDialog(QDialog):
         self._dirs = [self._bdir / p for p in self._summary.backup_paths
                       if self._bdir is not None and (self._bdir / p).is_dir()]
 
-        self.setWindowTitle(f"删除游戏档案 — {game.name}（{app_id}）")
+        self.setWindowTitle(t("删除游戏档案 — ")
+                            + f"{game.name}（{app_id}）")
         self.setMinimumWidth(620)
 
-        head = QLabel(f"将永久删除档案「{game.name}（{app_id}）」名下的全部账目：")
+        head = QLabel(t("将永久删除档案「")
+                      + f"{game.name}（{app_id}）"
+                      + t("」名下的全部账目："))
         head.setStyleSheet("font-weight: 600;")
         detail = QLabel(
-            f"• mod 记录 {self._summary.mod_total} 条"
-            f"（其中已软删除 {self._summary.mod_deleted} 条将一并物理清除）\n"
-            f"• 失效归档 {self._summary.failed_count} 条\n"
-            f"• 备份登记 {self._summary.backup_count} 条，"
-            f"登记合计约 {fmt_size(self._summary.backup_bytes)}\n"
-            "• 该档案的版本快照与特殊提醒\n"
-            "操作日志（全局历史）保留不动；\n"
-            "content 下载目录、游戏本体 mod 目录、目录联接——一律不碰。")
+            t("• mod 记录 ") + f"{self._summary.mod_total}" + t(" 条")
+            + t("（其中已软删除 ") + f"{self._summary.mod_deleted}"
+            + t(" 条将一并物理清除）") + "\n"
+            + t("• 失效归档 ") + f"{self._summary.failed_count}" + t(" 条") + "\n"
+            + t("• 备份登记 ") + f"{self._summary.backup_count}" + t(" 条，")
+            + t("登记合计约 ") + f"{fmt_size(self._summary.backup_bytes)}" + "\n"
+            + t("• 该档案的版本快照与特殊提醒") + "\n"
+            + t("操作日志（全局历史）保留不动；") + "\n"
+            + t("content 下载目录、游戏本体 mod 目录、目录联接——一律不碰。"))
         detail.setWordWrap(True)
 
         if self._db_backup is not None:
-            db_line = "① 清账前会自动生成一次数据库快照兜底（完成后显示位置）。"
+            db_line = t("① 清账前会自动生成一次数据库快照兜底（完成后显示位置）。")
         else:
-            db_line = ("① 未配置数据库快照入口——将跳过兜底备份"
-                       "（删账后无法整库回退，请再想一下）。")
+            db_line = t("① 未配置数据库快照入口——将跳过兜底备份"
+                        "（删账后无法整库回退，请再想一下）。")
         lbl_db = QLabel(db_line)
         lbl_db.setWordWrap(True)
 
@@ -142,22 +147,22 @@ class GameDeleteDialog(QDialog):
         if self._dirs:
             if len(self._dirs) < self._summary.backup_count:
                 notes.append(
-                    f"盘上只找到 {len(self._dirs)}/{self._summary.backup_count} "
-                    "个备份目录（其余多半已被手动删除）。")
-            notes.append("不勾选：磁盘文件原样保留，成为没有登记的普通文件夹，"
-                         "随时可手动删除。")
+                    t("盘上只找到 ") + f"{len(self._dirs)}/{self._summary.backup_count} "
+                    + t("个备份目录（其余多半已被手动删除）。"))
+            notes.append(t("不勾选：磁盘文件原样保留，成为没有登记的普通文件夹，"
+                           "随时可手动删除。"))
         elif self._summary.backup_count > 0:
-            notes.append("备份目录在盘上无法定位（档案未设备份目录或已不在）——"
-                         "账删后文件留在原地，不再被本工具跟踪。")
+            notes.append(t("备份目录在盘上无法定位（档案未设备份目录或已不在）——"
+                           "账删后文件留在原地，不再被本工具跟踪。"))
         self._check: QCheckBox | None = None
         if self._dirs:
             self._check = QCheckBox(
-                f"同时删除磁盘上的备份目录"
-                f"（盘上找到 {len(self._dirs)} 个，"
-                f"登记合计约 {fmt_size(self._summary.backup_bytes)}）")
+                t("同时删除磁盘上的备份目录")
+                + t("（盘上找到 ") + f"{len(self._dirs)}" + t(" 个，")
+                + t("登记合计约 ") + f"{fmt_size(self._summary.backup_bytes)}" + t("）"))
             self._check.setChecked(False)  # 默认保留文件（拍板 1）
 
-        self._btn_overview = QPushButton("先去备份总览看看（关闭本窗口，稍后再来删）")
+        self._btn_overview = QPushButton(t("先去备份总览看看（关闭本窗口，稍后再来删）"))
         self._btn_overview.clicked.connect(self._goto_overview)
 
         self._bar = QProgressBar(self)
@@ -169,9 +174,9 @@ class GameDeleteDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
         self._ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
-        self._ok.setText("确认删除")
+        self._ok.setText(t("确认删除"))
         cancel = self._buttons.button(QDialogButtonBox.StandardButton.Cancel)
-        cancel.setText("取消")
+        cancel.setText(t("取消"))
         cancel.setDefault(True)   # 默认焦点落在"取消"：误触回车不会开删
         cancel.setFocus()
         self._buttons.accepted.connect(self._on_ok)
@@ -228,27 +233,31 @@ class GameDeleteDialog(QDialog):
 
     def _on_dir_done(self, i: int, n: int, path: str, ok: bool, err: str) -> None:
         self._bar.setValue(i)
-        tail = "" if ok else f" —— 失败：{err}"
-        self._lbl_progress.setText(f"删除备份目录 {i}/{n}：{path}{tail}")
+        tail = "" if ok else t(" —— 失败：") + f"{err}"
+        self._lbl_progress.setText(t("删除备份目录 ") + f"{i}/{n}：" + f"{path}{tail}")
 
     def _on_done(self, report: dict) -> None:
         self.deleted = True
         self.report = report
         self._bar.setVisible(False)
-        lines = ["删除完成。",
-                 "数据库快照：" + (report["db_backup"] or "未生成")]
+        lines = [t("删除完成。"),
+                 t("数据库快照：") + (report["db_backup"] or t("未生成"))]
         s = report.get("summary")
         if s is not None:
             lines.append(
-                f"账本已清空：mod {s.mod_total} 条（含软删除 {s.mod_deleted} 条）、"
-                f"备份登记 {s.backup_count} 条、失效归档 {s.failed_count} 条。")
+                t("账本已清空：mod ") + f"{s.mod_total}" + t(" 条（含软删除 ")
+                + f"{s.mod_deleted}" + t(" 条）、") + t("备份登记 ")
+                + f"{s.backup_count}" + t(" 条、失效归档 ")
+                + f"{s.failed_count}" + t(" 条。"))
         if report["dirs_deleted"] or report["dirs_failed"]:
-            lines.append(f"磁盘备份目录：删除 {len(report['dirs_deleted'])} 个、"
-                         f"失败 {len(report['dirs_failed'])} 个。")
+            lines.append(t("磁盘备份目录：删除 ")
+                         + f"{len(report['dirs_deleted'])}" + t(" 个、")
+                         + t("失败 ")
+                         + f"{len(report['dirs_failed'])}" + t(" 个。"))
             for p, err in report["dirs_failed"]:
-                lines.append(f"  未删掉（文件被占用等，稍后手动删即可）：{p}")
+                lines.append(t("  未删掉（文件被占用等，稍后手动删即可）：") + f"{p}")
         self._lbl_progress.setText("\n".join(lines))
-        self._ok.setText("关闭")
+        self._ok.setText(t("关闭"))
         self._set_running(False)
 
     def _on_crashed(self, message: str) -> None:
@@ -256,10 +265,10 @@ class GameDeleteDialog(QDialog):
         self._set_running(False)
         self._ok.setEnabled(False)  # 中断后不许原地再删一遍：回档案列表核实
         QMessageBox.critical(
-            self, "删除档案",
-            f"执行中断：{message}\n\n"
-            "若中断发生在清账之后，档案可能已删除——关闭后到档案列表确认；"
-            "磁盘上可能留下未删的备份目录（总览页看得见）。")
+            self, t("删除档案"),
+            t("执行中断：") + f"{message}" + "\n\n"
+            + t("若中断发生在清账之后，档案可能已删除——关闭后到档案列表确认；"
+                "磁盘上可能留下未删的备份目录（总览页看得见）。"))
 
     def _on_thread_finished(self) -> None:
         w = self._worker
@@ -281,15 +290,15 @@ class GameDeleteDialog(QDialog):
 
     def reject(self) -> None:
         if self._running:
-            QMessageBox.information(self, "请稍候",
-                                    "删除正在进行——没有安全的停止点，等它结束。")
+            QMessageBox.information(self, t("请稍候"),
+                                    t("删除正在进行——没有安全的停止点，等它结束。"))
             return
         super().reject()
 
     def closeEvent(self, event) -> None:
         if self._running:
             event.ignore()
-            QMessageBox.information(self, "请稍候",
-                                    "删除正在进行——没有安全的停止点，等它结束。")
+            QMessageBox.information(self, t("请稍候"),
+                                    t("删除正在进行——没有安全的停止点，等它结束。"))
             return
         super().closeEvent(event)

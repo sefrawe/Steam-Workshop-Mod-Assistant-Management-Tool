@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QPushButton, QVBoxLayout,
 )
 from core import netGate
+from core.i18n import t
 from core.modRepository import ModRepository
 from core.steamApiClient import SteamApiClient
 
@@ -91,7 +92,7 @@ class GameAddDialog(QDialog):
         self._app_free = False  # 最近一次查重的结论：该 AppID 无档案
         self.created_app_id: int | None = None  # 落账成功时记录
 
-        self.setWindowTitle("添加游戏档案")
+        self.setWindowTitle(t("添加游戏档案"))
         self.setMinimumWidth(560)
 
         # 按钮组先建：底部布局和"创建"键的引用都要用它
@@ -99,29 +100,29 @@ class GameAddDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
         self._buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
-            "创建档案")
+            t("创建档案"))
         self._buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(
-            "取消")
+            t("取消"))
         self._buttons.accepted.connect(self._accept_create)
         self._buttons.rejected.connect(self.reject)
         self._ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
 
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("AppID："))
+        row1.addWidget(QLabel(t("AppID：")))
         self._edit_appid = QLineEdit()
         # Steam 的 AppID 是正整数；32 位上限绰绰有余
         self._edit_appid.setValidator(QIntValidator(1, 2147483647))
-        self._edit_appid.setPlaceholderText("如 1158310（商店页网址里那串数字）")
+        self._edit_appid.setPlaceholderText(t("如 1158310（商店页网址里那串数字）"))
         row1.addWidget(self._edit_appid, stretch=1)
-        self._btn_lookup = QPushButton("自动查名")
+        self._btn_lookup = QPushButton(t("自动查名"))
         self._btn_lookup.setEnabled(False)
         row1.addWidget(self._btn_lookup)
 
         row2 = QHBoxLayout()
-        row2.addWidget(QLabel("游戏名："))
+        row2.addWidget(QLabel(t("游戏名：")))
         self._edit_name = QLineEdit()
         self._edit_name.setEnabled(False)
-        self._edit_name.setPlaceholderText("点「自动查名」带出，或手动输入")
+        self._edit_name.setPlaceholderText(t("点「自动查名」带出，或手动输入"))
         row2.addWidget(self._edit_name, stretch=1)
 
         self._lbl_dir = QLabel("—")
@@ -135,13 +136,13 @@ class GameAddDialog(QDialog):
         self._lbl_bk.setWordWrap(True)
         self._lbl_bk.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._lbl_hint = QLabel("请输入 AppID（纯数字）")
+        self._lbl_hint = QLabel(t("请输入 AppID（纯数字）"))
         self._lbl_hint.setWordWrap(True)
         lay = QVBoxLayout(self)
         lay.addLayout(row1)
         lay.addLayout(row2)
-        lay.addWidget(QLabel("下载目录（按 steamcmd 位置自动推导，无需手填；"
-                             "之后 steamcmd 挪位，扫描时会自动跟着更新）："))
+        lay.addWidget(QLabel(t("下载目录（按 steamcmd 位置自动推导，无需手填；"
+                             "之后 steamcmd 挪位，扫描时会自动跟着更新）：")))
         lay.addWidget(self._lbl_dir)
         lay.addWidget(self._lbl_bk)
         lay.addWidget(self._lbl_hint)
@@ -160,7 +161,7 @@ class GameAddDialog(QDialog):
         app_id = int(text) if (text.isascii() and text.isdigit()) else 0
         if app_id <= 0:
             self._app_free = False
-            self._lbl_hint.setText("请输入 AppID（纯数字）")
+            self._lbl_hint.setText(t("请输入 AppID（纯数字）"))
             self._edit_name.setEnabled(False)
             self._btn_lookup.setEnabled(False)
             self._lbl_dir.setText("—")
@@ -173,7 +174,7 @@ class GameAddDialog(QDialog):
         if exists is not None:
             self._app_free = False
             self._lbl_hint.setText(
-                f"该 AppID 已有档案：{exists.name}，无需创建")
+                t("该 AppID 已有档案：") + f"{exists.name}" + t("，无需创建"))
             self._edit_name.setEnabled(False)
             self._btn_lookup.setEnabled(False)
             self._lbl_bk.setText("")
@@ -182,7 +183,7 @@ class GameAddDialog(QDialog):
         self._app_free = True
         self._edit_name.setEnabled(True)
         self._btn_lookup.setEnabled(True)
-        self._lbl_hint.setText("就绪。名字可自动查，也可手动输入")
+        self._lbl_hint.setText(t("就绪。名字可自动查，也可手动输入"))
         self._refresh_dir_preview(app_id)
         self._sync_ok()
     def _refresh_dir_preview(self, app_id: int) -> None:
@@ -191,14 +192,14 @@ class GameAddDialog(QDialog):
         try:
             path = self._derive_dir(app_id)
         except Exception as exc:
-            self._lbl_dir.setText(f"（推导失败：{exc}）")
+            self._lbl_dir.setText(t("（推导失败：") + f"{exc}" + t("）"))
             self._lbl_dir.setToolTip("")
             path = None
         if path:
             self._lbl_dir.setText(path)
             self._lbl_dir.setToolTip(path)
         else:
-            self._lbl_dir.setText("（暂无法推导：设置页还没配 steamcmd 程序）")
+            self._lbl_dir.setText(t("（暂无法推导：设置页还没配 steamcmd 程序）"))
             self._lbl_dir.setToolTip("")
         # 备份目录预览（与下载目录同一次 AppID 变动一起刷新）：
         # 有注入才显示；推导不出就明说，不拦建档。
@@ -209,12 +210,12 @@ class GameAddDialog(QDialog):
         try:
             bk = self._derive_backup_dir(app_id)
         except Exception as exc:
-            self._lbl_bk.setText(f"备份目录（推导失败：{exc}）")
+            self._lbl_bk.setText(t("备份目录（推导失败：") + f"{exc}" + t("）"))
             return
         if bk:
-            self._lbl_bk.setText(f"备份目录（建档时一并写入）：{bk}")
+            self._lbl_bk.setText(t("备份目录（建档时一并写入）：") + f"{bk}")
         else:
-            self._lbl_bk.setText("备份目录：暂无法推导（设置页还没配 steamcmd）")
+            self._lbl_bk.setText(t("备份目录：暂无法推导（设置页还没配 steamcmd）"))
 
     def _sync_ok(self) -> None:
         """可建档 = AppID 有效且无档案 + 名字已备好，两者同时成立。"""
@@ -233,24 +234,24 @@ class GameAddDialog(QDialog):
         self._thread.done.connect(self._on_name_done)
         self._thread.finished.connect(self._on_lookup_finished)
         self._btn_lookup.setEnabled(False)
-        self._btn_lookup.setText("查询中…")
+        self._btn_lookup.setText(t("查询中…"))
         self._thread.start()
 
     def _on_name_done(self, name, err) -> None:
         self._btn_lookup.setEnabled(True)
-        self._btn_lookup.setText("自动查名")
+        self._btn_lookup.setText(t("自动查名"))
         if err:
             # 网络失败：如实显示，名字留空让用户手输——不拦建档
-            QMessageBox.warning(self, "查询失败",
-                                f"查名失败（{err}）。\n请手动输入游戏名。")
+            QMessageBox.warning(self, t("查询失败"),
+                                t("查名失败（") + f"{err}" + t("）。") + "\n" + t("请手动输入游戏名。"))
         elif not name:
             # Steam 正常回答"没这个名字"：编号可能有误，或商店接口
             # 偶尔抽风——不是程序错误，让用户手输即可
             QMessageBox.information(
-                self, "查无此游戏",
-                "Steam 没有报出这个名字（编号可能有误；商店接口偶尔也会"
-                "抽风，可再点一次「自动查名」试试）。\n"
-                "若仍查不到，请手动输入游戏名，不影响建档。")
+                self, t("查无此游戏"),
+                t("Steam 没有报出这个名字（编号可能有误；商店接口偶尔也会"
+                  "抽风，可再点一次「自动查名」试试）。") + "\n"
+                + t("若仍查不到，请手动输入游戏名，不影响建档。"))
         else:
             self._edit_name.setText(name)
             self._edit_name.selectAll()  # 全选，方便微调或整体覆盖
@@ -291,7 +292,7 @@ class GameAddDialog(QDialog):
             # 极小概率的竞态（查重通过后同号被建）或其他账本层拒绝：
             # 显示原因、对话框不关，用户可改完再试——错误显式爆炸，
             # 只是不炸窗
-            QMessageBox.critical(self, "创建失败", str(exc))
+            QMessageBox.critical(self, t("创建失败"), str(exc))
             return
         self.created_app_id = app_id
         self.accept()
