@@ -662,25 +662,25 @@ class AccountCenterPage(QWidget):
         self._history_rows = (list(self._repo.list_game_verdicts(gid))
                               if gid else [])
         self._history_view = self._history_rows
-        t = self._history_table
-        t.setRowCount(len(self._history_rows))
+        tbl = self._history_table
+        tbl.setRowCount(len(self._history_rows))
         for i, v in enumerate(self._history_rows):
-            t.setItem(i, 0, QTableWidgetItem(
+            tbl.setItem(i, 0, QTableWidgetItem(
                 relative_time(v.occurred_at) if v.occurred_at else "—"))
-            t.setItem(i, 1, QTableWidgetItem(str(v.mod_id)))
-            t.setItem(i, 2, QTableWidgetItem(v.title or ""))
+            tbl.setItem(i, 1, QTableWidgetItem(str(v.mod_id)))
+            tbl.setItem(i, 2, QTableWidgetItem(v.title or ""))
             kind = constants.VERDICT_KIND_ZH.get(v.kind, v.kind)
-            t.setItem(i, 3, QTableWidgetItem(kind))
-            t.setItem(i, 4, QTableWidgetItem(
+            tbl.setItem(i, 3, QTableWidgetItem(kind))
+            tbl.setItem(i, 4, QTableWidgetItem(
                 str(v.version_trigger)
                 if v.version_trigger is not None else "—"))
-            t.setItem(i, 5, QTableWidgetItem(
+            tbl.setItem(i, 5, QTableWidgetItem(
                 str(v.version_written)
                 if v.version_written is not None else "—"))
             src = (constants.CONFIRMED_SOURCE_ZH.get(v.source)
                    if v.source else None)
-            t.setItem(i, 6, QTableWidgetItem(src or "—"))
-            t.setItem(i, 7, QTableWidgetItem(
+            tbl.setItem(i, 6, QTableWidgetItem(src or "—"))
+            tbl.setItem(i, 7, QTableWidgetItem(
                 "待确认" if v.confirmed_at is None else "已确认"))
         # 分区标题带实时计数
         self._sec_history.set_title(

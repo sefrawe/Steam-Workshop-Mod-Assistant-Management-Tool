@@ -358,24 +358,24 @@ class RemoteHealthPage(QWidget):
     def _title_of(self, mid: int) -> str:
         m = self._mods_by_id.get(mid)
         return (m.title if m is not None and m.title else None) or "（无标题）"
-    def _on_row_menu(self, t, pos) -> None:
+    def _on_row_menu(self, tbl, pos) -> None:
         """结果表右键：勾选总控 + 单行动作（光标下有行才有）+ 勾选
         批动作。三张表共用（一个动作一个定义）。"""
-        row = t.rowAt(pos.y())
+        row = tbl.rowAt(pos.y())
         mid = None
         if row >= 0:
-            it = t.item(row, 1)
+            it = tbl.item(row, 1)
             mid = it.data(Qt.ItemDataRole.UserRole) \
                 if it is not None else None
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
         a_all = QAction(t("全选（可见行）"), menu)
         a_all.setToolTip(t("只勾选当前看得见的行——查找过滤在场时不盲勾"))
-        a_all.triggered.connect(lambda _=False, w=t:
+        a_all.triggered.connect(lambda _=False, w=tbl:
                                 self._check_all_visible(w))
         menu.addAction(a_all)
         a_none = QAction(t("清空勾选"), menu)
-        a_none.triggered.connect(lambda _=False, w=t:
+        a_none.triggered.connect(lambda _=False, w=tbl:
                                  self._uncheck_all(w))
         menu.addAction(a_none)
         if mid is not None:
@@ -398,9 +398,9 @@ class RemoteHealthPage(QWidget):
         menu.addSeparator()
         a3 = QAction(t("复制勾选行的编号"), menu)
         a3.setToolTip(t("先勾选若干行再点（每行一个）"))
-        a3.triggered.connect(lambda _=False, w=t: self._copy_checked(w))
+        a3.triggered.connect(lambda _=False, w=tbl: self._copy_checked(w))
         menu.addAction(a3)
-        menu.exec(t.viewport().mapToGlobal(pos))
+        menu.exec(tbl.viewport().mapToGlobal(pos))
 
     def _on_row_dclicked(self, item) -> None:
         """双击行 = 打开该 mod 的工坊页面。"""
@@ -426,10 +426,10 @@ class RemoteHealthPage(QWidget):
             if it is not None:
                 it.setCheckState(Qt.CheckState.Unchecked)
 
-    def _copy_checked(self, t) -> None:
+    def _copy_checked(self, tbl) -> None:
         ids: list[int] = []
-        for r in range(t.rowCount()):
-            it = t.item(r, 0)
+        for r in range(tbl.rowCount()):
+            it = tbl.item(r, 0)
             if it is not None and it.checkState() == Qt.CheckState.Checked:
                 mid = it.data(Qt.ItemDataRole.UserRole)
                 if mid is not None and int(mid) not in ids:

@@ -208,13 +208,13 @@ class UninstallPage(QWidget):
         """盘点 data\\ 与 config\\：引擎 scan_folder 毫秒级（只 stat
         元数据），主线程直调。表清空重填，重复点无害。"""
         report = scan_folder(appPaths.app_root())
-        t = self._table
-        t.setRowCount(len(report.entries))
+        tbl = self._table
+        tbl.setRowCount(len(report.entries))
         for i, e in enumerate(report.entries):
-            t.setItem(i, 0, QTableWidgetItem(e.rel_path))
-            t.setItem(i, 1, QTableWidgetItem(fmt_size(e.size_bytes)))
-            t.setItem(i, 2, QTableWidgetItem(e.role))
-        t.setVisible(True)
+            tbl.setItem(i, 0, QTableWidgetItem(e.rel_path))
+            tbl.setItem(i, 1, QTableWidgetItem(fmt_size(e.size_bytes)))
+            tbl.setItem(i, 2, QTableWidgetItem(e.role))
+        tbl.setVisible(True)
         self._d1_total.setVisible(True)
         if not report.entries:
             self._set_card(

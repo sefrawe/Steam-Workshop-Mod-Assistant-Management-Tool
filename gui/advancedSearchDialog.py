@@ -130,15 +130,15 @@ class AdvancedFilter:
             parts.append(t('大小≤') + f"{self.size_max / 1024 ** 2::.1f}" + f' MiB')
         if self.updated_from is not None and self.updated_to is not None:
             f = QDateTime.fromSecsSinceEpoch(self.updated_from).date()
-            t = QDateTime.fromSecsSinceEpoch(self.updated_to).date()
-            parts.append(t('远端更新 ') + f"{f.toString('yyyy-MM-dd')}" + f'～' + f"{t.toString('yyyy-MM-dd')}")
+            tbl = QDateTime.fromSecsSinceEpoch(self.updated_to).date()
+            parts.append(t('远端更新 ') + f"{f.toString('yyyy-MM-dd')}" + f'～' + f"{tbl.toString('yyyy-MM-dd')}")
         elif self.updated_from is not None:
             days = max(round((time.time() - self.updated_from) / _DAY), 1)
             parts.append(t('远端更新：近 ') + f"{days}" + t(' 天'))
         if self.local_from is not None and self.local_to is not None:
             f = QDateTime.fromSecsSinceEpoch(self.local_from).date()
-            t = QDateTime.fromSecsSinceEpoch(self.local_to).date()
-            parts.append(t('本地版本 ') + f"{f.toString('yyyy-MM-dd')}" + f'～' + f"{t.toString('yyyy-MM-dd')}")
+            tbl = QDateTime.fromSecsSinceEpoch(self.local_to).date()
+            parts.append(t('本地版本 ') + f"{f.toString('yyyy-MM-dd')}" + f'～' + f"{tbl.toString('yyyy-MM-dd')}")
         elif self.local_from is not None:
             days = max(round((time.time() - self.local_from) / _DAY), 1)
             parts.append(t('本地版本：近 ') + f"{days}" + t(' 天'))

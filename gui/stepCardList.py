@@ -152,16 +152,16 @@ class StepCardList(QWidget):
 
     def handle_event(self, ev: dict) -> None:
         """流程事件的唯一入口：一个事件字典，一次界面更新。"""
-        t = ev.get("type")
-        if t == "login_started":
+        tbl = ev.get("type")
+        if tbl == "login_started":
             # 不回显命令原文（可能带密码，见文件头安全细节）
             self._set_card("login", t("登录命令已发送，等待 steamcmd 应答…"), _C_INFO)
-        elif t == "login_ok":
+        elif tbl == "login_ok":
             self._set_card("login", t("登录成功"), _C_OK)
-        elif t == "need_login":
+        elif tbl == "need_login":
             self._set_card("login", t("需要手动登录：去终端完成登录后点【继续批次】"), _C_WARN)
             self._btn_resume.setEnabled(True)
-        elif t == "item_started":
+        elif tbl == "item_started":
             self._done = ev.get("done", self._done)
             mod_id = ev.get("mod_id")
             self._set_card("download", f"{self._done}/{self._total} " + t("完成 · 当前 mod") + f" {mod_id}", _C_INFO)
@@ -169,7 +169,7 @@ class StepCardList(QWidget):
             # 行挂上 mod 编号（UserRole）——行右键动作靠它
             self._current_row = self._append_row(
                 f"mod {mod_id} · " + t("下载中…"), _C_MUTED, mod_id=mod_id)
-        elif t == "item_done":
+        elif tbl == "item_done":
             self._done = ev.get("done", self._done + 1)
             mod_id = ev.get("mod_id")
             ok = ev.get("ok")
@@ -188,18 +188,18 @@ class StepCardList(QWidget):
                 self._finish_current_row(f"mod {mod_id} · " + t("失败") + f"：{reason}", _C_FAIL)
             self._set_card("download", f"{self._done}/{self._total} " + t("完成"), _C_INFO)
             self._status.setText(t("进行中") + f" {self._done}/{self._total}")
-        elif t == "disconnected":
+        elif tbl == "disconnected":
             code = ev.get("code")
             note = ev.get("note") or ""
             self._append_row(f"⚠ {t('断线')}（code {code}）{note}：{t('steamcmd 会自动重试')}", _C_WARN)
-        elif t == "warn":
+        elif tbl == "warn":
             self._append_row(f"⚠ {ev.get('note') or ''}", _C_WARN)
-        elif t == "send_failed":
+        elif tbl == "send_failed":
             self._append_row(f"✗ 命令发送失败：{ev.get('note') or ''}", _C_FAIL)
-        elif t == "stop_requested":
+        elif tbl == "stop_requested":
             self._status.setText(t("停止中：不再发新命令，等当前条跑完…"))
             self._btn_stop.setEnabled(False)
-        elif t == "batch_done":
+        elif tbl == "batch_done":
             self._on_batch_done(ev.get("summary") or {})
 
     # ---------------- 内部：卡片与行 ----------------

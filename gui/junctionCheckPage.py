@@ -249,12 +249,12 @@ class JunctionCheckPage(QWidget):
         bv.setContentsMargins(0, 0, 0, 0)
         bv.setSpacing(4)
         head = QHBoxLayout()
-        t = QLabel("", box)
-        t.setStyleSheet("font-weight: 600;")
+        tbl = QLabel("", box)
+        tbl.setStyleSheet("font-weight: 600;")
         btn = QPushButton(t("复制"), box)
         btn.setToolTip(t('复制这条命令，粘贴到') + f"{_TERM}" + t('窗口里回车执行。'))
         btn.setFixedWidth(64)
-        head.addWidget(t, 1)
+        head.addWidget(tbl, 1)
         head.addWidget(btn)
         bv.addLayout(head)
         edit = QPlainTextEdit(box)
@@ -263,7 +263,7 @@ class JunctionCheckPage(QWidget):
         bv.addWidget(edit)
         btn.clicked.connect(lambda _=False, e=edit: self._copy(e.toPlainText()))
         box.setVisible(False)
-        return box, t, edit
+        return box, tbl, edit
 
     # ---------- 对外（MainWindow 调用）----------
     def set_game(self, game: Game | None) -> None:

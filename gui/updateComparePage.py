@@ -581,7 +581,7 @@ class UpdateComparePage(QWidget):
             + ("｜「—」= 版本未知（未下载或没检测过）"
                if any(d is None for _, d in rows) else ""))
     def _fill_flat_row(self, i: int, m, days: int | None) -> None:
-        t = self._table
+        tbl = self._table
         url_item = QTableWidgetItem("↗")
         url_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         url_item.setForeground(QBrush(QColor("#5aa9ff")))
