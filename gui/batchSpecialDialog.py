@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.i18n import t
 from core.models import Game
 from core.modRepository import ModRepository
 from core.urlParser import parse_lines
@@ -89,10 +90,10 @@ def classify_special_targets(repo: ModRepository, game: Game, text: str) -> Spec
             if other is not None:
                 g = repo.get_game(other.game_id)
                 name = (g.name if g is not None
-                        else f"未知档案（game_id={other.game_id}）")
+                        else t("未知档案") + f"（game_id={other.game_id}）")
                 rep.in_other_games.append((mid, name))
             else:
-                rep.in_other_games.append((mid, "未知档案"))
+                rep.in_other_games.append((mid, t("未知档案")))
         else:
             rep.missing.append(mid)
     return rep
@@ -116,15 +117,16 @@ class BatchSpecialDialog(QDialog):
 
     # ---------- UI ----------
     def _build_ui(self) -> None:
-        self.setWindowTitle("批量特别关注")
+        self.setWindowTitle(t("批量特别关注"))
         self.resize(560, 540)
         root = QVBoxLayout(self)
         root.setSpacing(8)
 
         head = QLabel(
-            f"对表目标：档案「{self._game.name}」（AppID {self._game.app_id}）。\n"
-            "粘贴工坊网址 / 纯数字编号清单（每行一条，或空格分隔均可），"
-            "先【解析预览】核对，再【应用】。只有「待设为特别关注」一桶会被写入。",
+            t("对表目标：档案「") + f"{self._game.name}"
+            + t("」（AppID ") + f"{self._game.app_id}" + t("）。") + "\n"
+            + t("粘贴工坊网址 / 纯数字编号清单（每行一条，或空格分隔均可），"
+                "先【解析预览】核对，再【应用】。只有「待设为特别关注」一桶会被写入。"),
             self)
         head.setWordWrap(True)
         root.addWidget(head)
@@ -145,19 +147,21 @@ class BatchSpecialDialog(QDialog):
         btn_row = QWidget(self)
         h = QHBoxLayout(btn_row)
         h.setContentsMargins(0, 0, 0, 0)
-        self._btn_preview = QPushButton("解析预览", btn_row)
-        self._btn_preview.setToolTip("解析文本并对当前档案对表；只读操作，不改任何数据")
+        self._btn_preview = QPushButton(t("解析预览"), btn_row)
+        self._btn_preview.setToolTip(
+            t("解析文本并对当前档案对表；只读操作，不改任何数据"))
         self._btn_preview.clicked.connect(self._on_preview)
         h.addWidget(self._btn_preview)
 
-        self._btn_apply = QPushButton("应用", btn_row)
-        self._btn_apply.setToolTip("把「待设为特别关注」一桶写入账本；写前有确认弹窗")
+        self._btn_apply = QPushButton(t("应用"), btn_row)
+        self._btn_apply.setToolTip(
+            t("把「待设为特别关注」一桶写入账本；写前有确认弹窗"))
         self._btn_apply.setEnabled(False)  # 预览出可设条目才亮
         self._btn_apply.clicked.connect(self._on_apply)
         h.addWidget(self._btn_apply)
 
         h.addStretch(1)
-        btn_close = QPushButton("关闭", btn_row)
+        btn_close = QPushButton(t("关闭"), btn_row)
         btn_close.clicked.connect(self.reject)
         h.addWidget(btn_close)
         root.addWidget(btn_row)
@@ -166,7 +170,7 @@ class BatchSpecialDialog(QDialog):
     def _on_preview(self) -> None:
         text = self._edit.toPlainText()
         if not text.strip():
-            QMessageBox.information(self, "解析预览", "先粘贴清单再解析。")
+            QMessageBox.information(self, t("解析预览"), t("先粘贴清单再解析。"))
             return
         self._report = classify_special_targets(self._repo, self._game, text)
         self._report_label.setText(_render_report(self._report))
@@ -177,9 +181,9 @@ class BatchSpecialDialog(QDialog):
         if r is None or not r.to_set:
             return
         ret = QMessageBox.question(
-            self, "批量特别关注",
-            f"把 {len(r.to_set)} 个 mod 设为特别关注？\n\n"
-            "其余桶（已是关注 / 其他档案 / 未收录 / 无法识别）一律不动。")
+            self, t("批量特别关注"),
+            t("把") + f" {len(r.to_set)} " + t("个 mod 设为特别关注？") + "\n\n"
+            + t("其余桶（已是关注 / 其他档案 / 未收录 / 无法识别）一律不动。"))
         if ret != QMessageBox.StandardButton.Yes:
             return
         # 一个事务打包：要么全部标上、要么一条不动（repo 契约第 4 条）
@@ -193,26 +197,28 @@ class BatchSpecialDialog(QDialog):
 def _render_report(r: SpecialReport) -> str:
     """把五桶结论翻译成人话。只摆事实 + 指路，不替用户做决定。"""
     if not r.parsed_ids:
-        lines = ["没有解析出任何编号。"]
+        lines = [t("没有解析出任何编号。")]
         if r.invalid_lines:
-            lines.append("以下行无法识别（需要含 steamcommunity.com 与 id 参数的"
-                         "工坊网址，或直接纯数字编号）：")
+            lines.append(t("以下行无法识别（需要含 steamcommunity.com 与 "
+                           "id 参数的工坊网址，或直接纯数字编号）："))
             lines += [f"· {line}" for line in r.invalid_lines]
         return "\n".join(lines)
 
-    lines = [f"解析出 {len(r.parsed_ids)} 个编号："]
-    lines.append(f"· 待设为特别关注：{len(r.to_set)} 条"
-                 + ("——【应用】只写这一桶" if r.to_set else ""))
-    lines.append(f"· 已是特别关注（跳过）：{len(r.already_special)} 条")
+    lines = [t("解析出") + f" {len(r.parsed_ids)} " + t("个编号：")]
+    lines.append(t("· 待设为特别关注：") + f"{len(r.to_set)}" + t(" 条")
+                 + (t("——【应用】只写这一桶") if r.to_set else ""))
+    lines.append(t("· 已是特别关注（跳过）：") + f"{len(r.already_special)}" + t(" 条"))
     if r.in_other_games:
-        lines.append(f"· 属于其他档案（跳过）：{len(r.in_other_games)} 条——"
+        lines.append(t("· 属于其他档案（跳过）：")
+                     + f"{len(r.in_other_games)}" + t(" 条——")
                      + "、".join(f"{mid}（{name}）" for mid, name in r.in_other_games))
     if r.missing:
-        lines.append(f"· 未收录：{len(r.missing)} 条——"
+        lines.append(t("· 未收录：") + f"{len(r.missing)}" + t(" 条——")
                      + "、".join(map(str, r.missing)))
-        lines.append("  （未收录的先入库才能标记：可到「分布向导 → 加入新 mod」"
-                     "或【入账中心 · 登记】粘贴同一份清单）")
+        lines.append(t("  （未收录的先入库才能标记：可到「分布向导 → 加入新 mod」"
+                       "或【入账中心 · 登记】粘贴同一份清单）"))
     if r.invalid_lines:
-        lines.append(f"· 无法识别的行 {len(r.invalid_lines)} 条（原样列出，不代纠正）：")
+        lines.append(t("· 无法识别的行") + f" {len(r.invalid_lines)} "
+                     + t("条（原样列出，不代纠正）："))
         lines += [f"  {line}" for line in r.invalid_lines]
     return "\n".join(lines)

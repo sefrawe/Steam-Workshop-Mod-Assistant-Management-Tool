@@ -12,6 +12,7 @@
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QDialog, QVBoxLayout
 
+from core.i18n import t
 from gui.browserTabPage import BrowserTabPage
 
 
@@ -25,7 +26,7 @@ class BrowserPickDialog(QDialog):
 
     def __init__(self, parent=None, *, log=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("从浏览器取标签页")
+        self.setWindowTitle(t("从浏览器取标签页"))
         self.resize(760, 560)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)

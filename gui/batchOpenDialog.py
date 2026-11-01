@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.i18n import t
 from core.modRepository import ModRepository
 from core.urlParser import parse_lines, workshop_url
 from gui.logBus import LogBus
@@ -81,16 +82,16 @@ class BatchOpenDialog(QDialog):
 
     # ---------- UI ----------
     def _build_ui(self) -> None:
-        self.setWindowTitle("批量打开工坊页面")
+        self.setWindowTitle(t("批量打开工坊页面"))
         self.resize(560, 540)
         root = QVBoxLayout(self)
         root.setSpacing(8)
         head = QLabel(
-            "粘贴工坊网址 / 纯数字编号清单（每行一条，或空格分隔均可），"
-            "先【解析预览】核对，再【打开】——每个编号一个浏览器标签页，"
-            "便于逐页去点订阅。\n"
-            "本对话框是纯读操作：不写账本。订阅完成后想收进本工具管理，"
-            "走【入账中心】粘贴登记（盘上已下载的用【扫描游戏目录】认领）。", self)
+            t("粘贴工坊网址 / 纯数字编号清单（每行一条，或空格分隔均可），"
+              "先【解析预览】核对，再【打开】——每个编号一个浏览器标签页，"
+              "便于逐页去点订阅。") + "\n"
+            + t("本对话框是纯读操作：不写账本。订阅完成后想收进本工具管理，"
+                "走【入账中心】粘贴登记（盘上已下载的用【扫描游戏目录】认领）。"), self)
         head.setWordWrap(True)  # 可能变长的标签一律开换行
         root.addWidget(head)
         self._edit = QPlainTextEdit(self)
@@ -107,19 +108,19 @@ class BatchOpenDialog(QDialog):
         btn_row = QWidget(self)
         h = QHBoxLayout(btn_row)
         h.setContentsMargins(0, 0, 0, 0)
-        self._btn_preview = QPushButton("解析预览", btn_row)
+        self._btn_preview = QPushButton(t("解析预览"), btn_row)
         self._btn_preview.setToolTip(
-            "解析文本并核对收录情况；只读操作，不改任何数据")
+            t("解析文本并核对收录情况；只读操作，不改任何数据"))
         self._btn_preview.clicked.connect(self._on_preview)
         h.addWidget(self._btn_preview)
-        self._btn_open = QPushButton("打开", btn_row)
+        self._btn_open = QPushButton(t("打开"), btn_row)
         self._btn_open.setToolTip(
-            "把解析出的页面逐个交给默认浏览器；开前有确认弹窗")
+            t("把解析出的页面逐个交给默认浏览器；开前有确认弹窗"))
         self._btn_open.setEnabled(False)  # 预览出编号才亮
         self._btn_open.clicked.connect(self._on_open)
         h.addWidget(self._btn_open)
         h.addStretch(1)
-        btn_close = QPushButton("关闭", btn_row)
+        btn_close = QPushButton(t("关闭"), btn_row)
         btn_close.clicked.connect(self.reject)
         h.addWidget(btn_close)
         root.addWidget(btn_row)
@@ -128,7 +129,8 @@ class BatchOpenDialog(QDialog):
     def _on_preview(self) -> None:
         text = self._edit.toPlainText()
         if not text.strip():
-            QMessageBox.information(self, "解析预览", "先粘贴清单再解析。")
+            QMessageBox.information(self, t("解析预览"),
+                                    t("先粘贴清单再解析。"))
             return
         self._report = classify_open_targets(self._repo, text)
         self._report_label.setText(_render_report(self._report))
@@ -139,37 +141,39 @@ class BatchOpenDialog(QDialog):
         if r is None or not r.parsed_ids:
             return
         ret = QMessageBox.question(
-            self, "批量打开工坊页面",
-            f"在浏览器打开 {len(r.parsed_ids)} 个工坊页面？\n"
-            "每个编号一个标签页；数量多时浏览器会连开一片，"
-            "可先关掉多余的页面再逐个订阅。")
+            self, t("批量打开工坊页面"),
+            t("在浏览器打开") + f" {len(r.parsed_ids)} " + t("个工坊页面？")
+            + "\n"
+            + t("每个编号一个标签页；数量多时浏览器会连开一片，"
+                "可先关掉多余的页面再逐个订阅。"))
         if ret != QMessageBox.StandardButton.Yes:
             return
         for url in r.urls():
             QDesktopServices.openUrl(QUrl(url))
         if self._log is not None:
-            self._log.ok(f"已请求浏览器打开 {len(r.parsed_ids)} 个工坊页面"
-                         f"（其中未收录 {len(r.untracked_ids)} 个）")
+            self._log.ok(t("已请求浏览器打开") + f" {len(r.parsed_ids)} "
+                         + t("个工坊页面（其中未收录") + f" {len(r.untracked_ids)} "
+                         + t("个）"))
         self.accept()
 
 
 def _render_report(r: OpenPagesReport) -> str:
     """把解析结论翻译成人话。只摆事实 + 指路，不替用户做决定。"""
     if not r.parsed_ids:
-        lines = ["没有解析出任何编号。"]
+        lines = [t("没有解析出任何编号。")]
         if r.invalid_lines:
-            lines.append("以下行无法识别（需要含 steamcommunity.com 与 id 参数的"
-                         "工坊网址，或直接纯数字编号）：")
+            lines.append(t("以下行无法识别（需要含 steamcommunity.com 与 "
+                           "id 参数的工坊网址，或直接纯数字编号）："))
             lines += [f"· {line}" for line in r.invalid_lines]
         return "\n".join(lines)
-    lines = [f"解析出 {len(r.parsed_ids)} 个编号："]
-    lines.append(f"· 未收录 {len(r.untracked_ids)} 个"
-                 + ("——正是要去点订阅的目标" if r.untracked_ids else ""))
+    lines = [t("解析出") + f" {len(r.parsed_ids)} " + t("个编号：")]
+    lines.append(t("· 未收录") + f" {len(r.untracked_ids)} " + t("个")
+                 + (t("——正是要去点订阅的目标") if r.untracked_ids else ""))
     if r.tracked_ids:
-        lines.append(f"· 已在账本 {len(r.tracked_ids)} 个"
-                     "（已由本工具管理，照开不误，仅供核对）")
+        lines.append(t("· 已在账本") + f" {len(r.tracked_ids)} " + t("个")
+                     + t("（已由本工具管理，照开不误，仅供核对）"))
     if r.invalid_lines:
-        lines.append(f"· 无法识别的行 {len(r.invalid_lines)} 条"
-                     "（原样列出，不代纠正）：")
+        lines.append(t("· 无法识别的行") + f" {len(r.invalid_lines)} "
+                     + t("条（原样列出，不代纠正）："))
         lines += [f"  {line}" for line in r.invalid_lines]
     return "\n".join(lines)

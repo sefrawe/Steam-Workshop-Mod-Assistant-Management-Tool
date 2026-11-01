@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 from core.constants import CONFIRMED_SOURCE_ZH
+from core.i18n import t
 from core.modRepository import ModRepository
 
 _C_MUTED = "#8a8a8f"   # 未验证 / 版本未知弱化色（与库页口径一致）
@@ -44,24 +45,25 @@ class ConfirmListDialog(QDialog):
         self._repo = repo
         self._game = game
         self._log = log
-        self.setWindowTitle("收尾确认清单")
+        self.setWindowTitle(t("收尾确认清单"))
         self.setModal(False)          # 非模态：开着也能去别页核对
         self.resize(720, 420)
 
         root = QVBoxLayout(self)
         # 档案名在闭包外要用：先落变量
         game_name = getattr(game, "name", "") if game is not None else ""
-        head = QLabel(f"「{game_name}」下载批次收尾：核对无误的条目请勾选"
-                      "后点【确认入账】。\n确认 = 把「将写入」的版本登记为"
-                      "本地版本（可撤销）；先不确认也可以，之后在"
-                      "「入账中心」处理。", self)
+        head = QLabel(
+            f"「{game_name}」"
+            + t("下载批次收尾：核对无误的条目请勾选后点【确认入账】。") + "\n"
+            + t("确认 = 把「将写入」的版本登记为本地版本（可撤销）；"
+                "先不确认也可以，之后在「入账中心」处理。"), self)
         head.setWordWrap(True)
         root.addWidget(head)
 
         self._table = QTableWidget(self)
         self._table.setColumnCount(6)
         self._table.setHorizontalHeaderLabels(
-            ["勾选", "编号", "标题", "触发值", "现场值", "将写入"])
+            [t("勾选"), t("编号"), t("标题"), t("触发值"), t("现场值"), t("将写入")])
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
@@ -70,18 +72,18 @@ class ConfirmListDialog(QDialog):
         root.addWidget(self._table, 1)
 
         btns = QHBoxLayout()
-        self._btn_all = QPushButton("全选 / 全不选", self)
+        self._btn_all = QPushButton(t("全选 / 全不选"), self)
         self._btn_all.clicked.connect(self._toggle_all)
         btns.addWidget(self._btn_all)
         btns.addStretch(1)
-        self._btn_later = QPushButton("稍后处理", self)
-        self._btn_later.setToolTip("关闭本清单；待确认项保留，"
-                                   "可在「入账中心」继续处理")
+        self._btn_later = QPushButton(t("稍后处理"), self)
+        self._btn_later.setToolTip(
+            t("关闭本清单；待确认项保留，可在「入账中心」继续处理"))
         self._btn_later.clicked.connect(self.reject)
         btns.addWidget(self._btn_later)
-        self._btn_confirm = QPushButton("确认入账", self)
-        self._btn_confirm.setToolTip("把勾选条目的「将写入」版本经确认门"
-                                     "写进账本（唯一写入点）")
+        self._btn_confirm = QPushButton(t("确认入账"), self)
+        self._btn_confirm.setToolTip(
+            t("把勾选条目的「将写入」版本经确认门写进账本（唯一写入点）"))
         self._btn_confirm.clicked.connect(self._on_confirm)
         btns.addWidget(self._btn_confirm)
         root.addLayout(btns)
@@ -112,16 +114,18 @@ class ConfirmListDialog(QDialog):
                 str(v.version_query) if v.version_query is not None else "—"))
             # 将写入：NULL = 版本未知态（合法但备份守卫会拒）；灰 = 未验证
             if v.version_written is None:
-                item = QTableWidgetItem("版本未知")
+                item = QTableWidgetItem(t("版本未知"))
                 item.setForeground(QColor(_C_MUTED))
             else:
                 item = QTableWidgetItem(str(v.version_written))
                 if v.source != "verified":
                     item.setForeground(QColor(_C_MUTED))
                     item.setText(item.text()
-                                 + f"（{CONFIRMED_SOURCE_ZH.get(v.source, v.source)}）")
+                                 + t("（")
+                                 + t(CONFIRMED_SOURCE_ZH.get(v.source, v.source))
+                                 + t("）"))
             self._table.setItem(i, 5, item)
-        self._btn_confirm.setText(f"确认入账（{len(rows)} 条待处理）")
+        self._btn_confirm.setText(t("确认入账（") + f"{len(rows)}" + t(" 条待处理）"))
 
     # ---------------- 动作 ----------------
     def _toggle_all(self) -> None:
@@ -147,16 +151,17 @@ class ConfirmListDialog(QDialog):
     def _on_confirm(self) -> None:
         ids = self._checked_ids()
         if not ids:
-            QMessageBox.information(self, "确认入账", "先勾选要确认的条目。")
+            QMessageBox.information(self, t("确认入账"),
+                                    t("先勾选要确认的条目。"))
             return
         try:
             n = self._repo.confirm_items(ids)   # 确认门正门（R17）
         except ValueError as exc:
             # 黑名单 / 无 pending 行 / 已删除——实现的人话异常直接展示
-            QMessageBox.warning(self, "确认入账失败", str(exc))
+            QMessageBox.warning(self, t("确认入账失败"), str(exc))
             return
         if self._log is not None:
-            self._log.ok(f"已确认入账 {n} 条（当前档案）")
+            self._log.ok(t("已确认入账") + f" {n} " + t("条（当前档案）"))
         # 刷新：队列里该档案还有剩余就重画，清空则自动关
         remaining = self._repo.pending_confirmations(
             self._game.app_id if self._game is not None else None)

@@ -17,6 +17,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from core.i18n import t
 from gui.logBus import LogBus
 
 
@@ -32,21 +33,21 @@ def open_mod_folder(parent: QWidget, game, mod, *,
     download_dir = str(getattr(game, "download_dir", "") or "").strip()
     if not download_dir:
         _say(parent, log, "warn",
-             "这个档案还没有设置下载目录：请到「游戏 → 编辑档案」检查。")
+             t("这个档案还没有设置下载目录：请到「游戏 → 编辑档案」检查。"))
         return
     folder = Path(download_dir) / str(mod.mod_id)
     if not folder.is_dir():
         _say(parent, log, "info",
-             f"下载目录里没有这个 mod 的文件夹：\n{folder}\n\n"
-             "可能还没下载、已被清理，或该条目处于已删除状态。")
+             t("下载目录里没有这个 mod 的文件夹：") + f"\n{folder}\n\n"
+             + t("可能还没下载、已被清理，或该条目处于已删除状态。"))
         return
     if QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
         if log is not None:
-            log.info(f"已打开 mod 文件夹：{folder}")
+            log.info(t("已打开 mod 文件夹：") + f"{folder}")
     else:
         # openUrl 失败是静默的（v2.18 教训）：手动兜底提示
         _say(parent, log, "warn",
-             f"文件管理器没有响应，请手动打开：\n{folder}")
+             t("文件管理器没有响应，请手动打开：") + f"\n{folder}")
 
 
 def _say(parent: QWidget, log: LogBus | None,
@@ -54,4 +55,4 @@ def _say(parent: QWidget, log: LogBus | None,
     """提示双通道：弹窗给人看 + 运行日志留痕（log 未注入就只弹窗）。"""
     if log is not None:
         getattr(log, level)(text.splitlines()[0])  # 日志只留第一行摘要
-    QMessageBox.information(parent, "打开 mod 文件夹", text)
+    QMessageBox.information(parent, t("打开 mod 文件夹"), text)
