@@ -77,10 +77,10 @@ _DEBOUNCE_MS = 300
 # ---- 现状对照（平铺）列 ----
 (C_URL, C_TITLE, C_MID, C_STATUS, C_NOTE,
  C_LOCAL, C_REMOTE, C_LAG) = range(8)
-_COLS_FLAT = ["↗", "mod 标题", "mod 编号", "状态", "备注",
-              "本地版本", "远端更新", "落后"]
+_COLS_FLAT = ["↗", t('mod 标题'), t('mod 编号'), t('状态'), t('备注'),
+              t('本地版本'), t('远端更新'), t('落后')]
 # ---- 分组卡片里的快照小表列 ----
-_COLS_SNAP = ["快照时间", "当时远端版本"]
+_COLS_SNAP = [t('快照时间'), t('当时远端版本')]
 # ---- 排序下拉 → 平铺表格 (列, 方向) 映射（v2.43.7：下拉两视图通用）----
 # "recent"（快照时间）在平铺没有对应列 → 以远端更新近似（tooltip 注明）
 _FLAT_SORT_MAP = {
@@ -93,37 +93,19 @@ _FLAT_SORT_MAP = {
     "id": (C_MID, Qt.SortOrder.AscendingOrder),
 }
 _GUIDE_PARAS = (
-    "这页是什么：当前档案全部 mod 的版本对照与更新历史。两种看法——"
-    "【按 mod 分组】= 每个 mod 一张卡，卡里是它最近几次版本变化的"
-    "时间线；【现状对照】= 每个 mod 一行，看确认版本比远端旧了多久。",
+    t('这页是什么：当前档案全部 mod 的版本对照与更新历史。两种看法——【按 mod 分组】= 每个 mod 一张卡，卡里是它最近几次版本变化的时间线；【现状对照】= 每个 mod 一行，看确认版本比远端旧了多久。'),
 
-    "「更新 = 整个替换」：steamcmd 更新一个 mod 时不是打补丁，而是把"
-    "旧的内容文件夹整个删掉、重新下载完整一份——更新完成后，旧版本"
-    "就不在磁盘上了。想留后路：更新确认清单里选「备份+更新」，或在"
-    "【备份与恢复】页手动备份；更新后随时可去恢复旧版本。所以“落后"
-    "天数”越大，越值得先备份再更新。",
+    t('「更新 = 整个替换」：steamcmd 更新一个 mod 时不是打补丁，而是把旧的内容文件夹整个删掉、重新下载完整一份——更新完成后，旧版本就不在磁盘上了。想留后路：更新确认清单里选「备份+更新」，或在【备份与恢复】页手动备份；更新后随时可去恢复旧版本。所以“落后天数”越大，越值得先备份再更新。'),
 
-    "「落后」怎么看：落后 = 远端最新版本比本地确认版本新了几天"
-    "（0 天显示“最新”）；“—” = 版本未知（还没下载确认过、或还没跑过"
-    "【更新检测】）。本地确认版本只认三扇正门：批次收尾确认、入账"
-    "中心认领、右键手动设定——盘面上的值不自动进账。",
+    t('「落后」怎么看：落后 = 远端最新版本比本地确认版本新了几天（0 天显示“最新”）；“—” = 版本未知（还没下载确认过、或还没跑过【更新检测】）。本地确认版本只认三扇正门：批次收尾确认、入账中心认领、右键手动设定——盘面上的值不自动进账。'),
 
-    "想找“某天更新了哪些”：卡片标题上写着两个日期——「远端」= 作者"
-    "发布现在这版的日子，「本地」= 确认版本的日子。排序下拉选"
-    "「远端更新 新→旧」从新往旧翻，或直接在过滤框输入日期（如 "
-    "2026-09-26；输 2026-09 就是整个 9 月）。注意这是“版本是哪天的”"
-    "——你哪天跑的检测/下载，看卡片里快照表的「快照时间」。",
+    t('想找“某天更新了哪些”：卡片标题上写着两个日期——「远端」= 作者发布现在这版的日子，「本地」= 确认版本的日子。排序下拉选「远端更新 新→旧」从新往旧翻，或直接在过滤框输入日期（如 2026-09-26；输 2026-09 就是整个 9 月）。注意这是“版本是哪天的”——你哪天跑的检测/下载，看卡片里快照表的「快照时间」。'),
 
-    "数据从哪来：快照 = 每次【更新检测】落库时自动拍下的“当时的"
-    "远端版本”。每个 mod 只滚动保留最近几条（设置页「快照保留"
-    "条数」可调）——所以这里是最近的更新史，不是全史。",
+    t('数据从哪来：快照 = 每次【更新检测】落库时自动拍下的“当时的远端版本”。每个 mod 只滚动保留最近几条（设置页「快照保留条数」可调）——所以这里是最近的更新史，不是全史。'),
 
-    "能做什么动作：平铺视图在行上右键；分组卡片上是常驻按钮——"
-    "打开工坊页面、打开 mod 文件夹、复制编号、编辑备注（备注保存后"
-    "立即入库，【mod 库】页同步可见）。",
+    t('能做什么动作：平铺视图在行上右键；分组卡片上是常驻按钮——打开工坊页面、打开 mod 文件夹、复制编号、编辑备注（备注保存后立即入库，【mod 库】页同步可见）。'),
 
-    "本页除了备注以外全只读。要更新请去【下载命令生成】勾选复制；"
-    "更新完回来点【刷新】看新对照。",
+    t('本页除了备注以外全只读。要更新请去【下载命令生成】勾选复制；更新完回来点【刷新】看新对照。'),
 )
 
 
@@ -212,13 +194,13 @@ class UpdateComparePage(QWidget):
         h.addWidget(self._view_combo)
 
         self._sort_combo = QComboBox(bar)
-        for label, data in (("最近记录 新→旧", "recent"),
-                            ("远端更新 新→旧", "remote_desc"),
-                            ("远端更新 旧→新", "remote_asc"),
-                            ("本地版本 新→旧", "local_desc"),
-                            ("本地版本 旧→新", "local_asc"),
-                            ("标题 A→Z", "title"),
-                            ("编号 从小到大", "id")):
+        for label, data in ((t('最近记录 新→旧'), "recent"),
+                            (t('远端更新 新→旧'), "remote_desc"),
+                            (t('远端更新 旧→新'), "remote_asc"),
+                            (t('本地版本 新→旧'), "local_desc"),
+                            (t('本地版本 旧→新'), "local_asc"),
+                            (t('标题 A→Z'), "title"),
+                            (t('编号 从小到大'), "id")):
             self._sort_combo.addItem(label, data)
 
         self._sort_combo.setToolTip(
@@ -231,8 +213,8 @@ class UpdateComparePage(QWidget):
         h.addWidget(self._sort_combo)
 
         self._status_combo = QComboBox(bar)
-        for label, data in (("全部状态", None), ("已下载", "downloaded"),
-                            ("待下载", "tracked"), ("已失败", "failed")):
+        for label, data in ((t('全部状态'), None), ("已下载", "downloaded"),
+                            (t('待下载'), "tracked"), (t('已失败'), "failed")):
             self._status_combo.addItem(label, data)
         self._status_combo.setToolTip(t("只看某个状态的 mod（两个视图都生效）"))
 
@@ -403,12 +385,9 @@ class UpdateComparePage(QWidget):
             # 两种空要分开说：全被"无快照"过滤 = 有 mod 但都还没有
             # 版本记录；真没 mod = 筛选太严或空档案
             if no_snap:
-                hint = ("（筛出的 mod 都还没有版本快照，这里不显示空卡。"
-                        "版本记录来自【更新检测】，有记录的 mod 会出现"
-                        "在这里）")
+                hint = (t('（筛出的 mod 都还没有版本快照，这里不显示空卡。版本记录来自【更新检测】，有记录的 mod 会出现在这里）'))
             else:
-                hint = ("（没有匹配当前筛选的 mod——清空关键词或状态试试；"
-                        "或先跑【更新检测】）")
+                hint = (t('（没有匹配当前筛选的 mod——清空关键词或状态试试；或先跑【更新检测】）'))
             self._empty_hint = QLabel(hint, self)
             self._empty_hint.setWordWrap(True)
             self._empty_hint.setStyleSheet("color: gray;")
@@ -421,12 +400,9 @@ class UpdateComparePage(QWidget):
         total = sum(len(s) for _, s in pairs)
         tail = ""
         if no_snap:
-            tail = (f"｜另有 {len(no_snap)} 个 mod 还没有版本快照，未显示"
-                    "（版本记录来自【更新检测】）")
+            tail = ((t('｜另有 ') + f"{len(no_snap)}" + t(' 个 mod 还没有版本快照，未显示（版本记录来自【更新检测】）')))
         self._summary.setText(
-            f"当前筛出 {len(pairs)} 个 mod · 共 {total} 条快照"
-            "（每 mod 滚动保留最近若干条——设置页「快照保留条数」可调，"
-            "这里是最近的更新史，不是全史）"
+            (t('当前筛出 ') + f"{len(pairs)}" + t(' 个 mod · 共 ') + f"{total}" + t(' 条快照（每 mod 滚动保留最近若干条——设置页「快照保留条数」可调，这里是最近的更新史，不是全史）'))
             + tail)
 
 
@@ -451,21 +427,14 @@ class UpdateComparePage(QWidget):
         if days is None:
             sev, lag_txt = _C_MUTED, "版本未知"
         elif days == 0:
-            sev, lag_txt = _C_OK, "最新"
+            sev, lag_txt = _C_OK, t('最新')
         elif days <= 30:
-            sev, lag_txt = _C_WARN, f"落后 {days} 天"
+            sev, lag_txt = _C_WARN, (t('落后 ') + f"{days}" + t(' 天'))
         else:
-            sev, lag_txt = _C_FAIL, f"落后 {days} 天"
-        title_esc = html.escape(m.title or "（无标题）")
+            sev, lag_txt = _C_FAIL, (t('落后 ') + f"{days}" + t(' 天'))
+        title_esc = html.escape(m.title or t('（无标题）'))
         head_txt = (
-            f"<span style='color:{sev};'>●</span> "
-            f"<b>{title_esc}</b>"
-            f"<span style='color:{_C_MUTED};'>（{m.mod_id}）</span>"
-            f" ｜ <b style='color:{sev};'>{lag_txt}</b>"
-            f"<span style='color:{_C_MUTED};'>"
-            f" ｜ 远端 {_short_date(m.time_updated)}"
-            f" ｜ 本地 {_short_date(m.confirmed_version)}"
-            f" ｜ {len(snaps)} 条快照</span>")
+            ("<span style='color:" + f"{sev}" + ";'>●</span> <b>" + f"{title_esc}" + "</b><span style='color:" + f"{_C_MUTED}" + ";'>（" + f"{m.mod_id}" + "）</span> ｜ <b style='color:" + f"{sev}" + ";'>" + f"{lag_txt}" + "</b><span style='color:" + f"{_C_MUTED}" + t(";'> ｜ 远端 ") + f"{_short_date(m.time_updated)}" + t(' ｜ 本地 ') + f"{_short_date(m.confirmed_version)}" + ' ｜ ' + f"{len(snaps)}" + t(' 条快照</span>')))
         content = QWidget(self)
         cv = QVBoxLayout(content)
         cv.setContentsMargins(4, 4, 4, 4)
@@ -576,9 +545,8 @@ class UpdateComparePage(QWidget):
         n_stale = sum(1 for _, d in rows if d is not None and d > 0)
         n_old = sum(1 for _, d in rows if d is not None and d > 30)
         self._summary.setText(
-            f"当前筛出 {len(rows)} 个｜版本落后 {n_stale} 个"
-            f"（其中超 30 天 {n_old} 个）"
-            + ("｜「—」= 版本未知（未下载或没检测过）"
+            (t('当前筛出 ') + f"{len(rows)}" + t(' 个｜版本落后 ') + f"{n_stale}" + t(' 个（其中超 30 天 ') + f"{n_old}" + t(' 个）'))
+            + (t('｜「—」= 版本未知（未下载或没检测过）')
                if any(d is None for _, d in rows) else ""))
     def _fill_flat_row(self, i: int, m, days: int | None) -> None:
         tbl = self._table
@@ -589,10 +557,10 @@ class UpdateComparePage(QWidget):
                             "行上右键有更多动作"))
         self._set_item(i, C_URL, url_item, m)
 
-        title = _SortItem(m.title or "（无标题）", (m.title or "").casefold())
+        title = _SortItem(m.title or t('（无标题）'), (m.title or "").casefold())
         title.setToolTip(
-            f"{m.mod_id} {m.title or '（无标题）'}"
-            + (f"\n备注：{m.note}" if m.note else ""))
+            f"{m.mod_id} {m.title or t('（无标题）')}"
+            + ((t('\n备注：') + f"{m.note}") if m.note else ""))
         self._set_item(i, C_TITLE, title, m)
 
         self._set_item(i, C_MID, _SortItem(str(m.mod_id), m.mod_id), m)
@@ -602,7 +570,7 @@ class UpdateComparePage(QWidget):
         note_item = _SortItem(m.note or "—", (m.note or "").casefold())
         if not m.note:
             note_item.setForeground(QBrush(QColor("gray")))
-        note_item.setToolTip(m.note or "（无备注——右键【编辑备注】添加）")
+        note_item.setToolTip(m.note or t('（无备注——右键【编辑备注】添加）'))
         self._set_item(i, C_NOTE, note_item, m)
 
         self._set_item(i, C_LOCAL, _SortItem(
@@ -616,7 +584,7 @@ class UpdateComparePage(QWidget):
             item = _SortItem("—", -1)
             item.setForeground(QBrush(QColor("gray")))
         elif days == 0:
-            item = _SortItem("最新", 0)
+            item = _SortItem(t('最新'), 0)
             item.setForeground(QBrush(QColor(_C_OK)))
         else:
             item = _SortItem(f"{days} " + t("天"), days)

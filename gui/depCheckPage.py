@@ -165,7 +165,7 @@ class DepCheckPage(QWidget):
         self.root_layout.addWidget(self._miss_head)
         self._miss_table = QTableWidget(0, 5, self)
         self._miss_table.setHorizontalHeaderLabels(
-            ["选", "编号", "标题", "缺数", "缺失依赖（必需物品）"])
+            [t('选'), t('编号'), "标题", t('缺数'), t('缺失依赖（必需物品）')])
         self._miss_table.verticalHeader().setVisible(False)
         self._miss_table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -200,7 +200,7 @@ class DepCheckPage(QWidget):
         self.root_layout.addWidget(self._dep_detail_head)
         self._dep_detail = QTableWidget(0, 7, self)
         self._dep_detail.setHorizontalHeaderLabels(
-            ["选", "编号", "标题", "大小", "远端更新", "状态", "被谁依赖"])
+            [t('选'), t('编号'), "标题", t('大小'), t('远端更新'), t('状态'), t('被谁依赖')])
         self._dep_detail.verticalHeader().setVisible(False)
         self._dep_detail.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -230,8 +230,8 @@ class DepCheckPage(QWidget):
             lambda *_a: self._apply_filter())
 
         self._sec_changed = self._make_section(
-            "依赖变化（与上次拉取相比，作者增删了必需物品）",
-            "清单已按本次为准入账，对照看即可。", _C_WARN)
+            t('依赖变化（与上次拉取相比，作者增删了必需物品）'),
+            t('清单已按本次为准入账，对照看即可。'), _C_WARN)
 
         self._note = QLabel("", self)
         self._note.setWordWrap(True)
@@ -264,8 +264,8 @@ class DepCheckPage(QWidget):
             # 动作会拿旧档案当新档案跑（修24）。
             self._game = game
             self._game_label.setText(
-                f"当前游戏：{game.name}（{game.app_id}）"
-                if game is not None else "当前游戏：（未选择）")
+                (t('当前游戏：') + f"{game.name}" + '（' + f"{game.app_id}" + '）')
+                if game is not None else t('当前游戏：（未选择）'))
             return
         self._game = game
         self._clear_results()
@@ -424,8 +424,8 @@ class DepCheckPage(QWidget):
             added = sorted(set(new) - set(old))
             removed = sorted(set(old) - set(new))
             note = (f"{len(old)} → {len(new)}"
-                    + (f"，新增 {self._ids_text(added)}" if added else "")
-                    + (f"，移除 {self._ids_text(removed)}" if removed else ""))
+                    + ((t('，新增 ') + f"{self._ids_text(added)}") if added else "")
+                    + ((t('，移除 ') + f"{self._ids_text(removed)}") if removed else ""))
             chg_rows.append((mid, self._title_of(mid), note))
         self._fill_list(self._sec_changed[1], chg_rows)
         n_bad = len(deps.missing) + len(deps.changed)
@@ -440,12 +440,11 @@ class DepCheckPage(QWidget):
                     t('无异常（解析 ') + f"{deps.fetched}" + t(' 条：无依赖 ') + f"{len(deps.childless)}" + t(' 条，其余依赖全部在账本）。'))
                 self._summary.setStyleSheet(f"color: {_C_OK};")
         else:
-            head = ("首次拉取（本次结果已作为基线入账，缺依赖照常要补）：\n"
+            head = (t('首次拉取（本次结果已作为基线入账，缺依赖照常要补）：\n')
                     if self._first_fetch else "")
-            stat = (f"缺依赖 {len(deps.missing)} · "
-                    f"依赖变化 {len(deps.changed)}")
+            stat = ((t('缺依赖 ') + f"{len(deps.missing)}" + t(' · 依赖变化 ') + f"{len(deps.changed)}"))
             if deps.undetermined:
-                stat += f" · 未判定 {len(deps.undetermined)}"
+                stat += (t(' · 未判定 ') + f"{len(deps.undetermined)}")
             self._summary.setText(head + stat)
             self._summary.setStyleSheet(f"color: {_C_WARN};")
         # 补充说明行
@@ -453,32 +452,27 @@ class DepCheckPage(QWidget):
         notes = []
         if deps.undetermined:
             notes.append(
-                f"未判定 {len(deps.undetermined)} 条（Steam 说这些条目"
-                "有依赖，但清单没随响应给出，或数据不全）——保守起见"
-                "本次不入账、不冒充「无依赖」。重拉一次；持续出现把"
-                "日志发给开发者。" + self._ids_text(deps.undetermined))
+                (t('未判定 ') + f"{len(deps.undetermined)}" + t(' 条（Steam 说这些条目有依赖，但清单没随响应给出，或数据不全）——保守起见本次不入账、不冒充「无依赖」。重拉一次；持续出现把日志发给开发者。')) + self._ids_text(deps.undetermined))
         if deps.skipped:
             notes.append(t('另有 ') + f"{deps.skipped}" + t(' 条远端失效/查询失败，无从判依赖（见【异常处置】页桶④⑤）。'))
         notes.append(
-            "依赖清单以最近一次拉取为准（重拉全量刷新）；上次拉取："
-            + (abs_time(last_fetch) if last_fetch else "（本次是第一次）")
-            + "。依赖指向的条目虽在账本但已失效/删除的，去【异常处置】页"
-              "处置——本页不重复报。")
+            t('依赖清单以最近一次拉取为准（重拉全量刷新）；上次拉取：')
+            + (abs_time(last_fetch) if last_fetch else t('（本次是第一次）'))
+            + t('。依赖指向的条目虽在账本但已失效/删除的，去【异常处置】页处置——本页不重复报。'))
         self._note.setText("\n".join(notes))
         self._log.ok(
-            "依赖拉取完成：" + f"{written} 个 mod 清单入账"
-            + (f"，描述落库 {n_desc} 条" if n_desc else "")
-            + (f"，缺依赖 {len(deps.missing)} 个 mod" if deps.missing else "")
-            + (f"，依赖变化 {len(deps.changed)}" if deps.changed else "")
-            + (f"，未判定 {len(deps.undetermined)}"
+            t('依赖拉取完成：') + (f"{written}" + t(' 个 mod 清单入账'))
+            + ((t('，描述落库 ') + f"{n_desc}" + t(' 条')) if n_desc else "")
+            + ((t('，缺依赖 ') + f"{len(deps.missing)}" + t(' 个 mod')) if deps.missing else "")
+            + ((t('，依赖变化 ') + f"{len(deps.changed)}") if deps.changed else "")
+            + ((t('，未判定 ') + f"{len(deps.undetermined)}")
                if deps.undetermined else ""))
 
     def _on_failed(self, message: str) -> None:
         self._set_running(False)
         text = message
         if "403" in message:
-            text = ("服务器拒绝（403）：key 无效或已被重置——重新拉取并"
-                    "粘贴正确的 key（注册方法见【Steam API 密钥】页）")
+            text = (t('服务器拒绝（403）：key 无效或已被重置——重新拉取并粘贴正确的 key（注册方法见【Steam API 密钥】页）'))
         self._summary.setText(
             t('依赖拉取失败：') + f"{text}" + t('\n（依赖表未动，稍后可重试。）'))
         self._summary.setStyleSheet(f"color: {_C_FAIL};")
@@ -563,11 +557,10 @@ class DepCheckPage(QWidget):
                 missing[m.mod_id] = lack
         self._render_missing(missing, offline=True)
         self._summary.setText(
-            f"离线总览（按上次拉取入账的清单现算，未联网）："
-            f"缺依赖 {len(missing)} 个 mod。"
-            + ("点【拉取依赖（联网）】刷新清单与判定。"
+            (t('离线总览（按上次拉取入账的清单现算，未联网）：缺依赖 ') + f"{len(missing)}" + t(' 个 mod。'))
+            + (t('点【拉取依赖（联网）】刷新清单与判定。')
                if missing else
-               "没有缺失——或依赖清单还没拉取过（先联网拉一次）。"))
+               t('没有缺失——或依赖清单还没拉取过（先联网拉一次）。')))
         self._summary.setStyleSheet(f"color: {_C_MUTED};")
     def _render_missing(self, missing: dict[int, list[int]], *,
                         offline: bool = False) -> None:
@@ -577,8 +570,8 @@ class DepCheckPage(QWidget):
         self._missing_now = {mid: list(lack)
                              for mid, lack in missing.items()}
         self._miss_head.setText(
-            "缺依赖（必需物品编号不在账本）"
-            + ("——按上次拉取入账的清单现算；联网重拉会刷新"
+            t('缺依赖（必需物品编号不在账本）')
+            + (t('——按上次拉取入账的清单现算；联网重拉会刷新')
                if offline else ""))
         self._miss_head.setToolTip(
             t("点按钮复制全部缺失编号/网址或送【入账中心 · 登记】；"
@@ -600,7 +593,7 @@ class DepCheckPage(QWidget):
             title = self._title_of(mid)
             c4 = SortItem(self._ids_text(lack), tuple(lack))
             # 排序键 = 缺失编号元组（按首编号排，文本截断不影响）
-            c4.setToolTip("全部缺失依赖编号：\n"
+            c4.setToolTip(t('全部缺失依赖编号：\n')
                           + "\n".join(str(i) for i in lack))
             for c, cell in enumerate((chk, c1,
                                       SortItem(title, title),
@@ -652,15 +645,15 @@ class DepCheckPage(QWidget):
             elif it is not None:
                 title, size, upd = "—", "—", "—"
                 size_key = upd_key = 0
-                state, color, state_rank = ("远端查无（可能下架）",
+                state, color, state_rank = (t('远端查无（可能下架）'),
                                             QColor("#8a8a8f"), 1)
             else:
                 title, size, upd = "—", "—", "—"
                 size_key = upd_key = 0
-                state, color, state_rank = "账外·未查", QColor("#8a8a8f"), 2
+                state, color, state_rank = t('账外·未查'), QColor("#8a8a8f"), 2
             who = req.get(rid) or []
             names = [f"{self._title_of(mid)}（{mid}）" for mid in who]
-            who_text = "、".join(names[:2]) + (f" 等 {len(who)} 个"
+            who_text = "、".join(names[:2]) + ((t(' 等 ') + f"{len(who)}" + t(' 个'))
                                               if len(who) > 2 else "")
             chk = QTableWidgetItem()
             chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable
@@ -671,7 +664,7 @@ class DepCheckPage(QWidget):
             c1.setData(Qt.ItemDataRole.UserRole, rid)
             c6 = SortItem(who_text, who_text)
             if names:
-                c6.setToolTip("被这些 mod 依赖：\n" + "\n".join(names))
+                c6.setToolTip(t('被这些 mod 依赖：\n') + "\n".join(names))
             cells = (chk, c1, SortItem(title, title),
                      SortItem(size, size_key), SortItem(upd, upd_key),
                      SortItem(state, state_rank), c6)
@@ -858,12 +851,12 @@ class DepCheckPage(QWidget):
 
     def _title_of(self, mid: int) -> str:
         m = self._mods_by_id.get(mid)
-        return (m.title if m is not None and m.title else None) or "（无标题）"
+        return (m.title if m is not None and m.title else None) or t('（无标题）')
 
     @staticmethod
     def _ids_text(ids: list[int], limit: int = 20) -> str:
         head = "、".join(str(i) for i in ids[:limit])
-        return head + (f" …（共 {len(ids)} 个）" if len(ids) > limit else "")
+        return head + ((t(' …（共 ') + f"{len(ids)}" + t(' 个）')) if len(ids) > limit else "")
 
     def _copy_missing(self, ids: list[int]) -> None:
         QApplication.clipboard().setText("\n".join(str(i) for i in ids))

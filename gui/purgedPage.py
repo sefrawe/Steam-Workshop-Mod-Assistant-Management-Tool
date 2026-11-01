@@ -63,8 +63,8 @@ COL_URL = 4
 COL_PURGED = 5
 COL_RESIDUE = 6
 COL_NOTE = 7
-_COL_HEADERS = ["选", "游戏", "Mod 编号", "标题快照", "↗", "清账时间",
-                "残留", "备注"]
+_COL_HEADERS = [t('选'), t('游戏'), t('Mod 编号'), t('标题快照'), "↗", t('清账时间'),
+                t('残留'), t('备注')]
 _SES_TIP_FOLD = "session/purged_tip_fold"  # 说明区收展状态（沿备份页先例）
 
 class PurgedPage(QWidget):
@@ -114,8 +114,7 @@ class PurgedPage(QWidget):
         # set_content 固定高度契约 → QLabel 包 QScrollArea；页面总
         # 高度仍交给本页已有的整页滚动条管
         self._tip_sec = _Section(
-            "名词与操作说明：黑名单拦什么 / 毒 mod 是什么 / "
-            "三个动作的分工（点箭头收起）", self)
+            t('名词与操作说明：黑名单拦什么 / 毒 mod 是什么 / 三个动作的分工（点箭头收起）'), self)
         tip_scroll = QScrollArea(self._tip_sec)
         tip_scroll.setWidgetResizable(True)
         tip_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -329,7 +328,7 @@ class PurgedPage(QWidget):
                 QTableWidgetItem(self._games.get(r.game_id, str(r.game_id))))
             self._table.setItem(row, COL_MOD_ID,
                                 QTableWidgetItem(str(r.mod_id)))
-            ti = QTableWidgetItem(r.title or "（无标题快照）")
+            ti = QTableWidgetItem(r.title or t('（无标题快照）'))
             ti.setToolTip(r.title or "")
             self._table.setItem(row, COL_TITLE, ti)
             ui = QTableWidgetItem("↗")
@@ -353,8 +352,8 @@ class PurgedPage(QWidget):
 
         n = len(rows)
         self._count_label.setText(
-            f"黑名单共 {n} 个编号"
-            + ("（空——还没有编号被彻底清账或拉黑）" if n == 0 else ""))
+            (t('黑名单共 ') + f"{n}" + t(' 个编号'))
+            + (t('（空——还没有编号被彻底清账或拉黑）') if n == 0 else ""))
         self._refresh_buttons()
         self._apply_filter()
         self._building = False
@@ -392,7 +391,7 @@ class PurgedPage(QWidget):
         has = n > 0
         self._act_allow.setEnabled(has)
         self._act_acf.setEnabled(has)
-        self._btn_sel.setText(f"对选中({n})" if n else "对选中")
+        self._btn_sel.setText((t('对选中(') + f"{n}" + ')') if n else t('对选中'))
 
     def _apply_filter(self) -> None:
         kw = self._search.text().strip().casefold()
@@ -573,9 +572,9 @@ class PurgedPage(QWidget):
                 self._log.error(f'「' + f"{gname}" + t('」的 steamcmd 账本移除失败（条目未动）：') + f"{exc}")
                 continue
             total_removed.extend(removed)
-            line = f"「{gname}」：已移除 {len(removed)} 个条目"
+            line = ('「' + f"{gname}" + t('」：已移除 ') + f"{len(removed)}" + t(' 个条目'))
             if absent:
-                line += f"；{len(absent)} 个编号账本里本来就没有（无需处理）"
+                line += ('；' + f"{len(absent)}" + t(' 个编号账本里本来就没有（无需处理）'))
             self._log.ok(line)
         if total_removed:
             self._log.warn(
@@ -635,9 +634,9 @@ class PurgedPage(QWidget):
                 self._log.error(f'「' + f"{gname}" + t('」的账本扫除失败（条目未动）：') + f"{exc}")
                 continue
             total_removed.extend(removed)
-            line = f"「{gname}」：已移除 {len(removed)} 个条目"
+            line = ('「' + f"{gname}" + t('」：已移除 ') + f"{len(removed)}" + t(' 个条目'))
             if absent:
-                line += f"；{len(absent)} 个编号账本里本来就没有"
+                line += ('；' + f"{len(absent)}" + t(' 个编号账本里本来就没有'))
             self._log.ok(line)
         if total_removed:
             self._log.warn(t('退出扫尾完成：共移除 ') + f"{len(total_removed)}" + t(' 个账本条目（原文件已自动备份；黑名单登记保留）'))
@@ -744,12 +743,12 @@ class PurgedPage(QWidget):
                   / str(r.mod_id)).exists():
                 parts.append(t('下载半成品'))
             if not parts and not unknown:
-                out[r.mod_id] = ("✓", "三个位置都没有残留")
+                out[r.mod_id] = ("✓", t('三个位置都没有残留'))
                 continue
-            tip = ("、".join(parts) if parts else "已知范围无残留")
+            tip = ("、".join(parts) if parts else t('已知范围无残留'))
             if unknown:
-                tip += "\n未查：" + "；".join(unknown)
-            out[r.mod_id] = (f"⚠ {len(parts)} 处" if parts else "✓", tip)
+                tip += t('\n未查：') + "；".join(unknown)
+            out[r.mod_id] = (('⚠ ' + f"{len(parts)}" + t(' 处')) if parts else "✓", tip)
         return out
 
     def _cleanup_residue_checked(self) -> None:
@@ -795,17 +794,16 @@ class PurgedPage(QWidget):
                 t("勾选的编号在三个位置都没有可清的残留（或 steamcmd "
                 "未配置无法定位账本——那两项会在退出软件时自动处理）。"))
             return
-        lines = [f"对 {len(jobs)} 个编号清除残留（黑名单登记保留）：",
-                 "", "涉及："]
+        lines = [(t('对 ') + f"{len(jobs)}" + t(' 个编号清除残留（黑名单登记保留）：')),
+                 "", t('涉及：')]
         for r, spots in jobs[:10]:
-            lines.append(f" · {r.mod_id} {r.title or '（无标题）'}｜"
+            lines.append(f" · {r.mod_id} {r.title or t('（无标题）')}｜"
                          + "、".join(spots))
         if len(jobs) > 10:
             lines.append(t(' ……以及另外 ') + f"{len(jobs) - 10}" + t(' 个'))
-        lines += ["", "· 内容目录与半成品物理删除，不可撤销；",
-                  "· 账本条目移除前自动备份原账本文件（同目录 "
-                  ".bak_时间戳）；",
-                  "· 已是联接的目录跳过不动（绝不穿透删除）。"]
+        lines += ["", t('· 内容目录与半成品物理删除，不可撤销；'),
+                  t('· 账本条目移除前自动备份原账本文件（同目录 .bak_时间戳）；'),
+                  t('· 已是联接的目录跳过不动（绝不穿透删除）。')]
         ret = QMessageBox.question(
             self, t("清除残留"), "\n".join(lines),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -857,6 +855,6 @@ class PurgedPage(QWidget):
             self._log.warn(t('残留清除：') + f"{line}")
         if fail_lines:
             QMessageBox.warning(self, t("清除残留"),
-                                "部分失败（详见运行日志）：\n"
+                                t('部分失败（详见运行日志）：\n')
                                 + "\n".join(fail_lines[:10]))
         self._reload()

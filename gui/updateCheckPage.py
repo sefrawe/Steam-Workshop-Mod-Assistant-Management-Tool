@@ -58,16 +58,11 @@ _KEY_AUTO_DOWNLOAD = "auto_download_after_check"
 # Steam 官方接口单批上限 100（D13 沿用）
 _BATCH = 100
 
-_RESULT_COLUMNS = ["编号", "标题", "结果", "远端更新", "更新间隔", "大小", "操作"]
+_RESULT_COLUMNS = [t('编号'), "标题", t('结果'), t('远端更新'), t('更新间隔'), t('大小'), t('操作')]
 
 # 决策 46：网络类失败固定附带的提示（失败原文照展在前，提示附后——
 # 连接超时是到 Steam 的链路波动，不是软件坏了，也不是 Steam 限流）
-_NET_HINT = ("提示：连续失败常是到 Steam 服务器的网络波动（晚间更明显），"
-             "属正常现象——稍等几分钟到几十分钟再试通常就能恢复。"
-             "本次结果没有写入，数据无损；不必连续重试（失败要等重试"
-             "跑完才报错，最长一两分钟），隔段时间来试即可。"
-             "可以参考watt toolkit的连通性测试，若一直不通过，"
-             "可以尝试关闭watt toolkit，然后尝试。下载mod同理。")
+_NET_HINT = (t('提示：连续失败常是到 Steam 服务器的网络波动（晚间更明显），属正常现象——稍等几分钟到几十分钟再试通常就能恢复。本次结果没有写入，数据无损；不必连续重试（失败要等重试跑完才报错，最长一两分钟），隔段时间来试即可。可以参考watt toolkit的连通性测试，若一直不通过，可以尝试关闭watt toolkit，然后尝试。下载mod同理。'))
 
 
 class _CheckWorker(QThread):
@@ -334,9 +329,9 @@ class UpdateCheckPage(QWidget):
         """开一次检测。返回 "" = 已受理开跑；非空 = 拒绝原因（中文，
         给主窗口写日志用）。"""
         if self._game is None:
-            return "没有选择档案"
+            return t('没有选择档案')
         if self._worker is not None:
-            return "已有检测在进行"
+            return t('已有检测在进行')
         mods = self._repo.list_mods(self._game.app_id,
                                     order_by="time_updated DESC")
         ids = [m.mod_id for m in mods if m.status != "deleted"]
@@ -344,7 +339,7 @@ class UpdateCheckPage(QWidget):
             self._summary.setText(
                 t("当前档案没有任何可检测的 mod（已删除的除外）。"))
             self._summary.setStyleSheet("color: gray;")
-            return "当前档案没有可检测的 mod"
+            return t('当前档案没有可检测的 mod')
         self._mods_at_start = mods
         # 记下"开始检测那一刻"的档案：本轮所有结果（含展开合集登记的
         # 条目）都写进它，即便检测过程中用户切到了别的档案
@@ -356,7 +351,7 @@ class UpdateCheckPage(QWidget):
             self._summary.setText(
                 t('另有联网任务在进行（') + f"{busy}" + t('）：等它结束后再检测。'))
             self._summary.setStyleSheet("color: #f5a623;")
-            return f"另有联网任务在进行（{busy}）"
+            return (t('另有联网任务在进行（') + f"{busy}" + '）')
         self._progress.setRange(0, len(ids))
         self._progress.setValue(0)
         self._set_running(True)
@@ -437,13 +432,13 @@ class UpdateCheckPage(QWidget):
         downloaded 且确认基准为空 = 版本未知；downloaded 且远端更新 >
         确认基准 = 需更新；其余（已最新 / 未下载 / 远端未知）不进表。"""
         if m.status != "downloaded":
-            return "未下载"
+            return t('未下载')
         if m.confirmed_version is None:
             return "版本未知"
         if (m.time_updated is not None
                 and m.time_updated > m.confirmed_version):
             return "需更新"
-        return "已最新"
+        return t('已最新')
     def _apply_results(self, ok_items: list[WorkshopItem],
                        suspected_ids: set[int],
                        failed: dict[int, int]) -> tuple[int, dict, int]:
@@ -490,7 +485,7 @@ class UpdateCheckPage(QWidget):
                 if row is None or row.status not in ("downloaded", "failed"):
                     continue
                 self._repo.mark_failed(
-                    mid, "接口返回 result=9（删除/下架/转私有等）")
+                    mid, t('接口返回 result=9（删除/下架/转私有等）'))
                 n_archived += 1
             for item in ok_items:
                 row = self._repo.get_mod(item.mod_id)
@@ -595,7 +590,7 @@ class UpdateCheckPage(QWidget):
         for m in visible:
             fresh = self._repo.get_mod(m.mod_id)
             title = (fresh.title if fresh is not None else None) \
-                    or m.title or "（无标题）"
+                    or m.title or t('（无标题）')
             if m.mod_id in failed:
                 kind = "查询失败"
             elif m.mod_id in suspected_ids:
@@ -634,7 +629,7 @@ class UpdateCheckPage(QWidget):
             if m.mod_id in failed:
                 code = failed[m.mod_id]
                 if code == 9:
-                    it = self._set_cell(r, 3, "result=9：条目已失效")
+                    it = self._set_cell(r, 3, t('result=9：条目已失效'))
                     it.setToolTip(
                         t("Steam 接口已看不见该条目（作者删除/下架/"
                         "转私有等）。接口看不见 ≠ 一定下载不了——"
@@ -647,8 +642,7 @@ class UpdateCheckPage(QWidget):
                         t("接口返回了异常结果码（可能被设为私有/地区"
                         "限制/远端波动）——稍后重测即可"))
             elif m.mod_id in suspected_ids:
-                self._set_cell(r, 3, "远端缺少文件大小——可能是合集，"
-                                     "点右侧按钮确认")
+                self._set_cell(r, 3, t('远端缺少文件大小——可能是合集，点右侧按钮确认'))
             else:
                 self._set_cell(r, 3, relative_time(fresh.time_updated))
             # 更新间隔 = 本次版本距上一版过了多少天（作者的更新节奏）。
@@ -660,7 +654,7 @@ class UpdateCheckPage(QWidget):
                     and baseline != fresh.time_updated):
                 days = (fresh.time_updated - baseline) / 86400
             if days is not None and days >= 0:
-                text = f"{days:.0f} 天" if days >= 1 else "不足 1 天"
+                text = (f"{days:'.0f'}" + t(' 天')) if days >= 1 else t('不足 1 天')
                 item = self._set_cell(r, 4, text)
                 if days > threshold:
                     item.setForeground(red)
@@ -715,14 +709,10 @@ class UpdateCheckPage(QWidget):
             bits.append(t('红=两者兼有 ') + f"{n_both}")
         if failed:
             bits.append(t('紫=查询失败 ') + f"{len(failed)}")
-        color_tail = ("｜底色：" + "，".join(bits)) if bits else ""
-        arch_tail = f"（result=9 建档 {n_archived}）" if n_archived else ""
+        color_tail = (t('｜底色：') + "，".join(bits)) if bits else ""
+        arch_tail = (t('（result=9 建档 ') + f"{n_archived}" + '）') if n_archived else ""
         self._summary_base = (
-            f"检测完成：需更新 {counts['需更新']}｜版本未知 "
-            f"{counts['版本未知']}｜疑似合集 {counts['疑似']}"
-            f"｜查询失败 {counts['失败']}{arch_tail}"
-            f"｜已最新/未下载/远端未知 {n_normal} 个（不占表）"
-            f"{color_tail}")
+            (t('检测完成：需更新 ') + f"{counts['需更新']}" + t('｜版本未知 ') + f"{counts['版本未知']}" + t('｜疑似合集 ') + f"{counts['疑似']}" + t('｜查询失败 ') + f"{counts['失败']}" + f"{arch_tail}" + t('｜已最新/未下载/远端未知 ') + f"{n_normal}" + t(' 个（不占表）') + f"{color_tail}"))
         self._summary.setText(self._summary_base)
         self._summary.setStyleSheet("color: #46a758;")
         self._sync_result_filter_options()  # 空档置灰（可能退回「不筛选」）
@@ -738,10 +728,10 @@ class UpdateCheckPage(QWidget):
             return
         from PySide6.QtWidgets import QComboBox
         combo = QComboBox(self)
-        for text, key in (("不筛选", None), ("★ 特别关注", "special"),
-                          ("长时间未更新", "stale"), ("两者兼有（红）", "both"),
-                          ("查询失败（紫）", "failed"),
-                          ("其他（无底色）", "plain")):
+        for text, key in ((t('不筛选'), None), (t('★ 特别关注'), "special"),
+                          (t('长时间未更新'), "stale"), (t('两者兼有（红）'), "both"),
+                          (t('查询失败（紫）'), "failed"),
+                          (t('其他（无底色）'), "plain")):
             combo.addItem(text, key)
         combo.setToolTip(
             t("按结果表的底色类别筛行（纯显隐，不重查库）：\n"
@@ -814,7 +804,7 @@ class UpdateCheckPage(QWidget):
         if want is None or total == 0 or n_show == total:
             self._summary.setText(base)
         else:
-            self._summary.setText(base + f"｜筛选中：显示 {n_show} / {total}")
+            self._summary.setText(base + (t('｜筛选中：显示 ') + f"{n_show}" + ' / ' + f"{total}"))
     def _on_result_context_menu(self, pos) -> None:
         """结果表右键菜单：打开工坊页面 / 打开 mod 文件夹 / 复制编号。
         行 → 编号直接读第 0 列文本（_show_results 写的就是纯数字），
@@ -838,15 +828,15 @@ class UpdateCheckPage(QWidget):
 
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        act_url = menu.addAction("打开工坊页面")
+        act_url = menu.addAction(t('打开工坊页面'))
         act_url.setToolTip(t("在浏览器打开该 mod 的 Steam 创意工坊页面"))
-        act_folder = menu.addAction("打开 mod 文件夹")
+        act_folder = menu.addAction(t('打开 mod 文件夹'))
         act_folder.setToolTip(
             t("在文件管理器打开该 mod 的下载内容文件夹（下载目录\\编号）"))
         if m is None:
             act_folder.setEnabled(False)
         menu.addSeparator()
-        act_copy = menu.addAction("复制编号")
+        act_copy = menu.addAction(t('复制编号'))
         act_copy.setToolTip(t("把这个 mod 的工坊编号复制到剪贴板"))
         act = menu.exec(self._table.viewport().mapToGlobal(pos))
         if act is None:
@@ -888,7 +878,7 @@ class UpdateCheckPage(QWidget):
             # 检测那一刻的档案，触发值随批携带（批次收尾 D4 分支用）
             self.updates_found.emit(self._check_game.app_id,
                                     list(triggers.keys()), triggers)
-        tail = (f"，result=9 已建失效归档 {n_archived} 条"
+        tail = ((t('，result=9 已建失效归档 ') + f"{n_archived}" + t(' 条'))
                 if n_archived else "")
         self._log.ok(t('检测完成：需更新 ') + f"{updates_found}" + t('，疑似合集 ') + f"{len(suspected_ids)}" + t('，查询失败 ') + f"{len(failed)}" + f"{tail}")
 

@@ -143,17 +143,17 @@ class AdvancedFilter:
             days = max(round((time.time() - self.local_from) / _DAY), 1)
             parts.append(t('本地版本：近 ') + f"{days}" + t(' 天'))
         if self.tags_all:
-            parts.append("标签同时含 " + "、".join(self.tags_all))
+            parts.append(t('标签同时含 ') + "、".join(self.tags_all))
         if self.update_status:
-            parts.append({"need_update": "需更新", "up_to_date": "最新",
+            parts.append({"need_update": "需更新", "up_to_date": t('最新'),
                           "unknown": "版本未知"}[self.update_status])
         if self.confirmed_source is not None:
-            word = {"": "未确认", "verified": "已验证",
-                    "unverified": "未验证", "manual": "手动设定",
-                    "claim": "认领", "inherited_acf": "旧账"}.get(
+            word = {"": t('未确认'), "verified": t('已验证'),
+                    "unverified": t('未验证'), "manual": t('手动设定'),
+                    "claim": t('认领'), "inherited_acf": t('旧账')}.get(
                 self.confirmed_source, self.confirmed_source)
             parts.append(t('本地版本来源：') + f"{word}")
-        return " · ".join(parts) if parts else "（无生效条件）"
+        return " · ".join(parts) if parts else t('（无生效条件）')
 
 class AdvancedSearchDialog(QDialog):
     """非模态高级筛选窗。mod 库页持有实例、连 conditions_changed，
@@ -242,7 +242,7 @@ class AdvancedSearchDialog(QDialog):
         self._size_min = QDoubleSpinBox(self)
         self._size_min.setRange(0.0, 10_000_000.0)   # 上限 10 TB，到不了
         self._size_min.setSuffix(" MiB")
-        self._size_min.setSpecialValueText("不限")
+        self._size_min.setSpecialValueText(t('不限'))
         self._size_min.setDecimals(1)
         self._size_min.valueChanged.connect(self._poke)
         form.addRow(t('大小下限'), self._size_min)
@@ -250,15 +250,15 @@ class AdvancedSearchDialog(QDialog):
         self._size_max = QDoubleSpinBox(self)
         self._size_max.setRange(0.0, 10_000_000.0)
         self._size_max.setSuffix(" MiB")
-        self._size_max.setSpecialValueText("不限")
+        self._size_max.setSpecialValueText(t('不限'))
         self._size_max.setDecimals(1)
         self._size_max.valueChanged.connect(self._poke)
         form.addRow(t('大小上限'), self._size_max)
 
         # 远端更新时间：快捷档 + 自定义区间两用
         self._quick_combo = QComboBox(self)
-        for label, data in (("不限", None), ("近 7 天", 7), ("近 30 天", 30),
-                            ("近 90 天", 90), ("自定义区间", "custom")):
+        for label, data in ((t('不限'), None), (t('近 7 天'), 7), (t('近 30 天'), 30),
+                            (t('近 90 天'), 90), (t('自定义区间'), "custom")):
             self._quick_combo.addItem(label, data)
         self._quick_combo.currentIndexChanged.connect(self._on_quick_changed)
         form.addRow(t('远端更新时间'), self._quick_combo)
@@ -289,8 +289,8 @@ class AdvancedSearchDialog(QDialog):
         # 版本（confirmed_version）——它本身就是该版本在工坊的更新时间；
         # 未确认（版本未知）不属于任何区间，自然不命中
         self._local_combo = QComboBox(self)
-        for label, data in (("不限", None), ("近 7 天", 7), ("近 30 天", 30),
-                            ("近 90 天", 90), ("自定义区间", "custom")):
+        for label, data in ((t('不限'), None), (t('近 7 天'), 7), (t('近 30 天'), 30),
+                            (t('近 90 天'), 90), (t('自定义区间'), "custom")):
             self._local_combo.addItem(label, data)
         self._local_combo.currentIndexChanged.connect(self._on_local_changed)
         form.addRow(t('本地版本时间'), self._local_combo)
@@ -319,8 +319,8 @@ class AdvancedSearchDialog(QDialog):
         # 更新状态（⑨b）：计算值不进 SQL——mod 库页取数后内存过滤
         # （颜色筛选同一哲学）；口径与列表「更新」列同一条公式
         self._update_combo = QComboBox(self)
-        for label, data in (("不限", None), ("需更新", "need_update"),
-                            ("最新", "up_to_date"),
+        for label, data in ((t('不限'), None), ("需更新", "need_update"),
+                            (t('最新'), "up_to_date"),
                             ("版本未知", "unknown")):
             self._update_combo.addItem(label, data)
         self._update_combo.setToolTip(
@@ -334,13 +334,13 @@ class AdvancedSearchDialog(QDialog):
         # 契约没有该参数——内存侧过滤（颜色筛选同一哲学）；
         # "" 哨兵 = 未确认（还没有确认版本的条目）
         self._source_combo = QComboBox(self)
-        for label, data in (("不限", None),
-                            ("已验证（终端判决）", "verified"),
-                            ("未验证", "unverified"),
-                            ("手动设定", "manual"),
-                            ("认领", "claim"),
-                            ("旧账（ACF 迁移）", "inherited_acf"),
-                            ("未确认（版本未知）", "")):
+        for label, data in ((t('不限'), None),
+                            (t('已验证（终端判决）'), "verified"),
+                            (t('未验证'), "unverified"),
+                            (t('手动设定'), "manual"),
+                            (t('认领'), "claim"),
+                            (t('旧账（ACF 迁移）'), "inherited_acf"),
+                            (t('未确认（版本未知）'), "")):
             self._source_combo.addItem(label, data)
         self._source_combo.setToolTip(
             t("本地版本是怎么确认的（与详情面板「本地版本」来源词同一套口径）：\n"
