@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import appPaths
+from core.i18n import t
 from gui.theme import font_px  # 字号单源（D25）
 
 # ---- 本文件的两个"身份证"常量 ----
@@ -106,7 +107,7 @@ class WelcomePage(QWidget):
         text = QVBoxLayout()
         text.setSpacing(2)
 
-        title = QLabel("Steam 创意工坊 Mod 辅助管理工具", head)
+        title = QLabel(t('Steam 创意工坊 Mod 辅助管理工具'), head)
         title.setStyleSheet(f"font-size: {font_px(20)}px; font-weight: 600;")
         text.addWidget(title)
 
@@ -114,14 +115,12 @@ class WelcomePage(QWidget):
         # 读不到就不显示这一行——宁可少显示，不显示假信息。
         ver = QApplication.applicationVersion()
         if ver:
-            ver_label = QLabel(f"版本 {ver}", head)
+            ver_label = QLabel(t('版本 ') + f"{ver}", head)
             ver_label.setStyleSheet(f"font-size: {font_px(12)}px;")
             text.addWidget(ver_label)
 
         slogan = QLabel(
-            "管理 Steam 创意工坊 mod 的本地工具：登记、检测更新、生成"
-            "下载命令、确认入账、备份与恢复——全程不需要打开 Steam "
-            "客户端。", head)
+            t('管理 Steam 创意工坊 mod 的本地工具：登记、检测更新、生成下载命令、确认入账、备份与恢复——全程不需要打开 Steam 客户端。'), head)
         slogan.setWordWrap(True)
         text.addWidget(slogan)
 
@@ -420,8 +419,7 @@ class WelcomePage(QWidget):
             "建议、想拿最新版本，请到项目主页：",
         ])
         link = QLabel(
-            f'<a href="{PROJECT_URL}">{PROJECT_URL}</a>'
-            "&nbsp;&nbsp;（点击直接用浏览器打开；也可以选中复制）",
+            f'<a href="' + f"{PROJECT_URL}" + f'">' + f"{PROJECT_URL}" + t('</a>&nbsp;&nbsp;（点击直接用浏览器打开；也可以选中复制）'),
             self)
         link.setWordWrap(True)
         # 点击链接交给系统默认浏览器（Qt 不代管网页）；

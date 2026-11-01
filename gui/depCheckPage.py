@@ -29,6 +29,7 @@ from workflows import exceptionFlow
 from gui.theme import font_px  # 字号单源（D25）
 from PySide6.QtGui import QAction, QColor, QDesktopServices
 from core.formatters import abs_time, fmt_size, relative_time
+from core.i18n import t
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from gui.tableSort import SortItem  # 表头数值排序（单源共享件）
 from gui.collapsibleSection import make_guide  # 先读我单源（共享件内）
@@ -74,7 +75,7 @@ class DepCheckPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("依赖检测", self)
+        title = QLabel(t("依赖检测"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -82,20 +83,20 @@ class DepCheckPage(QWidget):
         root.addWidget(self._game_label)
 
         root.addWidget(make_guide(
-            "先读我：key 现场粘贴用完即弃 · 缺依赖 / 依赖变化的含义",
-            ("mod 的「必需物品」清单由带 key 的官方接口拉取（key 现场"
-             "粘贴、用完即弃，注册方法见【Steam API 密钥】页）。",
-             "清单里编号不在账本 = 缺依赖（红，一键复制编号到"
+            t("先读我：key 现场粘贴用完即弃 · 缺依赖 / 依赖变化的含义"),
+            (t("mod 的「必需物品」清单由带 key 的官方接口拉取（key 现场"
+             "粘贴、用完即弃，注册方法见【Steam API 密钥】页）。"),
+             t("清单里编号不在账本 = 缺依赖（红，一键复制编号到"
              "【入账中心 · 登记】补进账本）；与上次拉取有差 = 依赖变化"
-             "（黄，作者增删了依赖，以最新为准）。"),
+             "（黄，作者增删了依赖，以最新为准）。")),
             self, 130))
 
         # key 管理页直链：已申请过的用户点开就能查看/复制自己的 key，
         # 不用再去【Steam API 密钥】页翻注册步骤
         key_link = QLabel(
-            '<a href="https://steamcommunity.com/dev/apikey">'
+            t('<a href="https://steamcommunity.com/dev/apikey">'
             "已申请过 key？点这里打开 Steam 官方 key 页面"
-            "（登录后可见并可复制）</a>", self)
+            "（登录后可见并可复制）</a>"), self)
         key_link.setOpenExternalLinks(True)  # 没有这行 <a> 只是字、点不动
         root.addWidget(key_link)
 
@@ -104,22 +105,22 @@ class DepCheckPage(QWidget):
         row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
-        self._btn = QPushButton("拉取依赖（联网）", row)
+        self._btn = QPushButton(t("拉取依赖（联网）"), row)
         self._btn.setToolTip(
-            "带 key 批量拉取全部未删除 mod 的必需物品清单：缺什么、"
+            t("带 key 批量拉取全部未删除 mod 的必需物品清单：缺什么、"
             "变了什么一次说清。拉取时会请你粘贴 key（本软件不保存）；"
-            "与其它联网功能共用互斥闸")
+            "与其它联网功能共用互斥闸"))
         self._btn.clicked.connect(self._start_fetch)
         h.addWidget(self._btn)
-        self._stop_btn = QPushButton("停止", row)
+        self._stop_btn = QPushButton(t("停止"), row)
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_fetch)
         h.addWidget(self._stop_btn)
-        self._btn_offline = QPushButton("离线重算总览", row)
+        self._btn_offline = QPushButton(t("离线重算总览"), row)
         self._btn_offline.setToolTip(
-            "不联网：按账本里入过账的依赖清单 × 账本编号集，现算谁缺"
+            t("不联网：按账本里入过账的依赖清单 × 账本编号集，现算谁缺"
             "依赖（毫秒级、与拉取判定同一把尺子）。上次拉取之后账本"
-            "有增删，点它刷新总览")
+            "有增删，点它刷新总览"))
         self._btn_offline.clicked.connect(self._recompute_missing_offline)
         h.addWidget(self._btn_offline)
 
@@ -133,12 +134,12 @@ class DepCheckPage(QWidget):
         srow = QWidget(body)
         sh = QHBoxLayout(srow)
         sh.setContentsMargins(0, 0, 0, 0)
-        sh.addWidget(QLabel("查找：", srow))
+        sh.addWidget(QLabel(t("查找："), srow))
         self._filter_edit = QLineEdit(srow)
         self._filter_edit.setClearButtonEnabled(True)
         self._filter_edit.setPlaceholderText(
-            "按标题 / 编号过滤缺依赖、明细、依赖变化（即时，只隐藏；"
-            "清空恢复）…")
+            t("按标题 / 编号过滤缺依赖、明细、依赖变化（即时，只隐藏；"
+            "清空恢复）…"))
         self._filter_edit.textChanged.connect(
             lambda _t: self._filter_timer.start())
         sh.addWidget(self._filter_edit, 1)
@@ -156,8 +157,8 @@ class DepCheckPage(QWidget):
         # 的唯一对象来源（备份页 COL_CHECK 同款：勾选记编号不记行号）。
         # 双击行 = 打开该 mod 的工坊页面
         self._miss_head = QLabel(
-            "缺依赖（必需物品编号不在账本）——"
-            "点按钮复制/送登记；右键更多动作；双击行开工坊页面", self)
+            t("缺依赖（必需物品编号不在账本）——"
+            "点按钮复制/送登记；右键更多动作；双击行开工坊页面"), self)
         self._miss_head.setWordWrap(True)
         self._miss_head.setStyleSheet(f"color: {_C_FAIL};")
         self._miss_head.setVisible(False)
@@ -192,8 +193,8 @@ class DepCheckPage(QWidget):
         # 与拉取判定同尺：missing 全是账外编号（账内已删除/失效由
         # 异常处置页桶③④管，本页不重复报）
         self._dep_detail_head = QLabel(
-            "缺失依赖明细（蓝=远端在架｜灰=账外未查/远端查无；"
-            "双击行开工坊网页）", self)
+            t("缺失依赖明细（蓝=远端在架｜灰=账外未查/远端查无；"
+            "双击行开工坊网页）"), self)
         self._dep_detail_head.setWordWrap(True)
         self._dep_detail_head.setVisible(False)
         self.root_layout.addWidget(self._dep_detail_head)
@@ -270,11 +271,11 @@ class DepCheckPage(QWidget):
         self._clear_results()
         if game is None:
             self._game_label.setText(
-                "当前游戏：（未选择）—— 请先在左上角添加或选择档案")
+                t("当前游戏：（未选择）—— 请先在左上角添加或选择档案"))
             self._btn.setEnabled(False)
         else:
             self._game_label.setText(
-                f"当前游戏：{game.name}（{game.app_id}）")
+                t('当前游戏：') + f"{game.name}" + f'（' + f"{game.app_id}" + f'）')
             self._btn.setEnabled(True)
             self._recompute_missing_offline()
     def shutdown(self) -> None:
@@ -296,21 +297,21 @@ class DepCheckPage(QWidget):
         # key 用完即弃：不落盘、不进日志、不进会话缓存——每次拉取
         # 现场粘贴；取消或空 = 什么都不发生
         key, ok = QInputDialog.getText(
-            self, "拉取依赖",
-            "粘贴 Steam Web API key（本软件不保存，用完即弃）：\n"
-            "还没有 key？【Steam API 密钥】页有四步注册指引。")
+            self, t("拉取依赖"),
+            t("粘贴 Steam Web API key（本软件不保存，用完即弃）：\n"
+            "还没有 key？【Steam API 密钥】页有四步注册指引。"))
         if not ok:
             return
         key = key.strip()
         if not key:
-            QMessageBox.information(self, "拉取依赖",
-                                    "key 为空：本次没有做任何事。")
+            QMessageBox.information(self, t("拉取依赖"),
+                                    t("key 为空：本次没有做任何事。"))
             return
         mods = self._repo.list_mods(self._game.app_id)
         self._mods_by_id = {m.mod_id: m for m in mods}
         ids = [m.mod_id for m in mods if m.status != "deleted"]
         if not ids:
-            self._log.warn("当前档案没有可拉取依赖的 mod（已删除的除外）")
+            self._log.warn(t("当前档案没有可拉取依赖的 mod（已删除的除外）"))
             return
         # 拉取前基线（GUI 线程读库）：旧边 + 是否首拉 + 账本全集。
         # 判定用的三样数据在这里取齐，线程回来直接算
@@ -321,9 +322,9 @@ class DepCheckPage(QWidget):
         busy = netGate.try_acquire(constants.NET_GATE_DEPENDENCIES)
         if busy is not None:
             self._summary.setText(
-                f"另有联网任务在进行（{busy}）：等它结束后再拉取。")
+                t('另有联网任务在进行（') + f"{busy}" + t('）：等它结束后再拉取。'))
             self._summary.setStyleSheet(f"color: {_C_WARN};")
-            self._log.warn(f"依赖拉取未开始：{busy} 正在使用联网查询")
+            self._log.warn(t('依赖拉取未开始：') + f"{busy}" + t(' 正在使用联网查询'))
             return
         self._owner_game = self._game
         self._clear_results()
@@ -350,18 +351,17 @@ class DepCheckPage(QWidget):
         self._worker.stopped.connect(self._on_stopped)
         self._worker.finished.connect(self._on_finished)
         self._worker.start()
-        self._log.info(f"依赖拉取开始：{len(ids)} 个 mod（keyed 接口，"
-                       "含必需物品清单）…")
+        self._log.info(t('依赖拉取开始：') + f"{len(ids)}" + t(' 个 mod（keyed 接口，含必需物品清单）…'))
 
     def _stop_fetch(self) -> None:
         if self._worker is not None:
             self._worker.stop()
             self._stop_btn.setEnabled(False)
             self._summary.setText(
-                "已请求停止依赖拉取：等待与重试已中断，最多再等一次在途"
-                "请求收场——本次结果未使用、依赖表未动。")
+                t("已请求停止依赖拉取：等待与重试已中断，最多再等一次在途"
+                "请求收场——本次结果未使用、依赖表未动。"))
             self._summary.setStyleSheet("color: gray;")
-            self._log.info("已请求停止依赖拉取")
+            self._log.info(t('已请求停止依赖拉取'))
 
     # ---------- 回调 ----------
     def _on_succeeded(self, entries: list) -> None:
@@ -394,7 +394,7 @@ class DepCheckPage(QWidget):
                 written += 1
             except ValueError as exc:
                 self._log.error(
-                    f"依赖入账失败（mod {e.get('mod_id')}）：{exc}")
+                    t('依赖入账失败（mod ') + f"{e.get('mod_id')}" + f'）：' + f"{exc}")
         # ②′ 描述原文顺手落库（刀1，2026-10）：keyed 回执里的
         # description（BBCode 全文）随依赖拉取进 mods 表——零额外请求，
         # 与更新检测同为零成本正门。时间戳用账内 mod 的 time_updated
@@ -433,16 +433,11 @@ class DepCheckPage(QWidget):
             if self._first_fetch:
                 # 首次拉取 = 建基线，不是"对比过没变化"——话说清
                 self._summary.setText(
-                    f"首次拉取完成：依赖基线已建立并入账"
-                    f"（{written} 条清单，其中无依赖 "
-                    f"{len(deps.childless)} 条，其余依赖全部在"
-                    "账本）。之后作者增删依赖，这里才会报"
-                    "「依赖变化」。")
+                    t('首次拉取完成：依赖基线已建立并入账（') + f"{written}" + t(' 条清单，其中无依赖 ') + f"{len(deps.childless)}" + t(' 条，其余依赖全部在账本）。之后作者增删依赖，这里才会报「依赖变化」。'))
                 self._summary.setStyleSheet(f"color: {_C_MUTED};")
             else:
                 self._summary.setText(
-                    f"无异常（解析 {deps.fetched} 条：无依赖 "
-                    f"{len(deps.childless)} 条，其余依赖全部在账本）。")
+                    t('无异常（解析 ') + f"{deps.fetched}" + t(' 条：无依赖 ') + f"{len(deps.childless)}" + t(' 条，其余依赖全部在账本）。'))
                 self._summary.setStyleSheet(f"color: {_C_OK};")
         else:
             head = ("首次拉取（本次结果已作为基线入账，缺依赖照常要补）：\n"
@@ -463,8 +458,7 @@ class DepCheckPage(QWidget):
                 "本次不入账、不冒充「无依赖」。重拉一次；持续出现把"
                 "日志发给开发者。" + self._ids_text(deps.undetermined))
         if deps.skipped:
-            notes.append(f"另有 {deps.skipped} 条远端失效/查询失败，"
-                         "无从判依赖（见【异常处置】页桶④⑤）。")
+            notes.append(t('另有 ') + f"{deps.skipped}" + t(' 条远端失效/查询失败，无从判依赖（见【异常处置】页桶④⑤）。'))
         notes.append(
             "依赖清单以最近一次拉取为准（重拉全量刷新）；上次拉取："
             + (abs_time(last_fetch) if last_fetch else "（本次是第一次）")
@@ -486,15 +480,15 @@ class DepCheckPage(QWidget):
             text = ("服务器拒绝（403）：key 无效或已被重置——重新拉取并"
                     "粘贴正确的 key（注册方法见【Steam API 密钥】页）")
         self._summary.setText(
-            f"依赖拉取失败：{text}\n（依赖表未动，稍后可重试。）")
+            t('依赖拉取失败：') + f"{text}" + t('\n（依赖表未动，稍后可重试。）'))
         self._summary.setStyleSheet(f"color: {_C_FAIL};")
-        self._log.error(f"依赖拉取失败：{message}")
+        self._log.error(t('依赖拉取失败：') + f"{message}")
 
     def _on_stopped(self) -> None:
         self._set_running(False)
-        self._summary.setText("已停止依赖拉取，本次结果未使用（依赖表未动）。")
+        self._summary.setText(t("已停止依赖拉取，本次结果未使用（依赖表未动）。"))
         self._summary.setStyleSheet("color: gray;")
-        self._log.info("依赖拉取已手动停止")
+        self._log.info(t('依赖拉取已手动停止'))
 
     def _on_finished(self) -> None:
         w = self._worker
@@ -553,7 +547,7 @@ class DepCheckPage(QWidget):
         if self._game is None:
             return
         if self._worker is not None:
-            self._log.info("依赖拉取进行中：离线重算等它结束后再来")
+            self._log.info(t('依赖拉取进行中：离线重算等它结束后再来'))
             return
         mods = self._repo.list_mods(self._game.app_id)
         self._mods_by_id = {m.mod_id: m for m in mods}
@@ -587,14 +581,14 @@ class DepCheckPage(QWidget):
             + ("——按上次拉取入账的清单现算；联网重拉会刷新"
                if offline else ""))
         self._miss_head.setToolTip(
-            "点按钮复制全部缺失编号/网址或送【入账中心 · 登记】；"
+            t("点按钮复制全部缺失编号/网址或送【入账中心 · 登记】；"
             "右键单条可打开工坊页面、复制缺失清单；先勾选若干行再"
-            "右键可只复制/送登记勾选行的")
+            "右键可只复制/送登记勾选行的"))
         rows = sorted(missing.items())
-        t = self._miss_table
-        t.setSortingEnabled(False)  # 带排序灌数据=边灌边排、行错位
+        tbl = self._miss_table
+        tbl.setSortingEnabled(False)  # 带排序灌数据=边灌边排、行错位
 
-        t.setRowCount(len(rows))
+        tbl.setRowCount(len(rows))
         for r, (mid, lack) in enumerate(rows):
             chk = QTableWidgetItem()
             chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable
@@ -612,11 +606,11 @@ class DepCheckPage(QWidget):
                                       SortItem(title, title),
                                       SortItem(str(len(lack)), len(lack)),
                                       c4)):
-                t.setItem(r, c, cell)
-        t.setSortingEnabled(True)  # 灌完再开；点过的排法自动重放
+                tbl.setItem(r, c, cell)
+        tbl.setSortingEnabled(True)  # 灌完再开；点过的排法自动重放
 
         self._miss_head.setVisible(bool(rows))
-        t.setVisible(bool(rows))
+        tbl.setVisible(bool(rows))
         self._ensure_copy_buttons(self._collected_missing_ids())
         self._fill_dep_detail(self._missing_now)
         self._apply_filter()
@@ -717,19 +711,19 @@ class DepCheckPage(QWidget):
         if not ids:
             return
         if self._meta_worker is not None:
-            QMessageBox.information(self, "查远端信息",
-                                    "上一轮查询还在进行——等它结束。")
+            QMessageBox.information(self, t("查远端信息"),
+                                    t("上一轮查询还在进行——等它结束。"))
             return
         interval = self._settings.get_int("api_request_interval_ms", 200)
         retries = self._settings.get_int("api_max_retries", 3)
         busy = netGate.try_acquire(constants.NET_GATE_DEPENDENCIES)
         if busy is not None:
             self._summary.setText(
-                f"另有联网任务在进行（{busy}）：等它结束后再查。")
+                t('另有联网任务在进行（') + f"{busy}" + t('）：等它结束后再查。'))
             self._summary.setStyleSheet(f"color: {_C_WARN};")
             return
         self._btn_meta.setEnabled(False)
-        self._btn_meta.setText(f"正在查询（{len(ids)} 个）…")
+        self._btn_meta.setText(t('正在查询（') + f"{len(ids)}" + t(' 个）…'))
 
         def make_query(cancel_event):
             client = SteamApiClient(interval_ms=interval,
@@ -744,24 +738,21 @@ class DepCheckPage(QWidget):
         self._meta_worker.failed.connect(self._on_meta_failed)
         self._meta_worker.finished.connect(self._on_meta_finished)
         self._meta_worker.start()
-        self._log.info(f"缺失依赖远端信息查询开始：{len(ids)} 个"
-                       "（匿名接口，不写账本）…")
+        self._log.info(t('缺失依赖远端信息查询开始：') + f"{len(ids)}" + t(' 个（匿名接口，不写账本）…'))
 
     def _on_meta_succeeded(self, entries: list) -> None:
         got = {e["mod_id"]: e for e in entries
                if e.get("mod_id") is not None}
         self._dep_meta.update(got)
         n_live = sum(1 for e in got.values() if e.get("result") == 1)
-        self._log.ok(f"远端信息已补：{len(got)} 条（在架 {n_live}、"
-                     f"查无 {len(got) - n_live}）——明细表已刷新")
+        self._log.ok(t('远端信息已补：') + f"{len(got)}" + t(' 条（在架 ') + f"{n_live}" + t('、查无 ') + f"{len(got) - n_live}" + t('）——明细表已刷新'))
         self._fill_dep_detail(getattr(self, "_missing_now", {}))
 
     def _on_meta_failed(self, message: str) -> None:
         self._summary.setText(
-            f"远端信息查询失败：{message}\n（缺失清单不受影响，"
-            "可稍后再点。）")
+            t('远端信息查询失败：') + f"{message}" + t('\n（缺失清单不受影响，可稍后再点。）'))
         self._summary.setStyleSheet(f"color: {_C_FAIL};")
-        self._log.error(f"缺失依赖远端信息查询失败：{message}")
+        self._log.error(t('缺失依赖远端信息查询失败：') + f"{message}")
 
     def _on_meta_finished(self) -> None:
         w = self._meta_worker
@@ -772,7 +763,7 @@ class DepCheckPage(QWidget):
         btn = getattr(self, "_btn_meta", None)
         if btn is not None:  # 按钮可能已随清单重建/清场——守卫
             btn.setEnabled(True)
-            btn.setText("查远端信息…")
+            btn.setText(t("查远端信息…"))
 
     def _ensure_copy_buttons(self, all_missing: list[int]) -> None:
         """缺依赖非空时挂按钮组（复制编号/网址 + 查远端信息），
@@ -784,31 +775,31 @@ class DepCheckPage(QWidget):
         row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
-        b1 = QPushButton(f"复制全部缺失编号（{len(all_missing)} 个）…",
+        b1 = QPushButton(t('复制全部缺失编号（') + f"{len(all_missing)}" + t(' 个）…'),
                          row)
-        b1.setToolTip("复制到剪贴板（每行一个）：【入账中心 · 登记】"
-                      "粘贴登记即可全部入库，之后正常下载")
+        b1.setToolTip(t("复制到剪贴板（每行一个）：【入账中心 · 登记】"
+                      "粘贴登记即可全部入库，之后正常下载"))
         b1.clicked.connect(lambda _=False, ids=all_missing:
                            self._copy_missing(ids))
-        b2 = QPushButton(f"复制缺失依赖工坊网址（{len(all_missing)} 条）…",
+        b2 = QPushButton(t('复制缺失依赖工坊网址（') + f"{len(all_missing)}" + t(' 条）…'),
                          row)
-        b2.setToolTip("每行一条工坊链接（按编号现拼，账外条目照样能出）"
-                      "——可整段贴进【入账中心 · 登记】，或浏览器批量打开")
+        b2.setToolTip(t("每行一条工坊链接（按编号现拼，账外条目照样能出）"
+                      "——可整段贴进【入账中心 · 登记】，或浏览器批量打开"))
         b2.clicked.connect(lambda _=False, ids=all_missing:
                            self._copy_missing_urls(ids))
-        self._btn_meta = QPushButton("查远端信息…", row)
-        b3 = QPushButton("送登记…", row)
+        self._btn_meta = QPushButton(t("查远端信息…"), row)
+        b3 = QPushButton(t("送登记…"), row)
         b3.setToolTip(
-            "把这批缺失依赖编号直接送【入账中心 · 登记】：预填粘贴框、"
+            t("把这批缺失依赖编号直接送【入账中心 · 登记】：预填粘贴框、"
             "自动解析预览（不写库）——核对五类分色结果后点"
-            "【登记新编号】入账，闭环「缺失→待下载」")
+            "【登记新编号】入账，闭环「缺失→待下载」"))
         b3.clicked.connect(lambda _=False, ids=all_missing:
                            self.send_to_register_requested.emit(list(ids)))
 
         self._btn_meta.setToolTip(
-            "对缺失编号做一轮匿名批量查询（无需 key、不写账本）："
+            t("对缺失编号做一轮匿名批量查询（无需 key、不写账本）："
             "明细表显示「远端在架」（蓝）或「远端查无」（灰）。\n"
-            "在架的复制编号去【入账中心 · 登记】收录即闭环")
+            "在架的复制编号去【入账中心 · 登记】收录即闭环"))
         self._btn_meta.clicked.connect(self._on_fetch_meta)
         h.addWidget(b1)
         h.addWidget(b2)
@@ -829,8 +820,7 @@ class DepCheckPage(QWidget):
     def _copy_missing_urls(self, ids: list[int]) -> None:
         QApplication.clipboard().setText(
             "\n".join(workshop_url(i) for i in ids) + "\n")
-        self._log.ok(f"已复制 {len(ids)} 条缺失依赖的工坊网址"
-                     "（每行一条，可贴进【入账中心 · 登记】）")
+        self._log.ok(t('已复制 ') + f"{len(ids)}" + t(' 条缺失依赖的工坊网址（每行一条，可贴进【入账中心 · 登记】）'))
 
     def _checked_missing_ids(self) -> list[int]:
         """勾选行的缺失依赖编号并集（去重升序）——复制与送登记两路
@@ -849,21 +839,20 @@ class DepCheckPage(QWidget):
         """勾选行的缺失依赖编号并集复制（每行一个）。没勾提示先勾。"""
         ordered = self._checked_missing_ids()
         if not ordered:
-            QMessageBox.information(self, "复制勾选行",
-                                    "先在缺依赖列表里勾选若干行。")
+            QMessageBox.information(self, t("复制勾选行"),
+                                    t("先在缺依赖列表里勾选若干行。"))
             return
         QApplication.clipboard().setText(
             "\n".join(str(i) for i in ordered) + "\n")
-        self._log.ok(f"已复制勾选行的 {len(ordered)} 个缺失依赖编号"
-                     "（每行一个，到【入账中心 · 登记】粘贴登记）")
+        self._log.ok(t('已复制勾选行的 ') + f"{len(ordered)}" + t(' 个缺失依赖编号（每行一个，到【入账中心 · 登记】粘贴登记）'))
 
     def _send_checked_to_register(self) -> None:
         """勾选行的缺失依赖直接送【入账中心 · 登记】（预填+解析预览，
         不写库；落点在主窗口）。没勾提示先勾。"""
         ordered = self._checked_missing_ids()
         if not ordered:
-            QMessageBox.information(self, "送登记",
-                                    "先在缺依赖列表里勾选若干行。")
+            QMessageBox.information(self, t("送登记"),
+                                    t("先在缺依赖列表里勾选若干行。"))
             return
         self.send_to_register_requested.emit(ordered)
 
@@ -878,8 +867,7 @@ class DepCheckPage(QWidget):
 
     def _copy_missing(self, ids: list[int]) -> None:
         QApplication.clipboard().setText("\n".join(str(i) for i in ids))
-        self._log.ok(f"已复制 {len(ids)} 个缺失依赖编号"
-                     "（到【入账中心 · 登记】粘贴登记）")
+        self._log.ok(t('已复制 ') + f"{len(ids)}" + t(' 个缺失依赖编号（到【入账中心 · 登记】粘贴登记）'))
 
     def _on_row_menu(self, lw: QListWidget, pos) -> None:
         """依赖变化列表右键（查看类）。缺依赖表有专属菜单
@@ -890,14 +878,14 @@ class DepCheckPage(QWidget):
         mid = it.data(Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        act_url = QAction("打开工坊页面", menu)
-        act_url.setToolTip("在浏览器打开该 mod 的创意工坊页面")
+        act_url = QAction(t("打开工坊页面"), menu)
+        act_url.setToolTip(t("在浏览器打开该 mod 的创意工坊页面"))
         act_url.triggered.connect(lambda: self._open_url(mid))
         menu.addAction(act_url)
-        act_copy = QAction("复制编号", menu)
+        act_copy = QAction(t("复制编号"), menu)
         act_copy.triggered.connect(
             lambda: (QApplication.clipboard().setText(str(mid)),
-                     self._log.info(f"已复制编号 {mid}")))
+                     self._log.info(t('已复制编号 ') + f"{mid}")))
         menu.addAction(act_copy)
         menu.exec(lw.mapToGlobal(pos))
 
@@ -908,7 +896,7 @@ class DepCheckPage(QWidget):
         # KeyError，即本次修复的根因
         url = workshop_url(mid, m.url if m is not None else None)
         if not QDesktopServices.openUrl(QUrl(url)):
-            QMessageBox.warning(self, "打开页面", f"浏览器没有响应，请手动打开：\n{url}")
+            QMessageBox.warning(self, t("打开页面"), t('浏览器没有响应，请手动打开：\n') + f"{url}")
     def _on_miss_dclicked(self, item) -> None:
         """缺依赖行双击 = 打开该 mod 的工坊页面（缺的上家；缺的啥
         到明细表看——两表分工）。"""
@@ -922,57 +910,57 @@ class DepCheckPage(QWidget):
         """缺依赖表右键：顶部两枚勾选总控（全选只勾可见行——查找
         过滤在场时勾进看不见的行 = 盲勾隐患，备份页同款纪律），
         单行动作（光标下有行才有），底部勾选批动作。"""
-        t = self._miss_table
-        row = t.rowAt(pos.y())
+        tbl = self._miss_table
+        row = tbl.rowAt(pos.y())
         mid = None
         if row >= 0:
-            it = t.item(row, 1)
+            it = tbl.item(row, 1)
             mid = it.data(Qt.ItemDataRole.UserRole) \
                 if it is not None else None
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        a_all = QAction("全选（可见行）", menu)
-        a_all.setToolTip("只勾选当前看得见的行——查找过滤在场时不盲勾")
+        a_all = QAction(t("全选（可见行）"), menu)
+        a_all.setToolTip(t("只勾选当前看得见的行——查找过滤在场时不盲勾"))
         a_all.triggered.connect(self._check_all_visible)
         menu.addAction(a_all)
-        a_none = QAction("清空勾选", menu)
+        a_none = QAction(t("清空勾选"), menu)
         a_none.triggered.connect(self._uncheck_all_missing)
         menu.addAction(a_none)
         if mid is not None:
             menu.addSeparator()
-            act_url = QAction("打开工坊页面", menu)
-            act_url.setToolTip("在浏览器打开该 mod 的创意工坊页面")
+            act_url = QAction(t("打开工坊页面"), menu)
+            act_url.setToolTip(t("在浏览器打开该 mod 的创意工坊页面"))
             act_url.triggered.connect(lambda: self._open_url(mid))
             menu.addAction(act_url)
-            act_copy = QAction("复制编号", menu)
+            act_copy = QAction(t("复制编号"), menu)
             act_copy.triggered.connect(
                 lambda: (QApplication.clipboard().setText(str(mid)),
-                         self._log.info(f"已复制编号 {mid}")))
+                         self._log.info(t('已复制编号 ') + f"{mid}")))
             menu.addAction(act_copy)
             lack = (getattr(self, "_missing_now", {}) or {}).get(mid) or []
             if lack:
                 menu.addSeparator()
                 a1 = QAction(
-                    f"复制此 mod 缺失的依赖编号（{len(lack)} 个）", menu)
+                    t('复制此 mod 缺失的依赖编号（') + f"{len(lack)}" + t(' 个）'), menu)
                 a1.triggered.connect(
                     lambda: QApplication.clipboard().setText(
                         "\n".join(str(i) for i in lack) + "\n"))
                 menu.addAction(a1)
-                a2 = QAction("复制缺失依赖的工坊网址（每行一条）", menu)
+                a2 = QAction(t("复制缺失依赖的工坊网址（每行一条）"), menu)
                 a2.triggered.connect(
                     lambda: self._copy_missing_urls(lack))
                 menu.addAction(a2)
         menu.addSeparator()
-        a3 = QAction("复制勾选行的缺失依赖编号", menu)
-        a3.setToolTip("先勾选若干行再点——把选中 mod 的缺失依赖一次带走")
+        a3 = QAction(t("复制勾选行的缺失依赖编号"), menu)
+        a3.setToolTip(t("先勾选若干行再点——把选中 mod 的缺失依赖一次带走"))
         a3.triggered.connect(self._copy_checked_missing)
         menu.addAction(a3)
-        a4 = QAction("送登记勾选行的缺失依赖…", menu)
-        a4.setToolTip("把勾选行缺失的依赖编号直接送【入账中心 · 登记】"
-                      "预填并解析预览（不写库）")
+        a4 = QAction(t("送登记勾选行的缺失依赖…"), menu)
+        a4.setToolTip(t("把勾选行缺失的依赖编号直接送【入账中心 · 登记】"
+                      "预填并解析预览（不写库）"))
         a4.triggered.connect(self._send_checked_to_register)
         menu.addAction(a4)
-        menu.exec(t.viewport().mapToGlobal(pos))
+        menu.exec(tbl.viewport().mapToGlobal(pos))
 
     def _check_all_visible(self) -> None:
         """全选只勾可见行（备份页同款）；清空仍作用所有行——只往
@@ -1054,59 +1042,58 @@ class DepCheckPage(QWidget):
     def _copy_checked_deps(self) -> None:
         ordered = self._checked_dep_ids()
         if not ordered:
-            QMessageBox.information(self, "复制勾选行",
-                                    "先在明细表里勾选若干行。")
+            QMessageBox.information(self, t("复制勾选行"),
+                                    t("先在明细表里勾选若干行。"))
             return
         QApplication.clipboard().setText(
             "\n".join(str(i) for i in ordered) + "\n")
-        self._log.ok(f"已复制勾选的 {len(ordered)} 个缺失依赖编号"
-                     "（每行一个，到【入账中心 · 登记】粘贴登记）")
+        self._log.ok(t('已复制勾选的 ') + f"{len(ordered)}" + t(' 个缺失依赖编号（每行一个，到【入账中心 · 登记】粘贴登记）'))
 
     def _send_checked_deps_to_register(self) -> None:
         ordered = self._checked_dep_ids()
         if not ordered:
-            QMessageBox.information(self, "送登记",
-                                    "先在明细表里勾选若干行。")
+            QMessageBox.information(self, t("送登记"),
+                                    t("先在明细表里勾选若干行。"))
             return
         self.send_to_register_requested.emit(ordered)
 
     def _on_dep_menu(self, pos) -> None:
         """明细表右键：勾选总控 + 单行动作 + 勾选批动作。明细行本身
         就是缺失编号——送登记送的是编号本身。"""
-        t = self._dep_detail
-        row = t.rowAt(pos.y())
+        tbl = self._dep_detail
+        row = tbl.rowAt(pos.y())
         rid = None
         if row >= 0:
-            it = t.item(row, 1)
+            it = tbl.item(row, 1)
             rid = it.data(Qt.ItemDataRole.UserRole) \
                 if it is not None else None
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        a_all = QAction("全选（可见行）", menu)
-        a_all.setToolTip("只勾选当前看得见的行——查找过滤在场时不盲勾")
+        a_all = QAction(t("全选（可见行）"), menu)
+        a_all.setToolTip(t("只勾选当前看得见的行——查找过滤在场时不盲勾"))
         a_all.triggered.connect(self._check_all_deps_visible)
         menu.addAction(a_all)
-        a_none = QAction("清空勾选", menu)
+        a_none = QAction(t("清空勾选"), menu)
         a_none.triggered.connect(self._uncheck_all_deps)
         menu.addAction(a_none)
         if rid is not None:
             menu.addSeparator()
-            act_url = QAction("打开工坊页面", menu)
+            act_url = QAction(t("打开工坊页面"), menu)
             act_url.triggered.connect(lambda: self._open_url(rid))
             menu.addAction(act_url)
-            act_copy = QAction("复制编号", menu)
+            act_copy = QAction(t("复制编号"), menu)
             act_copy.triggered.connect(
                 lambda: (QApplication.clipboard().setText(str(rid)),
-                         self._log.info(f"已复制编号 {rid}")))
+                         self._log.info(t('已复制编号 ') + f"{rid}")))
             menu.addAction(act_copy)
         menu.addSeparator()
-        a3 = QAction("复制勾选行的编号", menu)
-        a3.setToolTip("先勾选若干行再点（每行一个）")
+        a3 = QAction(t("复制勾选行的编号"), menu)
+        a3.setToolTip(t("先勾选若干行再点（每行一个）"))
         a3.triggered.connect(self._copy_checked_deps)
         menu.addAction(a3)
-        a4 = QAction("送登记勾选行…", menu)
-        a4.setToolTip("把勾选的缺失依赖编号直接送【入账中心 · 登记】"
-                      "预填并解析预览（不写库）")
+        a4 = QAction(t("送登记勾选行…"), menu)
+        a4.setToolTip(t("把勾选的缺失依赖编号直接送【入账中心 · 登记】"
+                      "预填并解析预览（不写库）"))
         a4.triggered.connect(self._send_checked_deps_to_register)
         menu.addAction(a4)
-        menu.exec(t.viewport().mapToGlobal(pos))
+        menu.exec(tbl.viewport().mapToGlobal(pos))
