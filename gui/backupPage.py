@@ -78,6 +78,7 @@ from core.backupManager import BackupManager, steamcmd_running
 from core.formatters import abs_time, fmt_size, status_zh
 from core.models import Backup, Game
 from core.urlParser import workshop_url
+from core.i18n import t
 from gui.backupMoveDialog import BackupMoveDialog
 from gui.backupRelocateDialog import BackupRelocateDialog
 from gui.collapsibleSection import CollapsibleSection  # 先读我折叠（单源共享件）
@@ -151,7 +152,7 @@ class _BackupWorker(QThread):
             try:
                 rep = self._manager.backup_mod(mid)
             except Exception as exc:  # 引擎约定操作层失败走报告；到这里=bug
-                self.crashed.emit(f"备份 mod {mid} 时出现预期外错误：{exc}")
+                self.crashed.emit(t('备份 mod ') + f"{mid}" + t(' 时出现预期外错误：') + f"{exc}")
                 return
             line = f"mod {mid} 备份成功" if rep.ok else f"mod {mid} 失败：{rep.error}"
             results.append((mid, rep.ok, line))
@@ -189,7 +190,7 @@ class _BatchWorker(QThread):
                 ok, msg = self._manager.delete_backup(rec.id)
             except Exception as exc:  # 到这里=bug，不是操作层失败
                 self.crashed.emit(
-                    f"删除备份 {rec.id}（mod {rec.mod_id}）时出现预期外错误：{exc}")
+                    t('删除备份 ') + f"{rec.id}" + f'（mod ' + f"{rec.mod_id}" + t('）时出现预期外错误：') + f"{exc}")
                 return
             line = (f"备份 {rec.id}（mod {rec.mod_id}）："
                     + (msg if msg else ("已删除" if ok else "失败")))
@@ -221,9 +222,9 @@ class _PickModsDialog(QDialog):
 
     def __init__(self, mods, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("选择要备份的 mod")
+        self.setWindowTitle(t("选择要备份的 mod"))
         v = QVBoxLayout(self)
-        v.addWidget(QLabel(f"共 {len(mods)} 个已下载 mod，勾选要备份的：", self))
+        v.addWidget(QLabel(t('共 ') + f"{len(mods)}" + t(' 个已下载 mod，勾选要备份的：'), self))
         self._list = QListWidget(self)
         self._cbs: list[tuple[int, QCheckBox]] = []  # (mod_id, 勾选框)
         for m in mods:
@@ -231,12 +232,12 @@ class _PickModsDialog(QDialog):
             row = QWidget(self._list)
             rh = QHBoxLayout(row)
             rh.setContentsMargins(8, 2, 4, 2)
-            cb = QCheckBox(f"{m.mod_id} {m.title or '（无标题）'}", row)
+            cb = QCheckBox(f"{m.mod_id} " + (m.title or t("（无标题）")), row)
             cb.setChecked(True)
             rh.addWidget(cb, 1)
             btn_open = QPushButton("↗", row)
             btn_open.setFixedWidth(28)
-            btn_open.setToolTip("在浏览器打开该 mod 的创意工坊页面")
+            btn_open.setToolTip(t("在浏览器打开该 mod 的创意工坊页面"))
             btn_open.setEnabled(bool(m.url))
             if m.url:
                 btn_open.clicked.connect(
@@ -308,7 +309,7 @@ class BackupPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("备份管理", self)
+        title = QLabel(t("备份管理"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -319,11 +320,11 @@ class BackupPage(QWidget):
         root.addWidget(self._steam_banner)
 
         tip = QLabel(
-            "mod 内容备份：恢复前会自动备份当前版本，恢复失败自动回退，不会丢数据；"
+            t("mod 内容备份：恢复前会自动备份当前版本，恢复失败自动回退，不会丢数据；"
             "删除备份文件是先删盘上目录、成功才删记录；钉住的备份豁免自动清理，"
             "但不挡手动删除。\n"
             "操作对象一律来自「选」列的勾选框（表格上点右键是同一组动作）；"
-            "点表头可排序，也可切换按 mod 分组查看。", self)
+            "点表头可排序，也可切换按 mod 分组查看。"), self)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
         # 介绍折进「先读我」（入账中心同款共享件）：收起只占一行标题。
@@ -351,22 +352,22 @@ class BackupPage(QWidget):
         # 「备份 ▾」：发起备份。备份数据库与 mod 内容备份是两回事，
         # 用分隔线隔开、文字里写明，避免误当成一回事
         self._btn_backup_menu = QToolButton(bar)
-        self._btn_backup_menu.setText("备份 ▾")
+        self._btn_backup_menu.setText(t("备份 ▾"))
         self._btn_backup_menu.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._btn_backup_menu.setPopupMode(
             QToolButton.ToolButtonPopupMode.InstantPopup)
         m_backup = QMenu(self._btn_backup_menu)
         m_backup.setToolTipsVisible(True)  # QMenu 默认不显示悬浮说明，必须显式开
-        self._act_backup_mod = QAction("备份 mod…", m_backup)
+        self._act_backup_mod = QAction(t("备份 mod…"), m_backup)
         self._act_backup_mod.setToolTip(
-            "把勾选的 mod 内容复制进备份区；保留份数与配额按设置页执行")
+            t("把勾选的 mod 内容复制进备份区；保留份数与配额按设置页执行"))
         self._act_backup_mod.triggered.connect(self._start_backup)
         m_backup.addAction(self._act_backup_mod)
         m_backup.addSeparator()
-        self._act_backup_db = QAction("备份数据库（另一种备份）…", m_backup)
+        self._act_backup_db = QAction(t("备份数据库（另一种备份）…"), m_backup)
         self._act_backup_db.setToolTip(
-            "生成数据库快照文件（与 mod 内容备份互不相干），滚动保留 3 份")
+            t("生成数据库快照文件（与 mod 内容备份互不相干），滚动保留 3 份"))
         self._act_backup_db.triggered.connect(self._backup_database)
         m_backup.addAction(self._act_backup_db)
         self._btn_backup_menu.setMenu(m_backup)
@@ -376,52 +377,52 @@ class BackupPage(QWidget):
         # 这组 QAction 同时挂进表格右键菜单——一个动作一个定义、
         # 两个入口，永不出现两套口径
         self._btn_sel_menu = QToolButton(bar)
-        self._btn_sel_menu.setText("对选中")
+        self._btn_sel_menu.setText(t("对选中"))
         self._btn_sel_menu.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._btn_sel_menu.setPopupMode(
             QToolButton.ToolButtonPopupMode.InstantPopup)
         m_sel = QMenu(self._btn_sel_menu)
         m_sel.setToolTipsVisible(True)
-        self._act_check_all = QAction("全选", m_sel)
+        self._act_check_all = QAction(t("全选"), m_sel)
         self._act_check_all.triggered.connect(
             lambda: self._set_all_checks(True))
         m_sel.addAction(self._act_check_all)
-        self._act_check_none = QAction("清空选择", m_sel)
+        self._act_check_none = QAction(t("清空选择"), m_sel)
         self._act_check_none.triggered.connect(
             lambda: self._set_all_checks(False))
         m_sel.addAction(self._act_check_none)
         m_sel.addSeparator()
-        self._act_restore = QAction("恢复所选（恰好勾 1 份）", m_sel)
+        self._act_restore = QAction(t("恢复所选（恰好勾 1 份）"), m_sel)
         self._act_restore.setToolTip(
-            "把勾选的那一份备份复制回下载目录；恢复前自动备份当前版本，"
-            "失败自动回退")
+            t("把勾选的那一份备份复制回下载目录；恢复前自动备份当前版本，"
+            "失败自动回退"))
         self._act_restore.triggered.connect(self._start_restore)
         m_sel.addAction(self._act_restore)
-        self._act_pin = QAction("钉住", m_sel)
-        self._act_pin.setToolTip("勾选的备份全部钉住（豁免自动清理，可随时取消）")
+        self._act_pin = QAction(t("钉住"), m_sel)
+        self._act_pin.setToolTip(t("勾选的备份全部钉住（豁免自动清理，可随时取消）"))
         self._act_pin.triggered.connect(lambda: self._pin_checked(True))
         m_sel.addAction(self._act_pin)
-        self._act_unpin = QAction("取消钉住", m_sel)
-        self._act_unpin.setToolTip("勾选的备份全部取消钉住")
+        self._act_unpin = QAction(t("取消钉住"), m_sel)
+        self._act_unpin.setToolTip(t("勾选的备份全部取消钉住"))
         self._act_unpin.triggered.connect(lambda: self._pin_checked(False))
         m_sel.addAction(self._act_unpin)
         m_sel.addSeparator()
-        self._act_del_rec = QAction("删登记…（只删账）", m_sel)
+        self._act_del_rec = QAction(t("删登记…（只删账）"), m_sel)
         self._act_del_rec.setToolTip(
-            "只删除数据库登记，盘上文件原样保留（之后不再被本工具跟踪）")
+            t("只删除数据库登记，盘上文件原样保留（之后不再被本工具跟踪）"))
         self._act_del_rec.triggered.connect(self._delete_records)
         m_sel.addAction(self._act_del_rec)
-        self._act_del_file = QAction("删除备份文件…（连盘上一起删）", m_sel)
+        self._act_del_file = QAction(t("删除备份文件…（连盘上一起删）"), m_sel)
         self._act_del_file.setToolTip(
-            "删除磁盘目录和数据库记录，不可撤销；先删盘、成功才删账；"
-            "逐份独立执行，某份失败不影响其余")
+            t("删除磁盘目录和数据库记录，不可撤销；先删盘、成功才删账；"
+            "逐份独立执行，某份失败不影响其余"))
         self._act_del_file.triggered.connect(self._delete_files)
         m_sel.addAction(self._act_del_file)
         m_sel.addSeparator()
-        self._act_open_folder = QAction("打开所在文件夹（恰好勾 1 份）", m_sel)
+        self._act_open_folder = QAction(t("打开所在文件夹（恰好勾 1 份）"), m_sel)
         self._act_open_folder.setToolTip(
-            "在资源管理器中打开勾选的那一份备份的文件夹")
+            t("在资源管理器中打开勾选的那一份备份的文件夹"))
         self._act_open_folder.triggered.connect(self._open_selected_folder)
         m_sel.addAction(self._act_open_folder)
         self._btn_sel_menu.setMenu(m_sel)
@@ -429,27 +430,27 @@ class BackupPage(QWidget):
 
         # 「目录 ▾」：备份位置相关的整页级动作
         self._btn_dir_menu = QToolButton(bar)
-        self._btn_dir_menu.setText("目录 ▾")
+        self._btn_dir_menu.setText(t("目录 ▾"))
         self._btn_dir_menu.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._btn_dir_menu.setPopupMode(
             QToolButton.ToolButtonPopupMode.InstantPopup)
         m_dir = QMenu(self._btn_dir_menu)
         m_dir.setToolTipsVisible(True)
-        self._act_open_dir = QAction("打开备份目录", m_dir)
-        self._act_open_dir.setToolTip("在资源管理器中打开当前游戏的备份目录")
+        self._act_open_dir = QAction(t("打开备份目录"), m_dir)
+        self._act_open_dir.setToolTip(t("在资源管理器中打开当前游戏的备份目录"))
         self._act_open_dir.triggered.connect(self._open_backup_dir)
         m_dir.addAction(self._act_open_dir)
-        self._act_relocate = QAction("重定位备份目录…", m_dir)
+        self._act_relocate = QAction(t("重定位备份目录…"), m_dir)
         self._act_relocate.setToolTip(
-            "「盘上」列有失联记录时用：指认备份文件夹现在的位置，"
-            "先预演能对回多少条，确认后只改档案的备份目录字段，不动文件")
+            t("「盘上」列有失联记录时用：指认备份文件夹现在的位置，"
+            "先预演能对回多少条，确认后只改档案的备份目录字段，不动文件"))
         self._act_relocate.triggered.connect(self._relocate)
         m_dir.addAction(self._act_relocate)
-        self._act_move = QAction("备份搬家…", m_dir)
+        self._act_move = QAction(t("备份搬家…"), m_dir)
         self._act_move.setToolTip(
-            "备份所在的盘快满时用：生成把备份整体搬到新位置并原地建联接的命令，"
-            "记录一个不用改；与重定位的分工见窗口内说明")
+            t("备份所在的盘快满时用：生成把备份整体搬到新位置并原地建联接的命令，"
+            "记录一个不用改；与重定位的分工见窗口内说明"))
         self._act_move.triggered.connect(self._move)
         m_dir.addAction(self._act_move)
         self._btn_dir_menu.setMenu(m_dir)
@@ -457,26 +458,26 @@ class BackupPage(QWidget):
 
         # 停止 / 刷新 / 视图：保持独立——停止带状态（只在任务进行时可用），
         # 刷新高频，视图切换要一眼看到当前在哪一态
-        self._stop_running_btn = QPushButton("停止", bar)
+        self._stop_running_btn = QPushButton(t("停止"), bar)
         self._stop_running_btn.setEnabled(False)
         self._stop_running_btn.clicked.connect(self._stop_running)
         self._stop_running_btn.setToolTip(
-            "请求停止：当前这一份做完后不再继续（绝不会把一份备份删一半）")
+            t("请求停止：当前这一份做完后不再继续（绝不会把一份备份删一半）"))
         h.addWidget(self._stop_running_btn)
 
-        self._refresh_btn = QPushButton("刷新", bar)
+        self._refresh_btn = QPushButton(t("刷新"), bar)
         self._refresh_btn.clicked.connect(self._reload)
-        self._refresh_btn.setToolTip("重新读取备份记录列表（会清空当前勾选）")
+        self._refresh_btn.setToolTip(t("重新读取备份记录列表（会清空当前勾选）"))
         h.addWidget(self._refresh_btn)
 
-        h.addWidget(QLabel("视图：", bar))
+        h.addWidget(QLabel(t("视图："), bar))
         self._view_combo = QComboBox(bar)
-        self._view_combo.addItem("平铺")
-        self._view_combo.addItem("按 mod 分组")
+        self._view_combo.addItem(t('平铺'))
+        self._view_combo.addItem(t('按 mod 分组'))
         self._view_combo.currentIndexChanged.connect(self._on_view_changed)
         self._view_combo.setToolTip(
-            "平铺=全部备份按时间排；按 mod 分组=每个 mod 一组，"
-            "组头显示份数和总大小")
+            t("平铺=全部备份按时间排；按 mod 分组=每个 mod 一组，"
+            "组头显示份数和总大小"))
         h.addWidget(self._view_combo)
         # 视图记忆：上次用哪个视图，下次打开还是哪个（按 mod 分组
         # 选过一次就一直是）。屏蔽信号防止建界面阶段触发 _reload
@@ -491,11 +492,11 @@ class BackupPage(QWidget):
         self._view_combo.blockSignals(False)
 
         self._search = QLineEdit(bar)
-        self._search.setPlaceholderText("搜索：标题 / 编号 / 备注…")
+        self._search.setPlaceholderText(t("搜索：标题 / 编号 / 备注…"))
         self._search.setClearButtonEnabled(True)
         self._search.setToolTip(
-            "即时过滤当前列表：不命中的行隐藏，已勾选的原样保留；\n"
-            "匹配 mod 标题、编号、备注、备份目录名。清空搜索框恢复全部")
+            t("即时过滤当前列表：不命中的行隐藏，已勾选的原样保留；\n"
+            "匹配 mod 标题、编号、备注、备份目录名。清空搜索框恢复全部"))
         self._search.textChanged.connect(self._on_search_changed)
         h.addWidget(self._search, 1)
         h.addStretch(1)
@@ -541,9 +542,9 @@ class BackupPage(QWidget):
         self._count_label = QLabel("", self)
         self._count_label.setWordWrap(True)
         root.addWidget(self._count_label)
-        self._btn_backup_menu.setToolTip("发起备份：mod 内容备份或数据库快照")
-        self._btn_sel_menu.setToolTip("对勾选的备份执行动作；菜单项与表格右键是同一组动作")
-        self._btn_dir_menu.setToolTip("备份位置相关动作：打开目录 / 重定位 / 搬家")
+        self._btn_backup_menu.setToolTip(t("发起备份：mod 内容备份或数据库快照"))
+        self._btn_sel_menu.setToolTip(t("对勾选的备份执行动作；菜单项与表格右键是同一组动作"))
+        self._btn_dir_menu.setToolTip(t("备份位置相关动作：打开目录 / 重定位 / 搬家"))
 
         self._refresh_op_buttons()
 
@@ -580,7 +581,7 @@ class BackupPage(QWidget):
         """
         game = self._repo.get_game(app_id)
         if game is None:
-            self._log.warn(f"备份取消：找不到游戏档案 {app_id}")
+            self._log.warn(t('备份取消：找不到游戏档案 ') + f"{app_id}")
             return
         self.set_game(game)
         downloadable = {m.mod_id for m in self._repo.list_mods(app_id)
@@ -588,7 +589,7 @@ class BackupPage(QWidget):
         ids = [i for i in mod_ids if i in downloadable]
         if not ids:
             QMessageBox.information(
-                self, "备份选中项", "勾选的 mod 里没有已下载的，无内容可备份。")
+                self, t("备份选中项"), t("勾选的 mod 里没有已下载的，无内容可备份。"))
             return
         skipped = [i for i in mod_ids if i not in downloadable]
         if skipped:
@@ -601,7 +602,7 @@ class BackupPage(QWidget):
                 by_status[name] = by_status.get(name, 0) + 1
             detail = "、".join(f"{k} {v} 个" for k, v in by_status.items())
             self._log.info(
-                f"备份批次：跳过 {len(skipped)} 个无本地内容的 mod（{detail}）")
+                t('备份批次：跳过 ') + f"{len(skipped)}" + t(' 个无本地内容的 mod（') + f"{detail}" + f'）')
         self._run_backup(ids)
 
     # ---------- 内部：公共小件 ----------
@@ -651,15 +652,15 @@ class BackupPage(QWidget):
         pin_n = sum(1 for b in recs if b.pinned)
         lines = [f"对 {len(recs)} 份备份执行：{title}（合计 {fmt_size(total)}）"]
         if pin_n:
-            lines.append(f"其中 {pin_n} 份已钉住——钉住只豁免自动清理，不挡手动删除。")
+            lines.append(t('其中 ') + f"{pin_n}" + t(' 份已钉住——钉住只豁免自动清理，不挡手动删除。'))
         lines.append(what)
         lines.append("")
-        lines.append("涉及：")
+        lines.append(t('涉及：'))
         for b in recs[:8]:
             lines.append(f" · {b.mod_id} {self._title_of(b)}｜"
                          f"{abs_time(b.version_timeupdated)}｜{fmt_size(b.size_bytes)}")
         if len(recs) > 8:
-            lines.append(f" ……以及另外 {len(recs) - 8} 份")
+            lines.append(t(' ……以及另外 ') + f"{len(recs) - 8}" + t(' 份'))
         ret = QMessageBox.question(
             self, title, "\n".join(lines),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -819,10 +820,10 @@ class BackupPage(QWidget):
         "横幅只是吓唬人"。"""
         if steamcmd_running():
             self._steam_banner.setText(
-                "⚠ 检测到 steamcmd 正在运行：此时备份可能拿到不完整副本"
+                t("⚠ 检测到 steamcmd 正在运行：此时备份可能拿到不完整副本"
                 "（下载仍在写入），建议等它结束再备份。恢复操作会被直接拒绝——"
                 "恢复要把整份内容写回下载目录，和正在下载的 steamcmd 抢同一批文件，"
-                "两边都会写坏；拒绝是保护，等下载结束再恢复。"
+                "两边都会写坏；拒绝是保护，等下载结束再恢复。")
             )
             self._steam_banner.setStyleSheet(f"color: {_C_WARN};")
             self._steam_banner.setVisible(True)
@@ -847,7 +848,7 @@ class BackupPage(QWidget):
 
         if self._game is None:
             self._game_label.setText(
-                "当前游戏：（未选择）—— 请先在左上角添加或选择档案")
+                t("当前游戏：（未选择）—— 请先在左上角添加或选择档案"))
             self._count_label.setText("")
             self._building = False
             self._refresh_op_buttons()
@@ -906,8 +907,7 @@ class BackupPage(QWidget):
                         else "steamcmd 未配置，暂推导不出") + "）")
 
         self._game_label.setText(
-            f"当前游戏：{self._game.name}（{self._game.app_id}）｜"
-            f"备份目录：{bdir_text or '—'}（{state}）")
+            t('当前游戏：') + f"{self._game.name}" + f'（' + f"{self._game.app_id}" + t('）｜备份目录：') + f"{bdir_text or '—'}" + f'（' + f"{state}" + f'）')
 
         # 统计行 + 保留策略
         total = sum(b.size_bytes or 0 for b in self._rows)
@@ -924,7 +924,7 @@ class BackupPage(QWidget):
         policy = (f"每个 mod 保留最新 {keep} 份"
                   + (f"，总量上限 {quota_gb} GB" if quota_gb else "，总量不限")
                   + "（设置页修改）")
-        self._count_label.setText(f"{head}\n保留策略：{policy}")
+        self._count_label.setText(f"{head}" + t('\n保留策略：') + f"{policy}")
 
         self._building = False
         self._refresh_op_buttons()
@@ -952,7 +952,7 @@ class BackupPage(QWidget):
         url_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         url_item.setForeground(QBrush(QColor("#5aa9ff")))  # 蓝字提示可点
         url_item.setData(Qt.ItemDataRole.UserRole, url)
-        url_item.setToolTip("点击在浏览器打开该 mod 的创意工坊页面")
+        url_item.setToolTip(t("点击在浏览器打开该 mod 的创意工坊页面"))
         self._table.setItem(r, COL_URL, url_item)
 
         title_item = QTableWidgetItem(self._title_of(b))
@@ -1037,8 +1037,7 @@ class BackupPage(QWidget):
             mid = rs_sorted[0].mod_id
             gsize = sum(b.size_bytes or 0 for b in rs_sorted)
             head = QTableWidgetItem(
-                f"{self._title_of_id(mid)}（{mid}）— "
-                f"{len(rs_sorted)} 份 · {fmt_size(gsize)}")
+                f"{self._title_of_id(mid)}" + f'（' + f"{mid}" + f'）— ' + f"{len(rs_sorted)}" + t(' 份 · ') + f"{fmt_size(gsize)}")
             head.setFlags(Qt.ItemFlag.ItemIsEnabled)  # 组头只展示，不可选/不可勾
             font = head.font()
             font.setBold(True)
@@ -1063,7 +1062,7 @@ class BackupPage(QWidget):
         mods = [m for m in self._repo.list_mods(self._game.app_id)
                 if m.status == "downloaded"]
         if not mods:
-            QMessageBox.information(self, "备份 mod", "当前档案没有已下载的 mod。")
+            QMessageBox.information(self, t("备份 mod"), t("当前档案没有已下载的 mod。"))
             return
         dlg = _PickModsDialog(mods, self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -1076,7 +1075,7 @@ class BackupPage(QWidget):
         只允许一个备份/恢复/删除任务。
         """
         if self._busy:
-            self._log.warn("已有备份/恢复/删除任务在进行：请等它结束再试")
+            self._log.warn(t("已有备份/恢复/删除任务在进行：请等它结束再试"))
             return
         if self._game is None or not ids:
             return
@@ -1091,12 +1090,13 @@ class BackupPage(QWidget):
         self._backup_worker.finished.connect(self._on_backup_thread_finished)
         self._backup_worker.start()
         self._stop_running_btn.setEnabled(True)
-        self._log.info(f"开始备份 {len(ids)} 个 mod…")
+        self._log.info(t('开始备份 ') + f"{len(ids)}" + t(' 个 mod…'))
 
 
     def _on_one_backed(self, done: int, total: int, ok: bool, line: str) -> None:
         self._progress.setValue(done)
-        (self._log.ok if ok else self._log.warn)(f"备份进度 {done}/{total}：{line}")
+        (self._log.ok if ok else self._log.warn)(
+            t("备份进度 ") + f"{done}/{total}" + t("：") + line)
 
     def _on_backup_all_done(self, stopped: bool, results: list) -> None:
         self._progress.setVisible(False)
@@ -1104,18 +1104,18 @@ class BackupPage(QWidget):
         oks = [r for r in results if r[1]]
         bads = [r for r in results if not r[1]]
         tail = "（手动停止，剩余未执行）" if stopped else ""
-        self._log.ok(f"备份结束：成功 {len(oks)}，失败 {len(bads)}{tail}")
+        self._log.ok(t('备份结束：成功 ') + f"{len(oks)}" + t('，失败 ') + f"{len(bads)}" + f"{tail}")
         if bads or stopped:
             detail = "\n".join(r[2] for r in bads[:10])
-            QMessageBox.warning(self, "备份结束",
-                                f"成功 {len(oks)}，失败 {len(bads)}{tail}\n{detail}")
+            QMessageBox.warning(self, t("备份结束"),
+                                t('成功 ') + f"{len(oks)}" + t('，失败 ') + f"{len(bads)}" + f"{tail}" + f'\n' + f"{detail}")
         self._reload()
 
     def _on_worker_crashed(self, message: str) -> None:
         self._progress.setVisible(False)
         self._set_busy(False)
         self._log.error(message)
-        QMessageBox.critical(self, "备份管理", message)
+        QMessageBox.critical(self, t("备份管理"), message)
 
     def _on_backup_thread_finished(self) -> None:
         w = self._backup_worker
@@ -1132,13 +1132,8 @@ class BackupPage(QWidget):
         rec = recs[0]
         title = self._title_of(rec)
         ret = QMessageBox.question(
-            self, "恢复备份",
-            f"把这份备份恢复到下载目录？\n\n"
-            f"mod：{rec.mod_id} {title}\n"
-            f"备份版本：{abs_time(rec.version_timeupdated)}｜"
-            f"大小：{fmt_size(rec.size_bytes)}\n\n"
-            "当前内容会被替换。恢复前会自动备份当前版本，"
-            "过程失败会自动回退。\n恢复期间请不要操作 steamcmd 或改动下载目录。",
+            self, t("恢复备份"),
+            t('把这份备份恢复到下载目录？\n\nmod：') + f"{rec.mod_id}" + f' ' + f"{title}" + t('\n备份版本：') + f"{abs_time(rec.version_timeupdated)}" + t('｜大小：') + f"{fmt_size(rec.size_bytes)}" + t('\n\n当前内容会被替换。恢复前会自动备份当前版本，过程失败会自动回退。\n恢复期间请不要操作 steamcmd 或改动下载目录。'),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
             return
@@ -1149,7 +1144,7 @@ class BackupPage(QWidget):
         self._job_worker.crashed.connect(self._on_worker_crashed)
         self._job_worker.finished.connect(self._on_job_thread_finished)
         self._job_worker.start()
-        self._log.info(f"开始恢复备份 {rec.id}（mod {rec.mod_id}）…")
+        self._log.info(t('开始恢复备份 ') + f"{rec.id}" + f'（mod ' + f"{rec.mod_id}" + f'）…')
 
     def _on_restore_done(self, report) -> None:
         self._set_busy(False)
@@ -1166,15 +1161,15 @@ class BackupPage(QWidget):
                        "（不入备份账，确认无误后可手动删除）")
             else:
                 pre = "（此前无本地内容，未做恢复前备份）"
-            self._log.ok(f"恢复完成{pre}")
+            self._log.ok(t('恢复完成') + f"{pre}")
             for w in report.warnings:
                 self._log.warn(w)
-            QMessageBox.information(self, "恢复备份", f"恢复完成{pre}。")
+            QMessageBox.information(self, t("恢复备份"), t('恢复完成') + f"{pre}" + f'。')
 
 
         else:
-            self._log.error(f"恢复失败：{report.error}")
-            QMessageBox.critical(self, "恢复备份", report.error or "未知错误")
+            self._log.error(t('恢复失败：') + f"{report.error}")
+            QMessageBox.critical(self, t("恢复备份"), report.error or "未知错误")
         self._reload()
 
     def _on_job_thread_finished(self) -> None:
@@ -1197,10 +1192,10 @@ class BackupPage(QWidget):
                 for b in recs:
                     self._repo.set_pinned(b.id, pinned)
         except Exception as exc:
-            QMessageBox.critical(self, "钉住", f"失败（账未改动）：{exc}")
+            QMessageBox.critical(self, t("钉住"), t('失败（账未改动）：') + f"{exc}")
             return
         word = "已钉住" if pinned else "已取消钉住"
-        self._log.ok(f"{word} {len(recs)} 份备份")
+        self._log.ok(f"{word}" + f' ' + f"{len(recs)}" + t(' 份备份'))
         self._reload()
 
     def _delete_records(self) -> None:
@@ -1221,9 +1216,9 @@ class BackupPage(QWidget):
                 for b in recs:
                     self._repo.delete_backup_record(b.id)
         except Exception as exc:
-            QMessageBox.critical(self, "删登记", f"失败（账未改动）：{exc}")
+            QMessageBox.critical(self, t("删登记"), t('失败（账未改动）：') + f"{exc}")
             return
-        self._log.ok(f"已删除 {len(recs)} 条备份登记（盘上文件保留）")
+        self._log.ok(t('已删除 ') + f"{len(recs)}" + t(' 条备份登记（盘上文件保留）'))
         self._reload()
 
     def _delete_files(self) -> None:
@@ -1250,11 +1245,12 @@ class BackupPage(QWidget):
         self._batch_worker.finished.connect(self._on_batch_thread_finished)
         self._batch_worker.start()
         self._stop_running_btn.setEnabled(True)
-        self._log.info(f"开始删除 {len(recs)} 份备份（磁盘目录+记录）…")
+        self._log.info(t('开始删除 ') + f"{len(recs)}" + t(' 份备份（磁盘目录+记录）…'))
 
     def _on_batch_one_done(self, done: int, total: int, ok: bool, line: str) -> None:
         self._progress.setValue(done)
-        (self._log.ok if ok else self._log.warn)(f"删除进度 {done}/{total}：{line}")
+        (self._log.ok if ok else self._log.warn)(
+            t("删除进度 ") + f"{done}/{total}" + t("：") + line)
 
     def _on_batch_all_done(self, stopped: bool, results: list) -> None:
         self._progress.setVisible(False)
@@ -1262,11 +1258,11 @@ class BackupPage(QWidget):
         oks = [r for r in results if r[1]]
         bads = [r for r in results if not r[1]]
         tail = "（手动停止，剩余未执行——未执行的份原样保留）" if stopped else ""
-        self._log.ok(f"删除结束：成功 {len(oks)}，失败 {len(bads)}{tail}")
+        self._log.ok(t('删除结束：成功 ') + f"{len(oks)}" + t('，失败 ') + f"{len(bads)}" + f"{tail}")
         if bads or stopped:
             detail = "\n".join(r[2] for r in bads[:10])
-            QMessageBox.warning(self, "删除备份文件",
-                                f"成功 {len(oks)}，失败 {len(bads)}{tail}\n{detail}")
+            QMessageBox.warning(self, t("删除备份文件"),
+                                t('成功 ') + f"{len(oks)}" + t('，失败 ') + f"{len(bads)}" + f"{tail}" + f'\n' + f"{detail}")
         self._reload()
 
     def _on_batch_thread_finished(self) -> None:
@@ -1306,22 +1302,19 @@ class BackupPage(QWidget):
             if derived:
                 bdir_text = derived
                 self._log.info(
-                    f"档案未设置备份目录，已按 steamcmd 位置推导打开：{derived}"
-                    "（想固定下来：编辑档案 → 备份目录 →【改为推导值】→ 保存）")
+                    t('档案未设置备份目录，已按 steamcmd 位置推导打开：') + f"{derived}" + t('（想固定下来：编辑档案 → 备份目录 →【改为推导值】→ 保存）'))
             else:
                 QMessageBox.information(
-                    self, "打开所在文件夹",
-                    "当前档案还没有备份目录，且设置页未配置 steamcmd 程序，"
+                    self, t("打开所在文件夹"),
+                    t("当前档案还没有备份目录，且设置页未配置 steamcmd 程序，"
                     "推导不出备份位置。\n"
-                    "请把备份文件夹的实际位置填进档案：编辑档案 → 备份目录。")
+                    "请把备份文件夹的实际位置填进档案：编辑档案 → 备份目录。"))
                 return
         target = Path(bdir_text) / rec.backup_path
         if not target.is_dir():
             QMessageBox.warning(
-                self, "打开所在文件夹",
-                f"盘上找不到这份备份：\n{target}\n\n"
-                "可用【重定位备份目录】指认新位置；若文件确实在盘上，"
-                "把实际位置填进档案（编辑档案 → 备份目录）即可全部对上。")
+                self, t("打开所在文件夹"),
+                t('盘上找不到这份备份：\n') + f"{target}" + t('\n\n可用【重定位备份目录】指认新位置；若文件确实在盘上，把实际位置填进档案（编辑档案 → 备份目录）即可全部对上。'))
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
 
@@ -1337,23 +1330,23 @@ class BackupPage(QWidget):
         try:
             out = self._repo.backup_to(Path(d))
         except Exception as exc:
-            QMessageBox.critical(self, "备份数据库", f"失败：{exc}")
+            QMessageBox.critical(self, t("备份数据库"), t('失败：') + f"{exc}")
             return
-        self._log.ok(f"数据库已备份：{out}")
-        QMessageBox.information(self, "备份数据库", f"已生成：{out}")
+        self._log.ok(t('数据库已备份：') + f"{out}")
+        QMessageBox.information(self, t("备份数据库"), t('已生成：') + f"{out}")
 
     def _open_backup_dir(self) -> None:
         if self._game is None or not (self._game.backup_dir or "").strip():
             QMessageBox.information(
-                self, "打开备份目录",
-                "当前档案还没有备份目录。\n"
-                "第一次备份时会按 steamcmd 位置自动推导并写入档案。")
+                self, t("打开备份目录"),
+                t("当前档案还没有备份目录。\n"
+                "第一次备份时会按 steamcmd 位置自动推导并写入档案。"))
             return
         # 建目录可能失败（盘满/无权限/路径被占用），拦住给人话提示
         try:
             Path(self._game.backup_dir).mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            QMessageBox.warning(self, "打开备份目录", f"备份目录无法创建：{exc}")
+            QMessageBox.warning(self, t("打开备份目录"), t('备份目录无法创建：') + f"{exc}")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(self._game.backup_dir))
 
@@ -1363,7 +1356,7 @@ class BackupPage(QWidget):
         """打开重定位对话框：引擎只读预演，确认后只写档案的备份目录
         一个字段。成功后本页立即重载，「盘上」列按新位置重新核对。"""
         if self._game is None:
-            QMessageBox.information(self, "重定位备份目录", "当前未选择游戏档案。")
+            QMessageBox.information(self, t("重定位备份目录"), t("当前未选择游戏档案。"))
             return
         dlg = BackupRelocateDialog(self._repo, self._game, self._settings,
                                    self, log=self._log)
@@ -1378,7 +1371,7 @@ class BackupPage(QWidget):
         对话框关闭后无条件重载一次：联接建好后旧路径恢复可达，
         「盘上」列按现状重新核对。"""
         if self._game is None:
-            QMessageBox.information(self, "备份搬家", "当前未选择游戏档案。")
+            QMessageBox.information(self, t("备份搬家"), t("当前未选择游戏档案。"))
             return
         # T15 批 3：补传 log=self._log——对话框里点「复制」后，
         # 运行日志多一行回执（与上面 _relocate 的重定位对话框同一套约定）

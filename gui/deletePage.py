@@ -49,6 +49,7 @@ from core.appSettings import AppSettings
 from core.formatters import fmt_size, status_zh  # V2：formatters 住 core
 from core.models import Game
 from core.urlParser import workshop_url
+from core.i18n import t
 from gui.collapsibleSection import CollapsibleSection as _Section, make_guide
 from gui.logBus import LogBus  # V2：LogBus 独立成文件
 from gui.theme import font_px  # 字号单源（D25）
@@ -187,24 +188,24 @@ class DeletePage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("清理与删除", body)
+        title = QLabel(t("清理与删除"), body)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
         # 说明块折叠化（决策 34③）：页顶大段介绍默认收起，点开即读
         root.addWidget(make_guide(
-            "先读我：流程 · 为什么这么做 · 术语与关系",
-            ("流程：① 确认档案 → ② 点【开始盘点】对照账本与 content 目录"
+            t("先读我：流程 · 为什么这么做 · 术语与关系"),
+            (t("流程：① 确认档案 → ② 点【开始盘点】对照账本与 content 目录"
              "（只读，不动任何东西）→ ③ 在三节清单里逐行选动作（默认全部"
              "「不动」，可先筛选、排序缩小范围）→ ④ 点【执行所选处置】，"
-             "确认弹窗列出将删什么，默认「否」→ 执行完自动重新盘点。",
-             "为什么这么做：删除最怕删错——先盘点、后动手；每行默认"
+             "确认弹窗列出将删什么，默认「否」→ 执行完自动重新盘点。"),
+             t("为什么这么做：删除最怕删错——先盘点、后动手；每行默认"
              "「不动」、确认默认「否」；执行逐条进行、可中途停止（停在条"
              "与条之间）；steamcmd 正在下载时只警告不拦（误删的条目重跑"
-             "下载命令就能回来）。",
-             "术语与关系：「账有盘无」= 账本记着已下载、盘上文件夹没了；"
+             "下载命令就能回来）。"),
+             t("术语与关系：「账有盘无」= 账本记着已下载、盘上文件夹没了；"
              "「盘上可清」= 账内 mod 还占着 content 目录；「孤儿目录」= "
              "盘上有、账本完全不认识。已删除记录的恢复在【mod 库】页右键；"
-             "备份的逐份增删在【备份管理】页；失效条目的处置在【异常处理】页。"),
+             "备份的逐份增删在【备份管理】页；失效条目的处置在【异常处理】页。")),
             self, 190))
 
 
@@ -221,22 +222,22 @@ class DeletePage(QWidget):
 
         # ---- 卡① 盘点（常驻）----
         _, box1 = self._make_card(root, "scan",
-                                  "① 盘点：把账与盘的差距摆到明面上")
+                                  t('① 盘点：把账与盘的差距摆到明面上'))
         lbl = QLabel(
-            "做什么：对照账本和 steamcmd 的 content 目录，把三类东西列成"
+            t("做什么：对照账本和 steamcmd 的 content 目录，把三类东西列成"
             "清单——账有盘无 / 盘上可清 / 孤儿目录。\n"
             "为什么：删除类操作最怕删错，先盘点就是把「将删什么」全部摆在"
             "动手之前。\n"
-            "你的选择：盘点本身不动任何东西；看完结果再逐条决定。",
+            "你的选择：盘点本身不动任何东西；看完结果再逐条决定。"),
             body)
         lbl.setWordWrap(True)
         box1.addWidget(lbl)
 
         row = QHBoxLayout()
-        self._btn_scan = QPushButton("开始盘点", body)
+        self._btn_scan = QPushButton(t("开始盘点"), body)
         self._btn_scan.setToolTip(
-            "只读扫描：对照账本与盘上目录并统计大小。大目录统计可能要几秒"
-            "到几十秒，期间不打扰你操作别的页面")
+            t("只读扫描：对照账本与盘上目录并统计大小。大目录统计可能要几秒"
+            "到几十秒，期间不打扰你操作别的页面"))
         self._btn_scan.clicked.connect(self._start_scan)
         row.addWidget(self._btn_scan)
         self._lbl_scan = QLabel("", body)
@@ -246,9 +247,9 @@ class DeletePage(QWidget):
 
         # ---- 卡② 账有盘无 ----
         self._box_missing, box2 = self._make_card(
-            root, "missing", "② 账有盘无：账本说已下载、盘上没了")
+            root, "missing", t('② 账有盘无：账本说已下载、盘上没了'))
         lbl = QLabel(
-            "为什么会出现：文件夹被手动删过、换过盘、或被别的工具删掉。"
+            t("为什么会出现：文件夹被手动删过、换过盘、或被别的工具删掉。"
             "处置只动账本、不碰磁盘（盘上本来就没有）。\n"
             "「软删除」到底动了什么：只动账本——状态改成「已删除」，"
             "记下删除时间，并把删除前的关键信息（标题、版本、大小、"
@@ -267,7 +268,7 @@ class DeletePage(QWidget):
             "【备份管理】页。\n"
             "彻底清账 = 记录与快照物理删除、不可恢复，备份登记随之"
             "清除（磁盘备份文件默认保留成普通文件夹，想一并带走"
-            "用下面的勾）。",
+            "用下面的勾）。"),
             body)
         lbl.setWordWrap(True)
         box2.addWidget(lbl)
@@ -276,14 +277,14 @@ class DeletePage(QWidget):
         self._bar_missing = QWidget(body)
         h1 = QHBoxLayout(self._bar_missing)
         h1.setContentsMargins(0, 0, 0, 0)
-        h1.addWidget(QLabel("过滤", self._bar_missing))
+        h1.addWidget(QLabel(t("过滤"), self._bar_missing))
         self._filter_missing = QLineEdit(self._bar_missing)
         self._filter_missing.setPlaceholderText(
-            "输入标题或编号，隐藏不匹配的行（清空恢复全部）")
+            t("输入标题或编号，隐藏不匹配的行（清空恢复全部）"))
         self._filter_missing.setClearButtonEnabled(True)
         self._filter_missing.setToolTip(
-            "只隐藏显示，不改任何数据；隐藏的行不参与【全选推荐】，"
-            "但已显式选好的动作照常执行——执行前确认弹窗会全量列出")
+            t("只隐藏显示，不改任何数据；隐藏的行不参与【全选推荐】，"
+            "但已显式选好的动作照常执行——执行前确认弹窗会全量列出"))
         self._filter_missing.textChanged.connect(self._apply_filters)
         h1.addWidget(self._filter_missing, 1)
         box2.addWidget(self._bar_missing)
@@ -298,23 +299,23 @@ class DeletePage(QWidget):
         box2.addWidget(self._sec_missing)
 
         self._chk_backup_files = QCheckBox(
-            "彻底清账的条目：同时删除磁盘备份文件（默认保留）", body)
+            t("彻底清账的条目：同时删除磁盘备份文件（默认保留）"), body)
         self._chk_backup_files.setToolTip(
-            "不勾：备份文件留在原地，成为未登记的普通文件夹，可日后手动删；\n"
-            "勾：随执行一并删除（不可恢复）。个别备份的增删平时走备份总览页")
+            t("不勾：备份文件留在原地，成为未登记的普通文件夹，可日后手动删；\n"
+            "勾：随执行一并删除（不可恢复）。个别备份的增删平时走备份总览页"))
         box2.addWidget(self._chk_backup_files)
 
         btn_row = QHBoxLayout()
-        self._btn_rec_missing = QPushButton("全选推荐（软删除）", body)
+        self._btn_rec_missing = QPushButton(t("全选推荐（软删除）"), body)
         self._btn_rec_missing.setToolTip(
-            "把当前显示（未被过滤隐藏）的行全部设为软删除——被过滤藏起来"
-            "的行不参与，不发生隐形选择")
+            t("把当前显示（未被过滤隐藏）的行全部设为软删除——被过滤藏起来"
+            "的行不参与，不发生隐形选择"))
         self._btn_rec_missing.clicked.connect(
             lambda: self._recommend(self._tbl_missing, M_ACT, "soft"))
         btn_row.addWidget(self._btn_rec_missing)
-        self._btn_reset_missing = QPushButton("全部重置", body)
+        self._btn_reset_missing = QPushButton(t("全部重置"), body)
         self._btn_reset_missing.setToolTip(
-            "把这一节所有行（含被过滤隐藏的行）的动作全部改回「不动」")
+            t("把这一节所有行（含被过滤隐藏的行）的动作全部改回「不动」"))
         self._btn_reset_missing.clicked.connect(
             lambda: self._reset_actions(self._tbl_missing, M_ACT))
         btn_row.addWidget(self._btn_reset_missing)
@@ -323,16 +324,16 @@ class DeletePage(QWidget):
 
         # ---- 卡③ 盘上可清 ----
         self._box_clean, box3 = self._make_card(
-            root, "clean", "③ 盘上可清：账内 mod 占着的 content 目录")
+            root, "clean", t('③ 盘上可清：账内 mod 占着的 content 目录'))
         lbl = QLabel(
-            "做什么：删除这些 mod 在 steamcmd content 目录里的文件夹"
+            t("做什么：删除这些 mod 在 steamcmd content 目录里的文件夹"
             "（空间大头）。\n"
             "为什么分开「是否连账面一起处置」：只删文件的话，账本还记着"
             "「已下载」，下次盘点会以「账有盘无」出现在本页②——"
             "所以推荐连账面一起处置，账实保持一致。想留着以后重下的，选"
             "「仅删文件」即可。\n"
             "回程票：删掉的文件重新下载就能回来（命令生成页勾选该编号）。"
-            "软删除的记录随时可在【mod 库】页右键恢复。执行键在第5步。",
+            "软删除的记录随时可在【mod 库】页右键恢复。执行键在第5步。"),
             body)
         lbl.setWordWrap(True)
         box3.addWidget(lbl)
@@ -341,35 +342,35 @@ class DeletePage(QWidget):
         self._bar_clean = QWidget(body)
         h2 = QHBoxLayout(self._bar_clean)
         h2.setContentsMargins(0, 0, 0, 0)
-        h2.addWidget(QLabel("状态", self._bar_clean))
+        h2.addWidget(QLabel(t("状态"), self._bar_clean))
         self._status_filter = QComboBox(self._bar_clean)
         for label, val in (("全部", None), ("已下载", "downloaded"),
                            ("已删除", "deleted"), ("已失败", "failed")):
             self._status_filter.addItem(label, val)
         self._status_filter.setToolTip(
-            "按账本状态过滤显示（与 mod 库页状态下拉同款：显示中文、"
-            "内部存原值）")
+            t("按账本状态过滤显示（与 mod 库页状态下拉同款：显示中文、"
+            "内部存原值）"))
         self._status_filter.currentIndexChanged.connect(self._apply_filters)
         h2.addWidget(self._status_filter)
 
-        h2.addWidget(QLabel("过滤", self._bar_clean))
+        h2.addWidget(QLabel(t("过滤"), self._bar_clean))
         self._filter_clean = QLineEdit(self._bar_clean)
         self._filter_clean.setPlaceholderText(
-            "输入标题或编号，隐藏不匹配的行（清空恢复全部）")
+            t("输入标题或编号，隐藏不匹配的行（清空恢复全部）"))
         self._filter_clean.setClearButtonEnabled(True)
         self._filter_clean.setToolTip(
-            "只隐藏显示，不改任何数据；隐藏的行不参与【全选推荐】，"
-            "但已显式选好的动作照常执行——执行前确认弹窗会全量列出")
+            t("只隐藏显示，不改任何数据；隐藏的行不参与【全选推荐】，"
+            "但已显式选好的动作照常执行——执行前确认弹窗会全量列出"))
         self._filter_clean.textChanged.connect(self._apply_filters)
         h2.addWidget(self._filter_clean, 1)
 
-        h2.addWidget(QLabel("排序", self._bar_clean))
+        h2.addWidget(QLabel(t("排序"), self._bar_clean))
         self._sort_combo = QComboBox(self._bar_clean)
         for label, _key in _CLEAN_SORTS:
             self._sort_combo.addItem(label)
         self._sort_combo.setToolTip(
-            "重排清单（数据重灌，不用表头排序——行内挂着动作下拉，"
-            "表头排序会让控件搬家错位）；重排不丢已选动作")
+            t("重排清单（数据重灌，不用表头排序——行内挂着动作下拉，"
+            "表头排序会让控件搬家错位）；重排不丢已选动作"))
         self._sort_combo.currentIndexChanged.connect(self._on_clean_sort)
         h2.addWidget(self._sort_combo)
         box3.addWidget(self._bar_clean)
@@ -385,15 +386,15 @@ class DeletePage(QWidget):
         box3.addWidget(self._sec_clean)
 
         btn_row = QHBoxLayout()
-        self._btn_rec_clean = QPushButton("全选推荐", body)
+        self._btn_rec_clean = QPushButton(t("全选推荐"), body)
         self._btn_rec_clean.setToolTip(
-            "按每行状态给推荐动作（只作用于当前显示的行）：已下载→删文件"
-            "+软删除；已删除→删文件；已失败→仅删文件。选完逐行过一眼再执行")
+            t("按每行状态给推荐动作（只作用于当前显示的行）：已下载→删文件"
+            "+软删除；已删除→删文件；已失败→仅删文件。选完逐行过一眼再执行"))
         self._btn_rec_clean.clicked.connect(self._recommend_clean)
         btn_row.addWidget(self._btn_rec_clean)
-        self._btn_reset_clean = QPushButton("全部重置", body)
+        self._btn_reset_clean = QPushButton(t("全部重置"), body)
         self._btn_reset_clean.setToolTip(
-            "把这一节所有行（含被过滤隐藏的行）的动作全部改回「不动」")
+            t("把这一节所有行（含被过滤隐藏的行）的动作全部改回「不动」"))
         self._btn_reset_clean.clicked.connect(
             lambda: self._reset_actions(self._tbl_clean, C_ACT))
         btn_row.addWidget(self._btn_reset_clean)
@@ -402,9 +403,9 @@ class DeletePage(QWidget):
 
         # ---- 卡④ 孤儿目录 ----
         self._box_orphan, box4 = self._make_card(
-            root, "orphan", "④ 孤儿目录：盘上有、账本完全不认识")
+            root, "orphan", t('④ 孤儿目录：盘上有、账本完全不认识'))
         olbl = QLabel(
-            "来源：steamcmd 账本被换过、别的工具留下的残骸、或彻底清账后"
+            t("来源：steamcmd 账本被换过、别的工具留下的残骸、或彻底清账后"
             "的文件。默认全部不选——来路不明的目录逐个确认后再勾；确认"
             "整批都不要时，用过滤条上的「全选可见行」一次勾上（执行前"
             "确认弹窗仍会全量列出）。\n"
@@ -416,7 +417,7 @@ class DeletePage(QWidget):
             "防复活」也勾上，一次做完拉黑+断根（只删文件的话 steamcmd "
             "账本条目还在，会反复装配回来，打地鼠）。\n"
             "删除不可恢复，且多前端环境里别的工具（如 RimSort）清单里"
-            "留着的 mod 会被它指挥下回来——悬浮此处可看多前端自查要点。",
+            "留着的 mod 会被它指挥下回来——悬浮此处可看多前端自查要点。"),
             body)
 
         olbl.setWordWrap(True)
@@ -426,31 +427,31 @@ class DeletePage(QWidget):
         self._bar_orphan = QWidget(body)
         h3 = QHBoxLayout(self._bar_orphan)
         h3.setContentsMargins(0, 0, 0, 0)
-        h3.addWidget(QLabel("过滤", self._bar_orphan))
+        h3.addWidget(QLabel(t("过滤"), self._bar_orphan))
         self._filter_orphan = QLineEdit(self._bar_orphan)
         self._filter_orphan.setPlaceholderText(
-            "输入编号等关键词，隐藏不匹配的行（清空恢复全部）")
+            t("输入编号等关键词，隐藏不匹配的行（清空恢复全部）"))
         self._filter_orphan.setClearButtonEnabled(True)
         self._filter_orphan.setToolTip(
-            "只隐藏显示，不改任何数据；勾选状态不受过滤影响")
+            t("只隐藏显示，不改任何数据；勾选状态不受过滤影响"))
         self._filter_orphan.textChanged.connect(self._apply_filters)
         h3.addWidget(self._filter_orphan, 1)
         # 勾选总控（2026-10，用户拍板加全选）：全选只勾可见行——勾选
         # 就是背书，点按钮的人看得见要动什么（备份总览/已清账管理同
         # 一纪律）；清除作用全部行（保守方向可以放宽）。按钮住工具条
         # 内，随空桶显隐（_refresh_buckets 管的是 _bar_orphan 本体）
-        self._btn_orphan_all = QPushButton("全选可见行", self._bar_orphan)
+        self._btn_orphan_all = QPushButton(t("全选可见行"), self._bar_orphan)
         self._btn_orphan_all.setToolTip(
-            "只勾选当前显示（未被过滤隐藏）的孤儿行——点按钮的人看得见"
+            t("只勾选当前显示（未被过滤隐藏）的孤儿行——点按钮的人看得见"
             "要动的是什么。\n勾选 = 执行时删除该目录（不可恢复）：全选后"
             "逐行过一眼，确认整批不要的顺手勾上「删除同时防复活」；\n"
-            "执行前确认弹窗仍会全量列出，那是最后一道闸")
+            "执行前确认弹窗仍会全量列出，那是最后一道闸"))
         self._btn_orphan_all.clicked.connect(
             lambda: self._orphan_set_checks(True))
         h3.addWidget(self._btn_orphan_all)
-        self._btn_orphan_none = QPushButton("清除勾选", self._bar_orphan)
+        self._btn_orphan_none = QPushButton(t("清除勾选"), self._bar_orphan)
         self._btn_orphan_none.setToolTip(
-            "取消孤儿清单全部勾选（含被过滤隐藏的行——重置是保守方向）")
+            t("取消孤儿清单全部勾选（含被过滤隐藏的行——重置是保守方向）"))
         self._btn_orphan_none.clicked.connect(
             lambda: self._orphan_set_checks(False))
         h3.addWidget(self._btn_orphan_none)
@@ -466,21 +467,21 @@ class DeletePage(QWidget):
         # 孤儿防复活复合开关（2026-10）：默认关（保守方向）。确认
         # 弹窗全量列出各刀；只是想删文件、以后可能认领的不要勾
         self._chk_orphan_defense = QCheckBox(
-            "删除同时防复活：列入已清账黑名单 + 移除 steamcmd 账本"
-            "条目（对确认不要的来路不明目录勾选）", body)
+            t("删除同时防复活：列入已清账黑名单 + 移除 steamcmd 账本"
+            "条目（对确认不要的来路不明目录勾选）"), body)
         self._chk_orphan_defense.setToolTip(
-            "三个动作一次做完（确认弹窗逐条列出）：\n"
+            t("三个动作一次做完（确认弹窗逐条列出）：\n"
             "① 列入已清账黑名单——本工具从此拦截其自动入账"
             "（反悔走已清账管理·允许录入）；已在名单的自动跳过；\n"
             "② 从 steamcmd 账本移除条目（写前自动备份）——条目不除，"
             "steamcmd 会反复把它们装配回来；steamcmd 运行中本次自动"
             "跳过，可事后到已清账管理·清除残留补做；\n"
-            "③ 执行收尾清一次 steamcmd 缓存（复活燃料）")
+            "③ 执行收尾清一次 steamcmd 缓存（复活燃料）"))
         box4.addWidget(self._chk_orphan_defense)
 
         btn_row = QHBoxLayout()
         # 拍板③：统一指入账中心（导入页已撤，登记并入账中心④）
-        self._btn_claim_scan = QPushButton("去入账中心认领（扫描游戏目录）", body)
+        self._btn_claim_scan = QPushButton(t("去入账中心认领（扫描游戏目录）"), body)
         self._btn_claim_scan.clicked.connect(
             self.goto_account_center_requested.emit)
         btn_row.addWidget(self._btn_claim_scan)
@@ -488,12 +489,12 @@ class DeletePage(QWidget):
         btn_row.addStretch(1)
         box4.addLayout(btn_row)
         self._btn_claim_scan.setToolTip(
-            "跳到【入账中心】点【扫描游戏目录】：账外目录会摆成待认领，"
-            "确认后入账（盘面记了版本的带版本）")
+            t("跳到【入账中心】点【扫描游戏目录】：账外目录会摆成待认领，"
+            "确认后入账（盘面记了版本的带版本）"))
 
 
         # ---- 卡⑤ 执行（常驻）----
-        _, box5 = self._make_card(root, "exec", "⑤ 执行所选处置")
+        _, box5 = self._make_card(root, "exec", t('⑤ 执行所选处置'))
         self._bar = QProgressBar(body)
         self._bar.setVisible(False)
         box5.addWidget(self._bar)
@@ -501,15 +502,15 @@ class DeletePage(QWidget):
         self._lbl_progress.setWordWrap(True)
         box5.addWidget(self._lbl_progress)
         row = QHBoxLayout()
-        self._btn_exec = QPushButton("执行所选处置…", body)
+        self._btn_exec = QPushButton(t("执行所选处置…"), body)
         self._btn_exec.setToolTip(
-            "先弹确认清单（将删什么、多大、哪些可逆），确认后才动手；"
-            "执行中可点停止——停在条与条之间，绝不删一半")
+            t("先弹确认清单（将删什么、多大、哪些可逆），确认后才动手；"
+            "执行中可点停止——停在条与条之间，绝不删一半"))
         self._btn_exec.clicked.connect(self._on_execute)
-        self._btn_stop = QPushButton("停止", body)
+        self._btn_stop = QPushButton(t("停止"), body)
         self._btn_stop.setEnabled(False)
         self._btn_stop.setToolTip(
-            "请求停止：当前这一条做完后不再继续（绝不把一个目录删一半）")
+            t("请求停止：当前这一条做完后不再继续（绝不把一个目录删一半）"))
         self._btn_stop.clicked.connect(self._on_stop)
         row.addWidget(self._btn_exec)
         row.addWidget(self._btn_stop)
@@ -567,11 +568,10 @@ class DeletePage(QWidget):
         self._mods_by_id = {}
         if game is None:
             self._lbl_game.setText(
-                "（还没有选择游戏档案）——请先在左上角添加或选择档案")
+                t("（还没有选择游戏档案）——请先在左上角添加或选择档案"))
         else:
             self._lbl_game.setText(
-                f"当前档案：{game.name}（AppID {game.app_id}）——"
-                "盘点与处置只针对这一个档案")
+                t('当前档案：') + f"{game.name}" + f'（AppID ' + f"{game.app_id}" + t('）——盘点与处置只针对这一个档案'))
         # 过滤条件清干净：上个档案的关键词/状态不该管到这个档案的清单
         for e in (self._filter_missing, self._filter_clean,
                   self._filter_orphan):
@@ -604,16 +604,16 @@ class DeletePage(QWidget):
     def _start_scan(self) -> None:
         if self._game is None:
             QMessageBox.information(
-                self, "请先选择档案",
-                "盘点按当前游戏档案执行——请先在左上角添加或选择游戏档案。")
+                self, t("请先选择档案"),
+                t("盘点按当前游戏档案执行——请先在左上角添加或选择游戏档案。"))
             return
         # V2：steamcmd 未配置的拦截留在这道开工检查（引擎 InventoryReport
         # 已无 steamcmd_missing 字段，页面必须自己把关）
         if self._steamcmd_root() is None:
             QMessageBox.warning(
-                self, "盘点",
-                "尚未设置 steamcmd 程序路径，无法定位 content 目录。\n"
-                "请先到设置页填写 steamcmd 程序的完整路径（Windows=steamcmd.exe；Linux=steamcmd / steamcmd.sh）。")
+                self, t("盘点"),
+                t("尚未设置 steamcmd 程序路径，无法定位 content 目录。\n"
+                "请先到设置页填写 steamcmd 程序的完整路径（Windows=steamcmd.exe；Linux=steamcmd / steamcmd.sh）。"))
             return
         # 下载目录死路径核对（与扫描本地同款：steamcmd 挪位后重推导并写回）
         effective, changed = steamPaths.refresh_download_dir(
@@ -624,10 +624,10 @@ class DeletePage(QWidget):
             self._repo.update_game(self._game.app_id, download_dir=effective)
             self._game = self._repo.get_game(self._game.app_id)
             self._log.info(
-                f"下载目录已按当前 steamcmd 位置重新推导：{effective}")
+                t('下载目录已按当前 steamcmd 位置重新推导：') + f"{effective}")
         self._btn_scan.setEnabled(False)
         self._set_colored(self._lbl_scan,
-                          "正在盘点并统计大小（大目录可能要一会儿）…", _C_INFO)
+                          t("正在盘点并统计大小（大目录可能要一会儿）…"), _C_INFO)
         self._scan_worker = _ScanWorker(
             self._repo, self._game, self._settings.get("steamcmd_path"))
         self._scan_worker.done.connect(self._on_scan_done)
@@ -638,7 +638,7 @@ class DeletePage(QWidget):
     def _on_scan_failed(self, msg: str) -> None:
         self._btn_scan.setEnabled(True)
         self._set_colored(self._lbl_scan, "", _C_MUTED)
-        QMessageBox.critical(self, "盘点失败", msg)
+        QMessageBox.critical(self, t("盘点失败"), msg)
 
     def _on_scan_done(self, rep) -> None:
         self._btn_scan.setEnabled(True)
@@ -651,17 +651,15 @@ class DeletePage(QWidget):
         # 下载目录不存在走下面的 dead_root 分支
         if rep.dead_root:
             self._show_banner(
-                f"下载目录不存在：{rep.download_dir}\n"
-                "已尝试按当前 steamcmd 位置重推导仍无效——请检查 steamcmd "
-                "是否还在设置页填的位置。")
+                t('下载目录不存在：') + f"{rep.download_dir}" + t('\n已尝试按当前 steamcmd 位置重推导仍无效——请检查 steamcmd 是否还在设置页填的位置。'))
             return
         # R7 用户拍板：steamcmd 在跑只警告不拦截——误删的条目重跑下载
         # 命令就能回来，回程票在这里说清就是全部的拦截
         if rep.steamcmd_running:
             self._show_banner(
-                "steamcmd 正在运行：此刻执行删除可能与下载争用。"
+                t("steamcmd 正在运行：此刻执行删除可能与下载争用。"
                 "被误删的条目重跑下载命令即可回来（steamcmd 会自建条目）——"
-                "警告不拦截，是否继续由你决定。")
+                "警告不拦截，是否继续由你决定。"))
         else:
             self._banner.setVisible(False)
         # 标题/网址对照表一次取齐（↗ 点击时只查字典，不查库；备份页同款）
@@ -680,20 +678,16 @@ class DeletePage(QWidget):
         if n_missing == n_clean == n_orphan == 0:
             self._set_colored(
                 self._lbl_scan,
-                "盘点完成：账实相符，盘上也没有孤儿目录——没有可清理项。",
+                t("盘点完成：账实相符，盘上也没有孤儿目录——没有可清理项。"),
                 _C_OK)
             if tracked_on_disk:
                 # V2 口径：tracked=「待下载」，确认补版本走入账中心
                 self._log.info(
-                    f"另有 {tracked_on_disk} 个「待下载」条目盘上有目录："
-                    "到【入账中心】点【扫描游戏目录】把它们摆成待认领、"
-                    "确认补版本，不属于清理范围")
+                    t('另有 ') + f"{tracked_on_disk}" + t(' 个「待下载」条目盘上有目录：到【入账中心】点【扫描游戏目录】把它们摆成待认领、确认补版本，不属于清理范围'))
             return
         self._set_colored(
             self._lbl_scan,
-            f"盘点完成：账有盘无 {n_missing} 个；盘上可清 {n_clean} 个"
-            f"（共 {fmt_size(sum(r.dir_size or 0 for r in rep.cleanable_rows))}）；"
-            f"孤儿 {n_orphan} 个。逐行选动作，或用【全选推荐】。",
+            t('盘点完成：账有盘无 ') + f"{n_missing}" + t(' 个；盘上可清 ') + f"{n_clean}" + t(' 个（共 ') + f"{fmt_size(sum(r.dir_size or 0 for r in rep.cleanable_rows))}" + t('）；孤儿 ') + f"{n_orphan}" + t(' 个。逐行选动作，或用【全选推荐】。'),
             _C_INFO)
 
     def _show_banner(self, text: str) -> None:
@@ -707,20 +701,20 @@ class DeletePage(QWidget):
                          n_orphan: int) -> None:
         """分区标题带计数、空桶自动收起、空桶的配套控件（工具条/按钮）
         一并隐藏——0 行的桶不留空框，也不留没有对象的控件。"""
-        self._sec_missing.set_title(f"问题明细（{n_missing} 行）")
+        self._sec_missing.set_title(t("问题明细（") + f"{n_missing}" + t(" 行）"))
         self._sec_missing.set_expanded(n_missing > 0)
         self._bar_missing.setVisible(n_missing > 0)
         self._chk_backup_files.setVisible(n_missing > 0)
         self._btn_rec_missing.setVisible(n_missing > 0)
         self._btn_reset_missing.setVisible(n_missing > 0)
 
-        self._sec_clean.set_title(f"清理清单（{n_clean} 行）")
+        self._sec_clean.set_title(t("清理清单（") + f"{n_clean}" + t(" 行）"))
         self._sec_clean.set_expanded(n_clean > 0)
         self._bar_clean.setVisible(n_clean > 0)
         self._btn_rec_clean.setVisible(n_clean > 0)
         self._btn_reset_clean.setVisible(n_clean > 0)
 
-        self._sec_orphan.set_title(f"孤儿清单（{n_orphan} 个）")
+        self._sec_orphan.set_title(t("孤儿清单（") + f"{n_orphan}" + t(" 个）"))
         self._sec_orphan.set_expanded(n_orphan > 0)
         self._bar_orphan.setVisible(n_orphan > 0)
         self._chk_orphan_defense.setVisible(n_orphan > 0)
@@ -756,76 +750,76 @@ class DeletePage(QWidget):
     def _fill_tables(self, rep) -> None:
         # —— ② 账有盘无：动作下拉（默认「不动」）——
         rows = rep.missing_rows
-        t = self._tbl_missing
-        t.setRowCount(len(rows))
+        tbl = self._tbl_missing
+        tbl.setRowCount(len(rows))
         for i, r in enumerate(rows):
-            t.setItem(i, M_URL, self._make_url_item(r.mod_id))
+            tbl.setItem(i, M_URL, self._make_url_item(r.mod_id))
             it = QTableWidgetItem(str(r.mod_id))
             # 行内 id：操作对象按 id 定位不按行号（备份页纪律）
             it.setData(Qt.ItemDataRole.UserRole, r.mod_id)
-            t.setItem(i, M_ID, it)
-            t.setItem(i, M_TITLE, QTableWidgetItem(r.title or "（无标题）"))
-            t.setItem(i, M_BACKUPS, QTableWidgetItem(
-                f"{r.backup_count} 份 / {fmt_size(r.backup_bytes)}"))
+            tbl.setItem(i, M_ID, it)
+            tbl.setItem(i, M_TITLE, QTableWidgetItem(r.title or "（无标题）"))
+            tbl.setItem(i, M_BACKUPS, QTableWidgetItem(
+                f"{r.backup_count}" + t(' 份 / ') + f"{fmt_size(r.backup_bytes)}"))
             combo = QComboBox()
-            combo.addItem("不动", None)
-            combo.addItem("软删除（推荐）", "soft")
+            combo.addItem(t('不动'), None)
+            combo.addItem(t('软删除（推荐）'), "soft")
             combo.setItemData(1, "记录保留，可随时恢复（推荐）",
                               Qt.ItemDataRole.ToolTipRole)
-            combo.addItem("彻底清账（不可逆）", "purge")
+            combo.addItem(t('彻底清账（不可逆）'), "purge")
             combo.setItemData(2, "记录物理删除，不可恢复；备份登记随账清除",
                               Qt.ItemDataRole.ToolTipRole)
-            t.setCellWidget(i, M_ACT, combo)
+            tbl.setCellWidget(i, M_ACT, combo)
 
         # —— ③ 盘上可清：动作按状态分派；排序在下拉里选（重灌式）——
         rows = list(rep.cleanable_rows)
         rows.sort(key=_CLEAN_SORTS[self._clean_sort][1])
-        t = self._tbl_clean
-        t.setRowCount(len(rows))
+        tbl = self._tbl_clean
+        tbl.setRowCount(len(rows))
         for i, r in enumerate(rows):
-            t.setItem(i, C_URL, self._make_url_item(r.mod_id))
+            tbl.setItem(i, C_URL, self._make_url_item(r.mod_id))
             it = QTableWidgetItem(str(r.mod_id))
             it.setData(Qt.ItemDataRole.UserRole, r.mod_id)
-            t.setItem(i, C_ID, it)
-            t.setItem(i, C_TITLE, QTableWidgetItem(r.title or "（无标题）"))
+            tbl.setItem(i, C_ID, it)
+            tbl.setItem(i, C_TITLE, QTableWidgetItem(r.title or "（无标题）"))
             # 状态列：显示走 status_zh 单源，英文原值进 UserRole 供
             # 推荐/过滤逻辑使用——显示与数据分离
             st = QTableWidgetItem(status_zh(r.status))
             st.setData(Qt.ItemDataRole.UserRole, r.status)
-            t.setItem(i, C_STATUS, st)
-            t.setItem(i, C_SIZE, QTableWidgetItem(fmt_size(r.dir_size or 0)))
+            tbl.setItem(i, C_STATUS, st)
+            tbl.setItem(i, C_SIZE, QTableWidgetItem(fmt_size(r.dir_size or 0)))
             combo = QComboBox()
-            combo.addItem("不动", None)
+            combo.addItem(t('不动'), None)
             if r.status == "downloaded":
-                combo.addItem("删文件+软删除（推荐）", "wipe_soft")
+                combo.addItem(t('删文件+软删除（推荐）'), "wipe_soft")
                 combo.setItemData(
                     1, "账实一起收尾：文件删、记录保留可恢复（推荐）",
                     Qt.ItemDataRole.ToolTipRole)
-                combo.addItem("仅删文件", "wipe")
+                combo.addItem(t('仅删文件'), "wipe")
                 combo.setItemData(
                     2, "账本仍记着「已下载」——之后它会在本页②"
                        "「账有盘无」里出现",
                     Qt.ItemDataRole.ToolTipRole)
-                combo.addItem("删文件+彻底清账（不可逆）", "wipe_purge")
+                combo.addItem(t('删文件+彻底清账（不可逆）'), "wipe_purge")
                 combo.setItemData(
                     3, "文件与记录都不要了：记录物理删除，不可恢复",
                     Qt.ItemDataRole.ToolTipRole)
             elif r.status == "deleted":
-                combo.addItem("删文件（推荐）", "wipe")
+                combo.addItem(t('删文件（推荐）'), "wipe")
                 combo.setItemData(
                     1, "账本已经是删除状态，只需清掉占地的文件",
                     Qt.ItemDataRole.ToolTipRole)
-                combo.addItem("删文件+彻底清账（不可逆）", "wipe_purge")
+                combo.addItem(t('删文件+彻底清账（不可逆）'), "wipe_purge")
                 combo.setItemData(
                     2, "连删除记录一起物理删除，不可恢复",
                     Qt.ItemDataRole.ToolTipRole)
             else:
                 # failed：处置链归异常页，本页只清文件
-                combo.addItem("仅删文件（推荐）", "wipe")
+                combo.addItem(t('仅删文件（推荐）'), "wipe")
                 combo.setItemData(
                     1, "失效原因的处置在【异常处理】页，这里只清占地的文件",
                     Qt.ItemDataRole.ToolTipRole)
-            t.setCellWidget(i, C_ACT, combo)
+            tbl.setCellWidget(i, C_ACT, combo)
 
         # —— ④ 孤儿：勾选框，默认全不选（刻意不给批量全选——逐个确认）。
         # V2：OrphanRow 无 in_acf，"acf 认识?"列退役，认领路线统一指
@@ -834,8 +828,8 @@ class DeletePage(QWidget):
         # （做过"彻底清账"决定、被别的指挥者推翻）——缀「（复活）」
         # 黄字，tooltip 讲来历与去处；处置动作对所有孤儿开放
         rows = rep.orphans
-        t = self._tbl_orphan
-        t.setRowCount(len(rows))
+        tbl = self._tbl_orphan
+        tbl.setRowCount(len(rows))
         purged_ids = (self._repo.filter_purged([o.mod_id for o in rows])
                       if rows else set())
         for i, o in enumerate(rows):
@@ -849,15 +843,15 @@ class DeletePage(QWidget):
                 if resurfaced else
                 "勾选 = 执行时删除该目录（不可恢复）；确认不要的"
                 "可顺手勾上「删除同时防复活」")
-            t.setCellWidget(i, O_CHK, chk)
-            t.setItem(i, O_URL, self._make_url_item(o.mod_id))
+            tbl.setCellWidget(i, O_CHK, chk)
+            tbl.setItem(i, O_URL, self._make_url_item(o.mod_id))
             it = QTableWidgetItem(
                 f"{o.mod_id}（复活）" if resurfaced else str(o.mod_id))
             it.setData(Qt.ItemDataRole.UserRole, o.mod_id)
             if resurfaced:
                 it.setForeground(QBrush(QColor(_C_WARN)))
-            t.setItem(i, O_ID, it)
-            t.setItem(i, O_SIZE, QTableWidgetItem(fmt_size(o.dir_size)))
+            tbl.setItem(i, O_ID, it)
+            tbl.setItem(i, O_SIZE, QTableWidgetItem(fmt_size(o.dir_size)))
         self._apply_filters()
 
     def _make_url_item(self, mod_id: int) -> QTableWidgetItem:
@@ -867,8 +861,8 @@ class DeletePage(QWidget):
         it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         it.setForeground(QBrush(QColor("#5aa9ff")))  # 蓝字提示可点
         it.setData(Qt.ItemDataRole.UserRole, mod_id)
-        it.setToolTip("点击在浏览器打开该 mod 的创意工坊页面"
-                      "（动手之前顺手看一眼它是什么）")
+        it.setToolTip(t("点击在浏览器打开该 mod 的创意工坊页面"
+                      "（动手之前顺手看一眼它是什么）"))
         return it
 
     def _on_clean_sort(self, idx: int) -> None:
@@ -920,13 +914,13 @@ class DeletePage(QWidget):
     def _open_content_folder(self, mod_id: int) -> None:
         """打开该 mod 的 content 文件夹（删之前看看里面实际有什么）。"""
         if self._game is None or not (self._game.download_dir or "").strip():
-            QMessageBox.information(self, "打开 content 文件夹",
-                                    "当前档案没有记录下载目录。")
+            QMessageBox.information(self, t("打开 content 文件夹"),
+                                    t("当前档案没有记录下载目录。"))
             return
         target = Path(self._game.download_dir) / str(mod_id)
         if not target.is_dir():
-            QMessageBox.warning(self, "打开 content 文件夹",
-                                f"盘上找不到：\n{target}")
+            QMessageBox.warning(self, t("打开 content 文件夹"),
+                                t('盘上找不到：\n') + f"{target}")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
 
@@ -945,19 +939,19 @@ class DeletePage(QWidget):
         menu.setMinimumWidth(240)   # 中文菜单项宽度兜底
         menu.setToolTipsVisible(True)  # QMenu 默认不显示悬浮说明，显式开
 
-        act_open = QAction("打开工坊页面", menu)
-        act_open.setToolTip("在浏览器打开该编号的创意工坊页面")
+        act_open = QAction(t("打开工坊页面"), menu)
+        act_open.setToolTip(t("在浏览器打开该编号的创意工坊页面"))
         act_open.triggered.connect(lambda: self._open_row_url(mid))
         menu.addAction(act_open)
 
         if kind in ("clean", "orphan"):
-            act_dir = QAction("打开 content 文件夹", menu)
-            act_dir.setToolTip("在资源管理器里看看这个目录里实际有什么，"
-                               "再决定怎么处置")
+            act_dir = QAction(t("打开 content 文件夹"), menu)
+            act_dir.setToolTip(t("在资源管理器里看看这个目录里实际有什么，"
+                               "再决定怎么处置"))
             act_dir.triggered.connect(lambda: self._open_content_folder(mid))
             menu.addAction(act_dir)
 
-        act_copy = QAction("复制编号", menu)
+        act_copy = QAction(t("复制编号"), menu)
         act_copy.triggered.connect(
             lambda: QApplication.clipboard().setText(str(mid)))
         menu.addAction(act_copy)
@@ -1064,29 +1058,29 @@ class DeletePage(QWidget):
         try:
             plan = dmf.build_plan(self._repo, self._report, req)
         except ValueError as exc:
-            QMessageBox.warning(self, "没法执行", str(exc))
+            QMessageBox.warning(self, t("没法执行"), str(exc))
             return
         if not plan.actions:
             QMessageBox.information(
-                self, "执行所选处置",
-                "还没有选择任何处置动作——在各节的「动作」下拉里选（或右键"
-                "行选动作），或用【全选推荐】。")
+                self, t("执行所选处置"),
+                t("还没有选择任何处置动作——在各节的「动作」下拉里选（或右键"
+                "行选动作），或用【全选推荐】。"))
             return
         ret = QMessageBox.question(
-            self, "确认执行（最后一道确认）",
+            self, t("确认执行（最后一道确认）"),
             "\n".join(plan.notes)
             + "\n\n确认按上述执行？默认按钮是「否」，回车不会动手。",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
-            self._log.info("已取消：没有做任何改动")
+            self._log.info(t('已取消：没有做任何改动'))
             return
         self._bar.setRange(0, len(plan.actions))
         self._bar.setValue(0)
         self._bar.setVisible(True)
         self._btn_exec.setEnabled(False)
         self._btn_stop.setEnabled(True)
-        self._set_colored(self._lbl_progress, "开始执行…", _C_INFO)
+        self._set_colored(self._lbl_progress, t("开始执行…"), _C_INFO)
         self._exec_worker = _ExecuteWorker(self._repo, plan.actions)
         self._exec_worker.progress.connect(self._on_exec_progress)
         self._exec_worker.finished_run.connect(self._on_exec_done)
@@ -1097,7 +1091,7 @@ class DeletePage(QWidget):
         if self._exec_worker is not None:
             self._exec_worker.request_stop()
             self._btn_stop.setEnabled(False)
-            self._set_colored(self._lbl_progress, "将在当前条完成后停止…",
+            self._set_colored(self._lbl_progress, t("将在当前条完成后停止…"),
                               _C_WARN)
 
     def _on_exec_progress(self, i: int, n: int, text: str) -> None:
@@ -1127,13 +1121,11 @@ class DeletePage(QWidget):
                                     f"{_who(r.mod_id)}：{r.detail}" for r in bad) if bad else ""))
         self._set_colored(self._lbl_progress, summary, _C_OK if (not bad and not stopped) else _C_WARN)
         if stopped:
-            self._log.warn("处置已停止：停在条与条之间，完成的条目已生效")
+            self._log.warn(t("处置已停止：停在条与条之间，完成的条目已生效"))
         for r in ok:
-            self._log.ok(f"清理·{_KIND_ZH.get(r.kind, r.kind)} "
-                         f"{_who(r.mod_id)}：{r.detail}")
+            self._log.ok(t('清理·') + f"{_KIND_ZH.get(r.kind, r.kind)}" + f' ' + f"{_who(r.mod_id)}" + f'：' + f"{r.detail}")
         for r in bad:
-            self._log.error(f"清理·{_KIND_ZH.get(r.kind, r.kind)} "
-                            f"{_who(r.mod_id)} 失败：{r.detail}")
+            self._log.error(t('清理·') + f"{_KIND_ZH.get(r.kind, r.kind)}" + f' ' + f"{_who(r.mod_id)}" + t(' 失败：') + f"{r.detail}")
 
         # T4（2026-10 增补）：本轮有彻底清账 → 顺手清一次 steamcmd
         # 缓存（防复活断根的最后一步）：刚删完 content + acf 条目，
@@ -1151,7 +1143,7 @@ class DeletePage(QWidget):
                         f"释放 {freed / 2 ** 20:.1f} MB"
                         + (f"；跳过 {len(skipped)} 项（被占用）" if skipped else ""))
             except OSError as exc:
-                self._log.warn(f"清账后清缓存出错（不影响清账结果）：{exc}")
+                self._log.warn(t('清账后清缓存出错（不影响清账结果）：') + f"{exc}")
 
         # 处置落账 → mod 库页强制重读（软删除/清账结果不用用户自己点刷新）
         self.ledger_changed.emit()
@@ -1166,8 +1158,8 @@ class DeletePage(QWidget):
         self._btn_stop.setEnabled(False)
         self._btn_scan.setEnabled(True)
         self._set_colored(self._lbl_scan, "", _C_MUTED)
-        self._log.error(f"清理页发生预期外错误：{msg}")
-        QMessageBox.critical(self, "清理与删除", f"发生预期外错误：{msg}")
+        self._log.error(t('清理页发生预期外错误：') + f"{msg}")
+        QMessageBox.critical(self, t("清理与删除"), t('发生预期外错误：') + f"{msg}")
 
     # ---------- 小件 ----------
     @staticmethod
