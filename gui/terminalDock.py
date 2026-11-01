@@ -84,6 +84,7 @@ from core import outputAnalyzer
 from core.backupManager import steamcmd_running
 from core.steamPaths import ensure_steamcmd_exe
 from core.urlParser import parse_lines
+from core.i18n import t
 from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
 
@@ -230,17 +231,17 @@ class TerminalDock(QWidget):
 
         # 顶部：状态 + 启动/停止 + 登录命令下拉框
         top = QHBoxLayout()
-        self._lbl_state = QLabel("未启动", self)
+        self._lbl_state = QLabel(t("未启动"), self)
 
-        self._btn_start = QPushButton("启动 steamcmd", self)
+        self._btn_start = QPushButton(t("启动 steamcmd"), self)
         self._btn_start.setToolTip(
-            "按设置页里的 steamcmd 程序路径启动子进程；"
-            "本机已有 steamcmd 在跑时会先提醒（同一时间跑两个不建议）")
+            t("按设置页里的 steamcmd 程序路径启动子进程；"
+            "本机已有 steamcmd 在跑时会先提醒（同一时间跑两个不建议）"))
 
-        self._btn_stop = QPushButton("停止", self)
+        self._btn_stop = QPushButton(t("停止"), self)
         self._btn_stop.setToolTip(
-            "先发 quit 优雅退出（保住登录缓存）；5 秒没退才强杀。\n"
-            "下载批次进行中会先确认——停止 steamcmd = 中止批次")
+            t("先发 quit 优雅退出（保住登录缓存）；5 秒没退才强杀。\n"
+            "下载批次进行中会先确认——停止 steamcmd = 中止批次"))
 
         # 发送登录命令：下拉框——设置里一行一条登录命令（可存多个
         # 账号），选中即发送；每次展开重读设置，设置页改完存盘立即
@@ -249,10 +250,10 @@ class TerminalDock(QWidget):
         self._login_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents)
         self._login_combo.setToolTip(
-            "列出设置页「steamcmd 登录命令」里的每一行（一行一个账号），"
+            t("列出设置页「steamcmd 登录命令」里的每一行（一行一个账号），"
             "点选即把该行命令发给 steamcmd；\n每次展开都会重读设置，"
             "设置页里改完存盘立即生效；\n"
-            "还没填的话去设置页 → steamcmd 登录命令")
+            "还没填的话去设置页 → steamcmd 登录命令"))
         self._login_combo.setEnabled(False)
         self._login_combo.activated.connect(self._on_send_login)
         self._login_combo.about_to_show.connect(self._reload_login_items)
@@ -272,9 +273,9 @@ class TerminalDock(QWidget):
         # 启动时的单实例弹窗只在"已有 steamcmd 在跑"时出现，这行灰字
         # 常驻可见，补上"启动之前"的知情。开换行防窄窗撑宽
         hint = QLabel(
-            "提醒：steamcmd 与 Steam 客户端同一账号只能登一处，"
+            t("提醒：steamcmd 与 Steam 客户端同一账号只能登一处，"
             "后登录的会把先登录的顶下线；也不建议在软件外另开一个 "
-            "steamcmd 同时下载——两边会争用同一个下载目录。", self)
+            "steamcmd 同时下载——两边会争用同一个下载目录。"), self)
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
         root.addWidget(hint)
@@ -297,12 +298,12 @@ class TerminalDock(QWidget):
         bottom = QHBoxLayout()
         self._input = _CommandInput(self)
         self._input.setPlaceholderText(
-            "输入 steamcmd 命令：Enter 发送，Shift+Enter 换行；"
-            "多行命令逐行发送（例：login 你的用户名）")
+            t("输入 steamcmd 命令：Enter 发送，Shift+Enter 换行；"
+            "多行命令逐行发送（例：login 你的用户名）"))
         self._input.setEnabled(False)
-        self._btn_send = QPushButton("发送", self)
+        self._btn_send = QPushButton(t("发送"), self)
         self._btn_send.setToolTip(
-            "发送输入框里的命令（Enter 键等效；Shift+Enter 换行）")
+            t("发送输入框里的命令（Enter 键等效；Shift+Enter 换行）"))
         self._btn_send.setEnabled(False)
         self._input.send_requested.connect(self._on_send_input)
         self._btn_send.clicked.connect(self._on_send_input)
@@ -324,7 +325,7 @@ class TerminalDock(QWidget):
         本方法不再手动补回显。
         """
         if not self._is_running():
-            self._log.warn("steamcmd 未在运行：命令没有发出")
+            self._log.warn(t("steamcmd 未在运行：命令没有发出"))
             return False
         text = text.strip()
         if not text:
@@ -332,7 +333,7 @@ class TerminalDock(QWidget):
         try:
             self._pty.write(text + "\r\n")
         except (EOFError, OSError):
-            self._log.error("steamcmd 已退出：命令没有发出")
+            self._log.error(t('steamcmd 已退出：命令没有发出'))
             return False
         return True
 
@@ -374,10 +375,8 @@ class TerminalDock(QWidget):
             return
         if not ptyBackend.pty_available():
             QMessageBox.warning(
-                self, "缺少组件",
-                "终端功能需要伪控制台依赖，当前环境未安装。\n"
-                f"请先执行：\n  {ptyBackend.pty_install_hint()}\n"
-                "装好后重启本软件。")
+                self, t("缺少组件"),
+                t('终端功能需要伪控制台依赖，当前环境未安装。\n请先执行：\n  ') + f"{ptyBackend.pty_install_hint()}" + t('\n装好后重启本软件。'))
             return
 
         exe = (str(self._settings.get("steamcmd_path") or "").strip()
@@ -387,31 +386,30 @@ class TerminalDock(QWidget):
         exe = ensure_steamcmd_exe(exe)
         if not exe:
             QMessageBox.information(
-                self, "无法启动",
-                "还没有设置 steamcmd 程序路径。\n"
+                self, t("无法启动"),
+                t("还没有设置 steamcmd 程序路径。\n"
                 "请到 设置页 → steamcmd 程序，填入 steamcmd 的"
                 "完整路径（Windows=steamcmd.exe；Linux=steamcmd / "
-                "steamcmd.sh）。")
+                "steamcmd.sh）。"))
             return
         if not Path(exe).is_file():
             QMessageBox.warning(
-                self, "无法启动",
-                f"设置页里的路径在磁盘上找不到文件：\n{exe}\n"
-                "请到 设置页 → steamcmd 程序 重新选择。")
+                self, t("无法启动"),
+                t('设置页里的路径在磁盘上找不到文件：\n') + f"{exe}" + t('\n请到 设置页 → steamcmd 程序 重新选择。'))
             return
 
         # 单实例提醒（不拦截）：两个 steamcmd 同时跑会争用同一个
         # 下载目录和下载记录，强烈不建议；确有需要时确认放行
         if steamcmd_running():
             ret = QMessageBox.question(
-                self, "检测到 steamcmd 正在运行",
-                "本机已有一个 steamcmd 在运行。同一时间跑两个 steamcmd "
+                self, t("检测到 steamcmd 正在运行"),
+                t("本机已有一个 steamcmd 在运行。同一时间跑两个 steamcmd "
                 "会争用同一个下载目录和下载记录，不建议这样做。\n\n"
-                "仍要再启动一个吗？")
+                "仍要再启动一个吗？"))
             if ret != QMessageBox.StandardButton.Yes:
-                self._log.info("已取消启动：等已有 steamcmd 结束后再来")
+                self._log.info(t('已取消启动：等已有 steamcmd 结束后再来'))
                 return
-            self._log.warn("在已有 steamcmd 的情况下仍启动了一个（不建议）")
+            self._log.warn(t("在已有 steamcmd 的情况下仍启动了一个（不建议）"))
 
         try:
             # argv 用列表形式：路径带空格时字符串形式会被拆坏。
@@ -421,8 +419,8 @@ class TerminalDock(QWidget):
                 [exe], cwd=str(Path(exe).parent),
                 rows=_PTY_ROWS, cols=_PTY_COLS)
         except Exception as exc:
-            self._log.error(f"steamcmd 启动失败：{exc}")
-            QMessageBox.warning(self, "无法启动", f"steamcmd 启动失败：{exc}")
+            self._log.error(t('steamcmd 启动失败：') + f"{exc}")
+            QMessageBox.warning(self, t("无法启动"), t('steamcmd 启动失败：') + f"{exc}")
             return
 
         self._pty = pty
@@ -434,7 +432,7 @@ class TerminalDock(QWidget):
         reader.start()
 
         self._set_running_ui(True)
-        self._log.info(f"steamcmd 启动中：{exe}")
+        self._log.info(t('steamcmd 启动中：') + f"{exe}")
 
     def _on_stop(self) -> None:
         if not self._is_running():
@@ -450,13 +448,13 @@ class TerminalDock(QWidget):
             self._pty.write("quit\r\n")
         except (EOFError, OSError):
             pass
-        self._log.info("已向 steamcmd 发送 quit，等待退出…")
+        self._log.info(t('已向 steamcmd 发送 quit，等待退出…'))
         QTimer.singleShot(5000, self._force_kill_if_alive)
 
     def _force_kill_if_alive(self) -> None:
         if self._is_running():
-            self._log.warn("steamcmd 5 秒内没有退出，强制结束"
-                           "（登录缓存可能丢失）")
+            self._log.warn(t("steamcmd 5 秒内没有退出，强制结束"
+                           "（登录缓存可能丢失）"))
             try:
                 self._pty.terminate(force=True)
             except Exception:
@@ -504,7 +502,7 @@ class TerminalDock(QWidget):
 
     def _on_exited(self, status: int) -> None:
         """子进程退出（无论 quit、强杀还是自己崩）统一走到这里收尾。"""
-        self._log.info(f"steamcmd 已退出（退出码 {status}）")
+        self._log.info(t('steamcmd 已退出（退出码 ') + f"{status}" + f'）')
         # 先广播再拆线：批次编排收到后立即中止（批次轮回补接线）；
         # 没有批次在跑时发进空气，无副作用
         self.process_exited.emit(status)
@@ -534,7 +532,7 @@ class TerminalDock(QWidget):
         if not self._is_running():
             # 先拦在门外只提醒一次：send_command 每行都会自查，
             # 不拦的话多行命令会刷出一串相同的警告
-            self._log.warn("steamcmd 未在运行：命令没有发出")
+            self._log.warn(t("steamcmd 未在运行：命令没有发出"))
             return
         lines = [ln.strip() for ln in self._input.toPlainText().splitlines()]
         lines = [ln for ln in lines if ln]  # 空行与纯空白行跳过
@@ -566,8 +564,7 @@ class TerminalDock(QWidget):
         if len(apps) > 1:
             shown = "、".join(str(a) for a in apps[:5])
             self._log.error(
-                f"这批命令里混着多个游戏的下载命令（AppID {shown}），"
-                "没有执行——请按游戏分开粘贴；输入框内容原样保留")
+                t('这批命令里混着多个游戏的下载命令（AppID ') + f"{shown}" + t('），没有执行——请按游戏分开粘贴；输入框内容原样保留'))
             return
         self._pending_invalid = list(report.invalid)
         self._pending_count = len(report.mod_ids)
@@ -615,7 +612,7 @@ class TerminalDock(QWidget):
             for cmd in cmds:
                 self._login_combo.addItem(cmd)
         else:
-            self._login_combo.addItem("（设置里还没有登录命令）")
+            self._login_combo.addItem(t('（设置里还没有登录命令）'))
 
     def _on_send_login(self, index: int) -> None:
         """下拉框选中一条登录命令 → 原样发给 steamcmd。
@@ -623,10 +620,9 @@ class TerminalDock(QWidget):
         输入框里敲（这正是保留手动输入框的原因）。"""
         cmds = self._login_cmds()  # 展开时刚重读过，这里再取一次对齐
         if not cmds:
-            self._log.warn("设置里还没填登录命令：设置页 → steamcmd 登录命令")
+            self._log.warn(t("设置里还没填登录命令：设置页 → steamcmd 登录命令"))
             return
         if index < 0 or index >= len(cmds):
             return  # 陈旧索引兜底：条目刚被重建过，这次点了不算
         if self.send_command(cmds[index]):
-            self._log.info("登录命令已发送，等 steamcmd 应答；"
-                           "若提示验证码，直接在下方输入框输入即可")
+            self._log.info(t('登录命令已发送，等 steamcmd 应答；若提示验证码，直接在下方输入框输入即可'))

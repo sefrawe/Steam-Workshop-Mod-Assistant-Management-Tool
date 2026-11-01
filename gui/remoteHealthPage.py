@@ -22,6 +22,7 @@ from core import constants, netGate  # ★ 待核：netGate 若在 gui 包改这
 from core.models import Game
 from core.steamApiClient import SteamApiClient
 from core.urlParser import workshop_url
+from core.i18n import t
 from gui.logBus import LogBus
 from gui.remoteQueryWorker import RemoteQueryWorker, workshop_item_to_entry
 from gui.theme import font_px  # 字号单源（D25）
@@ -63,32 +64,32 @@ class RemoteHealthPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
         self.root_layout = root
 
-        title = QLabel("远端健康", self)
+        title = QLabel(t("远端健康"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         self._game_label = QLabel(self)
         root.addWidget(self._game_label)
         root.addWidget(make_guide(
-            "先读我：三类远端信号 · 都是提醒不是损坏",
-            ("与账本记录对不上的三类远端信号（匿名接口可判，无需 API "
+            t("先读我：三类远端信号 · 都是提醒不是损坏"),
+            (t("与账本记录对不上的三类远端信号（匿名接口可判，无需 API "
              "key）：标题不符 = 作者改名或上传内容被顶替的信号（黄）；"
              "标题含弃坑关键词 = 作者明示不再维护（红）；banned=1 = 被 "
-             "Steam 封禁（红）。",
-             "都是提醒不是损坏——动作是打开工坊页面看一眼，再决定去留。"),
+             "Steam 封禁（红）。"),
+             t("都是提醒不是损坏——动作是打开工坊页面看一眼，再决定去留。")),
             self, 120))
 
 
         row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
-        self._btn = QPushButton("开始检测", row)
+        self._btn = QPushButton(t("开始检测"), row)
         self._btn.setToolTip(
-            "匿名接口重查库内全部未删除 mod 的远端实况，判定三类健康"
-            "信号；每 100 个一批、礼貌限速，耗时取决于 mod 数量")
+            t("匿名接口重查库内全部未删除 mod 的远端实况，判定三类健康"
+            "信号；每 100 个一批、礼貌限速，耗时取决于 mod 数量"))
         self._btn.clicked.connect(self._start_check)
         h.addWidget(self._btn)
-        self._stop_btn = QPushButton("停止", row)
+        self._stop_btn = QPushButton(t("停止"), row)
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_check)
         h.addWidget(self._stop_btn)
@@ -101,12 +102,12 @@ class RemoteHealthPage(QWidget):
         srow = QWidget(body)
         sh = QHBoxLayout(srow)
         sh.setContentsMargins(0, 0, 0, 0)
-        sh.addWidget(QLabel("查找：", srow))
+        sh.addWidget(QLabel(t("查找："), srow))
         self._filter_edit = QLineEdit(srow)
         self._filter_edit.setClearButtonEnabled(True)
         self._filter_edit.setPlaceholderText(
-            "按标题 / 编号 / 说明过滤三张结果表（即时，只隐藏；清空"
-            "恢复）…")
+            t("按标题 / 编号 / 说明过滤三张结果表（即时，只隐藏；清空"
+            "恢复）…"))
         self._filter_edit.textChanged.connect(
             lambda _t: self._filter_timer.start())
         sh.addWidget(self._filter_edit, 1)
@@ -184,11 +185,11 @@ class RemoteHealthPage(QWidget):
         self._clear_results()
         if game is None:
             self._game_label.setText(
-                "当前游戏：（未选择）—— 请先在左上角添加或选择档案")
+                t("当前游戏：（未选择）—— 请先在左上角添加或选择档案"))
             self._btn.setEnabled(False)
         else:
             self._game_label.setText(
-                f"当前游戏：{game.name}（{game.app_id}）")
+                t('当前游戏：') + f"{game.name}" + f'（' + f"{game.app_id}" + f'）')
             self._btn.setEnabled(True)
 
     def shutdown(self) -> None:
@@ -208,14 +209,14 @@ class RemoteHealthPage(QWidget):
         self._mods_by_id = {m.mod_id: m for m in mods}
         ids = [m.mod_id for m in mods if m.status != "deleted"]
         if not ids:
-            self._log.warn("当前档案没有可检测的 mod（已删除的除外）")
+            self._log.warn(t("当前档案没有可检测的 mod（已删除的除外）"))
             return
         busy = netGate.try_acquire(constants.NET_GATE_DEEP_CHECK)
         if busy is not None:
             self._summary.setText(
-                f"另有联网任务在进行（{busy}）：等它结束后再检测。")
+                t('另有联网任务在进行（') + f"{busy}" + t('）：等它结束后再检测。'))
             self._summary.setStyleSheet(f"color: {_C_WARN};")
-            self._log.warn(f"远端健康检测未开始：{busy} 正在使用联网查询")
+            self._log.warn(t('远端健康检测未开始：') + f"{busy}" + t(' 正在使用联网查询'))
             return
         self._owner_game = self._game
         self._titles = {m.mod_id: (m.title or "") for m in mods}
@@ -243,17 +244,16 @@ class RemoteHealthPage(QWidget):
         self._worker.stopped.connect(self._on_stopped)
         self._worker.finished.connect(self._on_finished)
         self._worker.start()
-        self._log.info(f"远端健康检测开始：{len(ids)} 个 mod（匿名接口，"
-                       "只读不写库）…")
+        self._log.info(t('远端健康检测开始：') + f"{len(ids)}" + t(' 个 mod（匿名接口，只读不写库）…'))
 
     def _stop_check(self) -> None:
         if self._worker is not None:
             self._worker.stop()
             self._stop_btn.setEnabled(False)
             self._summary.setText(
-                "已请求停止：等待与重试已中断，最多再等一次在途请求收场。")
+                t("已请求停止：等待与重试已中断，最多再等一次在途请求收场。"))
             self._summary.setStyleSheet("color: gray;")
-            self._log.info("已请求停止远端健康检测")
+            self._log.info(t('已请求停止远端健康检测'))
 
     # ---------- 回调 ----------
     def _on_succeeded(self, entries: list) -> None:
@@ -275,8 +275,8 @@ class RemoteHealthPage(QWidget):
             for mid in health.banned])
         n = health.total
         if n == 0:
-            self._summary.setText("无异常（远端标题与账本一致，无弃坑/"
-                                  "banned 信号）。")
+            self._summary.setText(t("无异常（远端标题与账本一致，无弃坑/"
+                                  "banned 信号）。"))
             self._summary.setStyleSheet(f"color: {_C_OK};")
         else:
             parts = (f"标题不符 {len(health.title_mismatch)}"
@@ -286,11 +286,9 @@ class RemoteHealthPage(QWidget):
             self._summary.setStyleSheet(f"color: {_C_WARN};")
         extra = []
         if cross:
-            extra.append(f"另有 {cross} 条远端失效/查询失败，"
-                         "归【异常处置】页管")
+            extra.append(t('另有 ') + f"{cross}" + t(' 条远端失效/查询失败，归【异常处置】页管'))
         if health.missing_banned_field:
-            extra.append("本次响应未携带 banned 字段：banned 检测不可用"
-                         "（Steam 原始响应里有它）——把日志发给开发者")
+            extra.append(t('本次响应未携带 banned 字段：banned 检测不可用（Steam 原始响应里有它）——把日志发给开发者'))
         self._note.setText("。\n".join(extra) + ("。" if extra else ""))
         self._log.ok(f"远端健康检测完成：{n} 处信号"
                      + (f"；另有 {cross} 条失效/查询失败（见异常处置页）"
@@ -299,17 +297,15 @@ class RemoteHealthPage(QWidget):
     def _on_failed(self, message: str) -> None:
         self._set_running(False)
         self._summary.setText(
-            f"检测失败：{message}\n（本地数据未动，稍后可重试。可以参考 "
-            "watt toolkit 的连通性测试，若一直不通过，可以尝试关闭 "
-            "watt toolkit 再试。）")
+            t('检测失败：') + f"{message}" + t('\n（本地数据未动，稍后可重试。可以参考 watt toolkit 的连通性测试，若一直不通过，可以尝试关闭 watt toolkit 再试。）'))
         self._summary.setStyleSheet(f"color: {_C_FAIL};")
-        self._log.error(f"远端健康检测失败：{message}")
+        self._log.error(t('远端健康检测失败：') + f"{message}")
 
     def _on_stopped(self) -> None:
         self._set_running(False)
-        self._summary.setText("已停止，本次结果未使用。")
+        self._summary.setText(t("已停止，本次结果未使用。"))
         self._summary.setStyleSheet("color: gray;")
-        self._log.info("远端健康检测已手动停止")
+        self._log.info(t('远端健康检测已手动停止'))
 
     def _on_finished(self) -> None:
         """线程收尾：先取引用置 None 再 wait（0xC0000409 坑纪律）；
@@ -373,35 +369,35 @@ class RemoteHealthPage(QWidget):
                 if it is not None else None
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        a_all = QAction("全选（可见行）", menu)
-        a_all.setToolTip("只勾选当前看得见的行——查找过滤在场时不盲勾")
+        a_all = QAction(t("全选（可见行）"), menu)
+        a_all.setToolTip(t("只勾选当前看得见的行——查找过滤在场时不盲勾"))
         a_all.triggered.connect(lambda _=False, w=t:
                                 self._check_all_visible(w))
         menu.addAction(a_all)
-        a_none = QAction("清空勾选", menu)
+        a_none = QAction(t("清空勾选"), menu)
         a_none.triggered.connect(lambda _=False, w=t:
                                  self._uncheck_all(w))
         menu.addAction(a_none)
         if mid is not None:
             menu.addSeparator()
-            act_url = QAction("打开工坊页面", menu)
-            act_url.setToolTip("在浏览器打开该 mod 的创意工坊页面")
+            act_url = QAction(t("打开工坊页面"), menu)
+            act_url.setToolTip(t("在浏览器打开该 mod 的创意工坊页面"))
             act_url.triggered.connect(lambda _=False, m=mid:
                                       self._open_url(m))
             menu.addAction(act_url)
-            act_dir = QAction("打开 mod 文件夹", menu)
+            act_dir = QAction(t("打开 mod 文件夹"), menu)
             act_dir.triggered.connect(lambda _=False, m=mid:
                                       self._open_folder(m))
             menu.addAction(act_dir)
-            act_copy = QAction("复制编号", menu)
+            act_copy = QAction(t("复制编号"), menu)
             act_copy.triggered.connect(
                 lambda _=False, m=mid: (
                     QApplication.clipboard().setText(str(m)),
-                    self._log.info(f"已复制编号 {m}")))
+                    self._log.info(t('已复制编号 ') + f"{m}")))
             menu.addAction(act_copy)
         menu.addSeparator()
-        a3 = QAction("复制勾选行的编号", menu)
-        a3.setToolTip("先勾选若干行再点（每行一个）")
+        a3 = QAction(t("复制勾选行的编号"), menu)
+        a3.setToolTip(t("先勾选若干行再点（每行一个）"))
         a3.triggered.connect(lambda _=False, w=t: self._copy_checked(w))
         menu.addAction(a3)
         menu.exec(t.viewport().mapToGlobal(pos))
@@ -439,12 +435,12 @@ class RemoteHealthPage(QWidget):
                 if mid is not None and int(mid) not in ids:
                     ids.append(int(mid))
         if not ids:
-            QMessageBox.information(self, "复制勾选行",
-                                    "先在列表里勾选若干行。")
+            QMessageBox.information(self, t("复制勾选行"),
+                                    t("先在列表里勾选若干行。"))
             return
         QApplication.clipboard().setText(
             "\n".join(str(i) for i in sorted(ids)) + "\n")
-        self._log.ok(f"已复制勾选的 {len(ids)} 个编号（每行一个）")
+        self._log.ok(t('已复制勾选的 ') + f"{len(ids)}" + t(' 个编号（每行一个）'))
 
     def _apply_filter(self) -> None:
         """页面级查找落地：三张结果表联动（编号/标题/说明匹配）。
@@ -470,7 +466,7 @@ class RemoteHealthPage(QWidget):
         # KeyError，即本次修复的根因
         url = workshop_url(mid, m.url if m is not None else None)
         if not QDesktopServices.openUrl(QUrl(url)):
-            QMessageBox.warning(self, "打开页面", f"浏览器没有响应，请手动打开：\n{url}")
+            QMessageBox.warning(self, t("打开页面"), t('浏览器没有响应，请手动打开：\n') + f"{url}")
 
     def _open_folder(self, mid: int) -> None:
         from gui.modFolderOpener import open_mod_folder

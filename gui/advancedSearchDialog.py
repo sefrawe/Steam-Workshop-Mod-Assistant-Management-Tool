@@ -41,6 +41,7 @@ import time
 from dataclasses import dataclass
 
 from core.appSettings import AppSettings
+from core.i18n import t
 from PySide6.QtCore import QDateTime, QTime, Qt, QTimer, Signal
 from gui.theme import font_px  # 字号单源（D25）
 from PySide6.QtWidgets import (
@@ -116,33 +117,31 @@ class AdvancedFilter:
         """给人看的一句话摘要（筛选指示按钮的悬浮说明用）。"""
         parts: list[str] = []
         if self.title_contains:
-            parts.append(f"标题含“{self.title_contains}”")
+            parts.append(t('标题含“') + f"{self.title_contains}" + f'”')
         if self.note_contains:
-            parts.append(f"备注含“{self.note_contains}”")
+            parts.append(t('备注含“') + f"{self.note_contains}" + f'”')
         if self.mod_id is not None:
-            parts.append(f"编号={self.mod_id}")
+            parts.append(t('编号=') + f"{self.mod_id}")
         if self.creator_id:
-            parts.append(f"作者={self.creator_id}")
+            parts.append(t('作者=') + f"{self.creator_id}")
         if self.size_min is not None:
-            parts.append(f"大小≥{self.size_min / 1024 ** 2:.1f} MiB")
+            parts.append(t('大小≥') + f"{self.size_min / 1024 ** 2::.1f}" + f' MiB')
         if self.size_max is not None:
-            parts.append(f"大小≤{self.size_max / 1024 ** 2:.1f} MiB")
+            parts.append(t('大小≤') + f"{self.size_max / 1024 ** 2::.1f}" + f' MiB')
         if self.updated_from is not None and self.updated_to is not None:
             f = QDateTime.fromSecsSinceEpoch(self.updated_from).date()
             t = QDateTime.fromSecsSinceEpoch(self.updated_to).date()
-            parts.append(f"远端更新 {f.toString('yyyy-MM-dd')}"
-                         f"～{t.toString('yyyy-MM-dd')}")
+            parts.append(t('远端更新 ') + f"{f.toString('yyyy-MM-dd')}" + f'～' + f"{t.toString('yyyy-MM-dd')}")
         elif self.updated_from is not None:
             days = max(round((time.time() - self.updated_from) / _DAY), 1)
-            parts.append(f"远端更新：近 {days} 天")
+            parts.append(t('远端更新：近 ') + f"{days}" + t(' 天'))
         if self.local_from is not None and self.local_to is not None:
             f = QDateTime.fromSecsSinceEpoch(self.local_from).date()
             t = QDateTime.fromSecsSinceEpoch(self.local_to).date()
-            parts.append(f"本地版本 {f.toString('yyyy-MM-dd')}"
-                         f"～{t.toString('yyyy-MM-dd')}")
+            parts.append(t('本地版本 ') + f"{f.toString('yyyy-MM-dd')}" + f'～' + f"{t.toString('yyyy-MM-dd')}")
         elif self.local_from is not None:
             days = max(round((time.time() - self.local_from) / _DAY), 1)
-            parts.append(f"本地版本：近 {days} 天")
+            parts.append(t('本地版本：近 ') + f"{days}" + t(' 天'))
         if self.tags_all:
             parts.append("标签同时含 " + "、".join(self.tags_all))
         if self.update_status:
@@ -153,7 +152,7 @@ class AdvancedFilter:
                     "unverified": "未验证", "manual": "手动设定",
                     "claim": "认领", "inherited_acf": "旧账"}.get(
                 self.confirmed_source, self.confirmed_source)
-            parts.append(f"本地版本来源：{word}")
+            parts.append(t('本地版本来源：') + f"{word}")
         return " · ".join(parts) if parts else "（无生效条件）"
 
 class AdvancedSearchDialog(QDialog):
@@ -165,7 +164,7 @@ class AdvancedSearchDialog(QDialog):
     def __init__(self, parent: QWidget | None = None,
                  settings: AppSettings | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("mod 库高级筛选")
+        self.setWindowTitle(t("mod 库高级筛选"))
         # 可最小化（任务⑨a）：非模态窗主打"开着边查边改"，暂时不用时
         # 给个最小化按钮收进任务栏——不占屏幕也不丢条件（最小化不走
         # 关闭路径，done() 的关窗清空不会被触发，还原后条件原样在）
@@ -189,12 +188,12 @@ class AdvancedSearchDialog(QDialog):
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         tip = QLabel(
-            "与顶栏筛选叠加：下面所有条件同时满足才会显示。\n"
+            t("与顶栏筛选叠加：下面所有条件同时满足才会显示。\n"
             "改动即时生效（约 0.3 秒防抖）；窗口开着期间可以"
             "边看结果边改备注、勾选下载。\n"
             "【清除全部】随时清空这里的高级条件；设置页「关闭高级筛选时"
             "自动清空条件」开着（默认）时，关闭本窗口也会自动清空。\n"
-            "顶栏的搜索框 / 状态 / 特别关注不受影响。",
+            "顶栏的搜索框 / 状态 / 特别关注不受影响。"),
             self)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
@@ -207,36 +206,36 @@ class AdvancedSearchDialog(QDialog):
         # 标题 / 备注：分开指定（顶栏搜索框是两处合查，这里分开设）
         self._title_edit = QLineEdit(self)
         self._title_edit.setClearButtonEnabled(True)
-        self._title_edit.setPlaceholderText("包含这几个字就算命中")
+        self._title_edit.setPlaceholderText(t("包含这几个字就算命中"))
         self._title_edit.textChanged.connect(self._poke)
-        form.addRow("标题包含", self._title_edit)
+        form.addRow(t('标题包含'), self._title_edit)
 
         self._note_edit = QLineEdit(self)
         self._note_edit.setClearButtonEnabled(True)
-        self._note_edit.setPlaceholderText("包含这几个字就算命中")
+        self._note_edit.setPlaceholderText(t("包含这几个字就算命中"))
         self._note_edit.textChanged.connect(self._poke)
-        form.addRow("备注包含", self._note_edit)
+        form.addRow(t('备注包含'), self._note_edit)
 
         # 编号：精确匹配。工坊编号可超过 21 亿（int32 上限），
         # 所以不做数字旋钮，用文本框 + 数字校验（非法输红框）
         self._id_edit = QLineEdit(self)
         self._id_edit.setClearButtonEnabled(True)
-        self._id_edit.setPlaceholderText("完整编号，如 3736343635")
+        self._id_edit.setPlaceholderText(t("完整编号，如 3736343635"))
         self._id_edit.textChanged.connect(self._poke)
-        form.addRow("mod 编号（精确）", self._id_edit)
+        form.addRow(t('mod 编号（精确）'), self._id_edit)
 
         # 作者 ID：上传者 SteamID64。与编号同一套"文本框 + 数字校验"；
         # 精确匹配（17 位数字做包含匹配全是误命中）
         self._author_edit = QLineEdit(self)
         self._author_edit.setClearButtonEnabled(True)
         self._author_edit.setPlaceholderText(
-            "完整 SteamID64，如 76561198000000000")
+            t("完整 SteamID64，如 76561198000000000"))
         self._author_edit.setToolTip(
-            "作者 = 上传者的 SteamID64（纯数字），随更新检测从工坊 API "
+            t("作者 = 上传者的 SteamID64（纯数字），随更新检测从工坊 API "
             "取回。\n在 mod 库页右侧详情的「作者」字段可选中复制后"
-            "粘贴到这里")
+            "粘贴到这里"))
         self._author_edit.textChanged.connect(self._poke)
-        form.addRow("作者 ID（精确）", self._author_edit)
+        form.addRow(t('作者 ID（精确）'), self._author_edit)
 
         # 大小区间：QDoubleSpinBox 的"最小值 = 不限"技巧——
         # 值停在 0 时显示 specialValueText，天然表达"没设下限"
@@ -246,7 +245,7 @@ class AdvancedSearchDialog(QDialog):
         self._size_min.setSpecialValueText("不限")
         self._size_min.setDecimals(1)
         self._size_min.valueChanged.connect(self._poke)
-        form.addRow("大小下限", self._size_min)
+        form.addRow(t('大小下限'), self._size_min)
 
         self._size_max = QDoubleSpinBox(self)
         self._size_max.setRange(0.0, 10_000_000.0)
@@ -254,7 +253,7 @@ class AdvancedSearchDialog(QDialog):
         self._size_max.setSpecialValueText("不限")
         self._size_max.setDecimals(1)
         self._size_max.valueChanged.connect(self._poke)
-        form.addRow("大小上限", self._size_max)
+        form.addRow(t('大小上限'), self._size_max)
 
         # 远端更新时间：快捷档 + 自定义区间两用
         self._quick_combo = QComboBox(self)
@@ -262,7 +261,7 @@ class AdvancedSearchDialog(QDialog):
                             ("近 90 天", 90), ("自定义区间", "custom")):
             self._quick_combo.addItem(label, data)
         self._quick_combo.currentIndexChanged.connect(self._on_quick_changed)
-        form.addRow("远端更新时间", self._quick_combo)
+        form.addRow(t('远端更新时间'), self._quick_combo)
 
         dates = QWidget(self)
         dh = QHBoxLayout(dates)
@@ -278,9 +277,9 @@ class AdvancedSearchDialog(QDialog):
         self._to_date.setDisplayFormat("yyyy-MM-dd")
         self._to_date.setDate(QDateTime.currentDateTime().date())
         self._to_date.dateChanged.connect(self._poke)
-        dh.addWidget(QLabel("从", dates))
+        dh.addWidget(QLabel(t("从"), dates))
         dh.addWidget(self._from_date)
-        dh.addWidget(QLabel("到", dates))
+        dh.addWidget(QLabel(t("到"), dates))
         dh.addWidget(self._to_date)
         dh.addStretch(1)
         form.addRow("", dates)
@@ -294,7 +293,7 @@ class AdvancedSearchDialog(QDialog):
                             ("近 90 天", 90), ("自定义区间", "custom")):
             self._local_combo.addItem(label, data)
         self._local_combo.currentIndexChanged.connect(self._on_local_changed)
-        form.addRow("本地版本时间", self._local_combo)
+        form.addRow(t('本地版本时间'), self._local_combo)
 
         ldates = QWidget(self)
         lh = QHBoxLayout(ldates)
@@ -310,9 +309,9 @@ class AdvancedSearchDialog(QDialog):
         self._local_to.setDisplayFormat("yyyy-MM-dd")
         self._local_to.setDate(QDateTime.currentDateTime().date())
         self._local_to.dateChanged.connect(self._poke)
-        lh.addWidget(QLabel("从", ldates))
+        lh.addWidget(QLabel(t("从"), ldates))
         lh.addWidget(self._local_from)
-        lh.addWidget(QLabel("到", ldates))
+        lh.addWidget(QLabel(t("到"), ldates))
         lh.addWidget(self._local_to)
         lh.addStretch(1)
         form.addRow("", ldates)
@@ -325,12 +324,12 @@ class AdvancedSearchDialog(QDialog):
                             ("版本未知", "unknown")):
             self._update_combo.addItem(label, data)
         self._update_combo.setToolTip(
-            "需更新 = 远端版本比本地确认版本新；\n"
+            t("需更新 = 远端版本比本地确认版本新；\n"
             "最新 = 远端不比本地新（含还没检测过远端的条目）；\n"
             "版本未知 = 本地版本还没确认过。\n"
-            "与 mod 库列表「更新」列同一套口径")
+            "与 mod 库列表「更新」列同一套口径"))
         self._update_combo.currentIndexChanged.connect(self._poke)
-        form.addRow("更新状态", self._update_combo)
+        form.addRow(t('更新状态'), self._update_combo)
         # 本地版本来源（⑨d）：confirmed_source 是真实列，但 repo
         # 契约没有该参数——内存侧过滤（颜色筛选同一哲学）；
         # "" 哨兵 = 未确认（还没有确认版本的条目）
@@ -344,13 +343,13 @@ class AdvancedSearchDialog(QDialog):
                             ("未确认（版本未知）", "")):
             self._source_combo.addItem(label, data)
         self._source_combo.setToolTip(
-            "本地版本是怎么确认的（与详情面板「本地版本」来源词同一套口径）：\n"
+            t("本地版本是怎么确认的（与详情面板「本地版本」来源词同一套口径）：\n"
             "已验证 = 终端「下载成功」判决背书；未验证 = 批查失败但照常"
             "确认（建议重新认定）；\n手动设定 = 右键手工认定；认领 = 盘点"
             "发现盘上已有、确认收录；\n旧账 = 一次性迁移继承；未确认 = "
-            "还没有本地版本（版本未知）")
+            "还没有本地版本（版本未知）"))
         self._source_combo.currentIndexChanged.connect(self._poke)
-        form.addRow("本地版本来源", self._source_combo)
+        form.addRow(t('本地版本来源'), self._source_combo)
 
         # 标签：勾选式多选（精确匹配）。清单来自当前列表出现过的标签；
         # 已勾选的标签在清单重建时保留（哪怕它暂时没出现在列表里）
@@ -367,14 +366,14 @@ class AdvancedSearchDialog(QDialog):
         self._tag_filter = QLineEdit(tag_wrap)
         self._tag_filter.setClearButtonEnabled(True)
         self._tag_filter.setPlaceholderText(
-            "过滤下面的标签清单…（只管显示，已勾选不受影响）")
+            t("过滤下面的标签清单…（只管显示，已勾选不受影响）"))
         self._tag_filter.textChanged.connect(self._apply_tag_filter)
         tv.addWidget(self._tag_filter)
         tv.addWidget(self._tag_list)
-        form.addRow("标签（须全有）", tag_wrap)
+        form.addRow(t('标签（须全有）'), tag_wrap)
 
         tag_hint = QLabel(
-            "清单来自当前列表里出现过的标签；重新打开本窗口时自动更新。",
+            t("清单来自当前列表里出现过的标签；重新打开本窗口时自动更新。"),
             self)
         tag_hint.setWordWrap(True)
         tag_hint.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
@@ -382,27 +381,27 @@ class AdvancedSearchDialog(QDialog):
 
         # 结果反馈行：命中数由 mod 库页每次刷新后回填（本窗口不查库）
         self._result_label = QLabel(
-            "未生效——填写任一条件后，mod 库列表即时收窄", self)
+            t("未生效——填写任一条件后，mod 库列表即时收窄"), self)
         self._result_label.setWordWrap(True)
         root.addWidget(self._result_label)
         root.addStretch(1)
 
         # 底部按钮：清空 + 关闭（没有"应用"——改动本来就是即时的）
         btns = QHBoxLayout()
-        self._goto_btn = QPushButton("到 mod 库查看结果 →", self)
+        self._goto_btn = QPushButton(t("到 mod 库查看结果 →"), self)
         self._goto_btn.setToolTip(
-            "跳到 mod 库页——结果列表就在那里，可直接改备注、勾选下载")
+            t("跳到 mod 库页——结果列表就在那里，可直接改备注、勾选下载"))
         self._goto_btn.clicked.connect(self.go_to_results.emit)
         btns.addWidget(self._goto_btn)
         btns.addStretch(1)
-        clear_btn = QPushButton("清除全部", self)
-        clear_btn.setToolTip("清空本窗口全部高级条件并立即刷新列表")
+        clear_btn = QPushButton(t("清除全部"), self)
+        clear_btn.setToolTip(t("清空本窗口全部高级条件并立即刷新列表"))
         clear_btn.clicked.connect(self.clear_all)
         btns.addWidget(clear_btn)
-        close_btn = QPushButton("关闭", self)
+        close_btn = QPushButton(t("关闭"), self)
         close_btn.setToolTip(
-            "关闭窗口；条件是否随关窗自动清空由设置页"
-            "「关闭高级筛选时自动清空条件」决定")
+            t("关闭窗口；条件是否随关窗自动清空由设置页"
+            "「关闭高级筛选时自动清空条件」决定"))
         close_btn.clicked.connect(self.close)
         btns.addWidget(close_btn)
         root.addLayout(btns)
@@ -559,11 +558,11 @@ class AdvancedSearchDialog(QDialog):
         对话框自己不查库——数字永远是页面最近一次查询的结果。"""
         if n is None:
             self._result_label.setText(
-                "未生效——填写任一条件后，mod 库列表即时收窄")
+                t("未生效——填写任一条件后，mod 库列表即时收窄"))
             self._goto_btn.setEnabled(False)
         else:
             self._result_label.setText(
-                f"当前命中 {n} 个 mod（结果在 mod 库列表中显示）")
+                t('当前命中 ') + f"{n}" + t(' 个 mod（结果在 mod 库列表中显示）'))
             self._goto_btn.setEnabled(True)
 
     def done(self, result: int) -> None:

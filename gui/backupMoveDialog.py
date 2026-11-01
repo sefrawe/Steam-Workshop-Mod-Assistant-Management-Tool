@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
 
 from core import steamPaths
 from core.models import Game
+from core.i18n import t
 from gui.consolePanel import LogBus
 
 # appSettings 里 steamcmd 程序路径的键名（与 backupPage._make_manager 用的
@@ -116,7 +117,7 @@ class BackupMoveDialog(QDialog):
         # T15 批 3：可选日志通道。不传时自建一条（照样写文件旁路，
         # 只是控制台看不见）——与备份重定位对话框同一套约定
         self._log = log or LogBus()
-        self.setWindowTitle(f"备份搬家 — {game.name}（{game.app_id}）")
+        self.setWindowTitle(t('备份搬家 — ') + f"{game.name}" + f'（' + f"{game.app_id}" + f'）')
         self.setMinimumWidth(700)
         self._build_ui()
         self._show_idle()
@@ -138,13 +139,7 @@ class BackupMoveDialog(QDialog):
         v.setSpacing(10)
 
         tip = QLabel(
-            "用途：备份所在的盘快满了（或想整理位置），把备份整体搬到新位置。\n"
-            f"做法：下面的命令由你在{_TERM}里依次执行——复制到新位置、旧位置改名让路、"
-            "原地建「目录联接」指回新位置。旧路径从此透过联接落到新盘：工具里记录的"
-            "备份路径一个都不用改，所有备份记录照常对得上（联接跨硬盘也成立）。\n"
-            "与【重定位备份目录】的分工：搬家 = 备份都在、只是想换位置；"
-            "重定位 = 盘上找不到备份、记录失联后指认新位置。\n"
-            "注意：新位置请选本地硬盘上的目录，不要选 OneDrive / 网盘同步目录。",
+            t('用途：备份所在的盘快满了（或想整理位置），把备份整体搬到新位置。\n做法：下面的命令由你在') + f"{_TERM}" + t('里依次执行——复制到新位置、旧位置改名让路、原地建「目录联接」指回新位置。旧路径从此透过联接落到新盘：工具里记录的备份路径一个都不用改，所有备份记录照常对得上（联接跨硬盘也成立）。\n与【重定位备份目录】的分工：搬家 = 备份都在、只是想换位置；重定位 = 盘上找不到备份、记录失联后指认新位置。\n注意：新位置请选本地硬盘上的目录，不要选 OneDrive / 网盘同步目录。'),
             self)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
@@ -154,16 +149,16 @@ class BackupMoveDialog(QDialog):
         stored = str(self._game.backup_dir or "").strip().strip('"').strip()
         info_lines = [f"当前游戏：{self._game.name}（{self._game.app_id}）"]
         if stored:
-            info_lines.append(f"它记录的备份目录：{stored}")
+            info_lines.append(t('它记录的备份目录：') + f"{stored}")
         info = QLabel("\n".join(info_lines), self)
         info.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         v.addWidget(info)
 
         hint = QLabel(
-            "旧位置默认预填所有游戏共用的备份根目录——一次搬家，所有游戏的备份"
+            t("旧位置默认预填所有游戏共用的备份根目录——一次搬家，所有游戏的备份"
             "一起过去；只想搬当前游戏的备份，就把旧位置改成它自己的备份目录"
-            "（上面那行）。",
+            "（上面那行）。"),
             self)
         hint.setWordWrap(True)
         hint.setStyleSheet("color: gray;")
@@ -196,11 +191,11 @@ class BackupMoveDialog(QDialog):
         btn_row = QWidget(body)
         bh = QHBoxLayout(btn_row)
         bh.setContentsMargins(0, 0, 0, 0)
-        self._check_btn = QPushButton("检测并生成命令", btn_row)
+        self._check_btn = QPushButton(t("检测并生成命令"), btn_row)
         # T15 批 3：补 tooltip（决策 22①）
         self._check_btn.setToolTip(
-            "按新旧两个位置的现状判定该走哪种搬法，"
-            "把要执行的命令一条条列在下方（本对话框只出命令，不代执行）")
+            t("按新旧两个位置的现状判定该走哪种搬法，"
+            "把要执行的命令一条条列在下方（本对话框只出命令，不代执行）"))
         self._check_btn.clicked.connect(self._on_check)
         bh.addWidget(self._check_btn)
         bh.addStretch(1)
@@ -228,7 +223,7 @@ class BackupMoveDialog(QDialog):
         root.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
-        buttons.button(QDialogButtonBox.StandardButton.Close).setText("关闭")
+        buttons.button(QDialogButtonBox.StandardButton.Close).setText(t("关闭"))
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
@@ -239,13 +234,13 @@ class BackupMoveDialog(QDialog):
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
         h.addWidget(QLabel(label_text, row))
-        line.setPlaceholderText(r"如 E:\mod_backups")
+        line.setPlaceholderText(t(r"如 E:\mod_backups"))
         if preset:
             line.setText(preset)
         line.textEdited.connect(self._on_edited)
-        btn = QPushButton("目录选择…", row)
+        btn = QPushButton(t("目录选择…"), row)
         # T15 批 3：补 tooltip（决策 22①）
-        btn.setToolTip("打开系统目录选择窗口")
+        btn.setToolTip(t("打开系统目录选择窗口"))
         btn.clicked.connect(
             lambda _=False, l=line, t=dialog_title: self._pick(l, t))
         h.addWidget(btn, 0, Qt.AlignmentFlag.AlignLeft)
@@ -267,10 +262,10 @@ class BackupMoveDialog(QDialog):
         head = QHBoxLayout()
         title = QLabel("", box)
         title.setStyleSheet("font-weight: 600;")
-        btn = QPushButton("复制", box)
+        btn = QPushButton(t("复制"), box)
         btn.setFixedWidth(64)
         # T15 批 3：补 tooltip（决策 22①）
-        btn.setToolTip(f"复制这条命令到剪贴板，粘贴到{_TERM}里执行")
+        btn.setToolTip(t('复制这条命令到剪贴板，粘贴到') + f"{_TERM}" + t('里执行'))
         head.addWidget(title, 1)
         head.addWidget(btn)
         w.addLayout(head)
@@ -290,7 +285,7 @@ class BackupMoveDialog(QDialog):
 
         改了路径还挂着上一条的结论是会出事的，必须立刻清掉。
         """
-        self._state_label.setText("填好新旧两个位置后点【检测并生成命令】。")
+        self._state_label.setText(t("填好新旧两个位置后点【检测并生成命令】。"))
         self._state_label.setStyleSheet("color: gray;")
         self._detail_label.setText("")
         self._steps_label.setText("")
@@ -316,13 +311,13 @@ class BackupMoveDialog(QDialog):
         """
         QApplication.clipboard().setText(text)
         if btn is not None:
-            btn.setText("已复制 ✓")
-            QTimer.singleShot(1500, lambda: btn.setText("复制"))
+            btn.setText(t("已复制 ✓"))
+            QTimer.singleShot(1500, lambda: btn.setText(t("复制")))
         if title_label is not None:
             step = title_label.text().split("（")[0]  # 去掉括号里的附注
-            self._log.ok(f"已复制命令：{step}（粘贴到{_TERM}执行）")
+            self._log.ok(t('已复制命令：') + f"{step}" + t('（粘贴到') + f"{_TERM}" + t('执行）'))
         else:
-            self._log.ok(f"已复制命令到剪贴板（粘贴到{_TERM}执行）")
+            self._log.ok(t('已复制命令到剪贴板（粘贴到') + f"{_TERM}" + t('执行）'))
 
     # ---------- 检测与分派 ----------
     def _on_check(self) -> None:

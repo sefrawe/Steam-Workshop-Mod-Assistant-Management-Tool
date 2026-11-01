@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from core.appSettings import AppSettings
 from core.formatters import fmt_size
 from core.models import Game
+from core.i18n import t
 from gui.consolePanel import LogBus
 from workflows import gameExitFlow
 from gui.theme import font_px  # 字号单源（D25）
@@ -100,7 +101,7 @@ class GameExitPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("游戏退场", self)
+        title = QLabel(t("游戏退场"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -141,7 +142,7 @@ class GameExitPage(QWidget):
         root.addWidget(host)
 
         # ① 留后路（可选）
-        self._d1, box1 = self._make_card("step1", "① 留后路（可选）")
+        self._d1, box1 = self._make_card("step1", t("① 留后路（可选）"))
         self._btn_share = self._add_button(
             box1, "导出分享包（当前游戏）…",
             "把当前游戏的收录清单（含备注、标签、特别关注）导出为 "
@@ -154,7 +155,7 @@ class GameExitPage(QWidget):
         self._btn_ledger.clicked.connect(self.ledger_export_requested.emit)
 
         # ② 备份处置
-        self._d2, box2 = self._make_card("step2", "② 备份处置")
+        self._d2, box2 = self._make_card("step2", t("② 备份处置"))
         self._btn_overview = self._add_button(
             box2, "打开备份总览（按本游戏过滤）…",
             "备份总览页里可以逐份钉住、删登记、删文件（勾选操作）；"
@@ -163,7 +164,7 @@ class GameExitPage(QWidget):
         self._btn_overview.clicked.connect(self._on_overview)
 
         # ③ 下载内容处置（反向拓扑时的摘链命令标签常驻卡内，按需显隐）
-        self._d3, box3 = self._make_card("step3", "③ 删除下载内容（content）")
+        self._d3, box3 = self._make_card("step3", t("③ 删除下载内容（content）"))
         self._lbl_cmd3 = QLabel("", self)
         self._lbl_cmd3.setWordWrap(True)
         self._lbl_cmd3.setTextInteractionFlags(
@@ -179,7 +180,7 @@ class GameExitPage(QWidget):
 
         # ④ 游戏侧处置（纯指引，无破坏性按钮——决策 69⒊ 纪律）
         self._d4, box4 = self._make_card(
-            "step4", "④ 游戏侧处置（指引，不代劳）")
+            "step4", t("④ 游戏侧处置（指引，不代劳）"))
         self._lbl_cmd4 = QLabel("", self)
         self._lbl_cmd4.setWordWrap(True)
         self._lbl_cmd4.setTextInteractionFlags(
@@ -189,7 +190,7 @@ class GameExitPage(QWidget):
         box4.addWidget(self._lbl_cmd4)
 
         # ⑤ 删除档案（清账收尾）
-        self._d5, box5 = self._make_card("step5", "⑤ 删除档案（清账收尾）")
+        self._d5, box5 = self._make_card("step5", t("⑤ 删除档案（清账收尾）"))
         self._btn_delete = self._add_button(
             box5, "删除当前游戏档案…",
             "打开删除档案对话框（「游戏」菜单同一份）：先盘点再删、"
@@ -231,17 +232,16 @@ class GameExitPage(QWidget):
             "下载即可找回。",
         ]
         if s.steamcmd_running:
-            lines.append("注意：steamcmd 正在运行——此刻删除可能与下载"
-                         "争用；被误删的条目重跑下载命令即可回来。")
-        lines.append("\n确定继续吗？")
+            lines.append(t('注意：steamcmd 正在运行——此刻删除可能与下载争用；被误删的条目重跑下载命令即可回来。'))
+        lines.append(t('\n确定继续吗？'))
         ret = QMessageBox.question(
-            self, "删除下载内容", "\n".join(lines),
+            self, t("删除下载内容"), "\n".join(lines),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
-            self._log.info("已取消删除下载内容")
+            self._log.info(t('已取消删除下载内容'))
             return
-        self._log.info(f"开始删除下载内容目录：{s.download_dir}")
+        self._log.info(t('开始删除下载内容目录：') + f"{s.download_dir}")
         self._worker = _WipeWorker(s.download_dir, s.app_id)
         self._worker.done.connect(self._on_wipe_done)
         self._worker.crashed.connect(self._on_wipe_crashed)
@@ -250,14 +250,12 @@ class GameExitPage(QWidget):
         self._worker.start()
 
     def _on_wipe_done(self, ok: bool, detail: str) -> None:
-        (self._log.ok if ok else self._log.warn)(f"下载内容处置：{detail}")
+        (self._log.ok if ok else self._log.warn)(t("下载内容处置：") + detail)
 
     def _on_wipe_crashed(self, message: str) -> None:
-        self._log.error(f"删除下载内容时出现预期外错误：{message}")
+        self._log.error(t('删除下载内容时出现预期外错误：') + f"{message}")
         QMessageBox.critical(
-            self, "游戏退场", f"执行中断：{message}\n\n"
-            "若目录已部分删除，剩余部分可手动清理；"
-            "档案账目未受影响。")
+            self, t("游戏退场"), t('执行中断：') + f"{message}" + t('\n\n若目录已部分删除，剩余部分可手动清理；档案账目未受影响。'))
 
     def _on_wipe_finished(self) -> None:
         w = self._worker
@@ -285,9 +283,7 @@ class GameExitPage(QWidget):
                 self._survey = None
         if self._survey is not None and self._survey.dir_rederived:
             self._log.info(
-                f"「{self._survey.game_name}」的下载目录已按当前 "
-                "steamcmd 位置重推导（仅本次退场使用，不改档案）："
-                f"{self._survey.download_dir}")
+                f'「' + f"{self._survey.game_name}" + t('」的下载目录已按当前 steamcmd 位置重推导（仅本次退场使用，不改档案）：') + f"{self._survey.download_dir}")
         self._reset_flow()
 
     def _reset_flow(self) -> None:
@@ -309,15 +305,15 @@ class GameExitPage(QWidget):
         if game is None:
             self._set_card(
                 self._d1,
-                "先在左上角选中要退场的游戏档案（导出完整账本不受此限，"
-                "随时可用）。",
+                t("先在左上角选中要退场的游戏档案（导出完整账本不受此限，"
+                "随时可用）。"),
                 _C_WARN)
         else:
             self._set_card(
                 self._d1,
-                "可选。分享包 = 当前游戏的收录清单；完整账本 = 全部档案"
+                t("可选。分享包 = 当前游戏的收录清单；完整账本 = 全部档案"
                 "全量（含快照与备份登记）。带走了，日后想回来也有得恢复；"
-                "不带走也不影响后面步骤。",
+                "不带走也不影响后面步骤。"),
                 _C_MUTED)
 
         # ② 备份处置
@@ -325,13 +321,13 @@ class GameExitPage(QWidget):
         self._lbl_cmd4.hide()
         if not has:
             self._set_card(self._d2,
-                           "选中档案后，这里显示该游戏的备份登记情况。",
+                           t("选中档案后，这里显示该游戏的备份登记情况。"),
                            _C_WARN)
         elif s.backup_count == 0:
             self._set_card(
                 self._d2,
-                "本游戏没有备份登记——本步无需处理（想全局整理备份"
-                "仍可打开总览页）。",
+                t("本游戏没有备份登记——本步无需处理（想全局整理备份"
+                "仍可打开总览页）。"),
                 _C_OK)
         else:
             tip = ""
@@ -340,94 +336,87 @@ class GameExitPage(QWidget):
                        "其余多半已被手动删除）")
             self._set_card(
                 self._d2,
-                f"本游戏有备份登记 {s.backup_count} 份，登记合计约 "
-                f"{fmt_size(s.backup_bytes)}{tip}。到总览页逐份决定"
-                "去留；或留到第⑤步勾选一并带走。",
+                t('本游戏有备份登记 ') + f"{s.backup_count}" + t(' 份，登记合计约 ') + f"{fmt_size(s.backup_bytes)}" + f"{tip}" + t('。到总览页逐份决定去留；或留到第⑤步勾选一并带走。'),
                 _C_MUTED)
 
         # ③ 下载内容处置：按下载目录真实形态分派
         if not has:
             self._set_card(self._d3,
-                           "选中档案后，这里按下载目录的真实形态给动作。",
+                           t("选中档案后，这里按下载目录的真实形态给动作。"),
                            _C_WARN)
         elif s.content_is_link:
             # 反向拓扑：按钮已置灰，给摘链命令
             self._set_card(
                 self._d3,
-                "下载目录本身是目录联接（反向拓扑）：真实内容在游戏 "
+                t("下载目录本身是目录联接（反向拓扑）：真实内容在游戏 "
                 "mod 目录侧。这里绝不能递归删除——用下面的命令把联接"
                 "摘掉即可（只摘链，不碰任何真实文件）；真实内容去第④"
-                "步处置。",
+                "步处置。"),
                 _C_FAIL)
             self._lbl_cmd3.setText(
-                f'rmdir "{s.download_dir}" （选中复制到 cmd 里执行）')
+                f'rmdir "' + f"{s.download_dir}" + t('" （选中复制到 cmd 里执行）'))
             self._lbl_cmd3.show()
         elif not s.content_exists:
             self._set_card(
                 self._d3,
-                "下载目录在盘上不存在（从未下载过，或内容已在别处删除）"
-                "——本步无需处理。",
+                t("下载目录在盘上不存在（从未下载过，或内容已在别处删除）"
+                "——本步无需处理。"),
                 _C_OK)
         else:
             extra = ("注意：steamcmd 正在运行，确认时会有提示。"
                      if s.steamcmd_running else "")
             self._set_card(
                 self._d3,
-                f"content 下载目录在盘上（实体目录）：{s.download_dir}"
-                f" {extra}整目录删除后想反悔，重新下载即可找回。",
+                t('content 下载目录在盘上（实体目录）：') + f"{s.download_dir}" + f' ' + f"{extra}" + t('整目录删除后想反悔，重新下载即可找回。'),
                 _C_MUTED)
 
         # ④ 游戏侧处置：按游戏 mod 目录真实形态给指引
         if not has:
             self._set_card(self._d4,
-                           "选中档案后，这里按游戏 mod 目录的真实形态给指引。",
+                           t("选中档案后，这里按游戏 mod 目录的真实形态给指引。"),
                            _C_WARN)
         elif not s.game_mod_dir:
             self._set_card(
                 self._d4,
-                "档案没有登记游戏 mod 目录（「游戏 → 编辑档案」可补）。"
-                "只有只从自己目录读 mod 的游戏才有这一步要处理。",
+                t("档案没有登记游戏 mod 目录（「游戏 → 编辑档案」可补）。"
+                "只有只从自己目录读 mod 的游戏才有这一步要处理。"),
                 _C_MUTED)
         elif s.game_mod_dir_is_link:
             self._set_card(
                 self._d4,
-                "游戏 mod 目录是联接（正向拓扑）：mod 文件实际住在 "
+                t("游戏 mod 目录是联接（正向拓扑）：mod 文件实际住在 "
                 "steamcmd 下载目录里，游戏目录本身没有真东西。用下面的"
                 "命令把联接摘掉即可还原原状；摘链不删除任何真实文件"
-                "（第③步删过下载目录的话，联接此刻是悬空的，照样可摘）。",
+                "（第③步删过下载目录的话，联接此刻是悬空的，照样可摘）。"),
                 _C_MUTED)
             self._lbl_cmd4.setText(
-                f'rmdir "{s.game_mod_dir}" （选中复制到 cmd 里执行）')
+                f'rmdir "' + f"{s.game_mod_dir}" + t('" （选中复制到 cmd 里执行）'))
             self._lbl_cmd4.show()
         elif s.content_is_link:
             self._set_card(
                 self._d4,
-                "游戏 mod 目录是真实目录：本游戏是反向拓扑，mod 文件就"
+                t("游戏 mod 目录是真实目录：本游戏是反向拓扑，mod 文件就"
                 "住在这里。是否删除、连同配置与存档如何处置，由你在资源"
-                "管理器自行决定（本工具不代劳）。路径可选中复制：",
+                "管理器自行决定（本工具不代劳）。路径可选中复制："),
                 _C_MUTED)
             self._lbl_cmd4.setText(s.game_mod_dir)
             self._lbl_cmd4.show()
         else:
             self._set_card(
                 self._d4,
-                "游戏 mod 目录是真实目录：里面可能有 mod、配置或存档，"
-                "是否删除由你自行决定（本工具不代劳）。路径可选中复制：",
+                t("游戏 mod 目录是真实目录：里面可能有 mod、配置或存档，"
+                "是否删除由你自行决定（本工具不代劳）。路径可选中复制："),
                 _C_MUTED)
             self._lbl_cmd4.setText(s.game_mod_dir)
             self._lbl_cmd4.show()
 
         # ⑤ 删除档案
         if not has:
-            self._set_card(self._d5, "同上：先有档案，才有账可清。", _C_WARN)
+            self._set_card(self._d5, t("同上：先有档案，才有账可清。"), _C_WARN)
         else:
             self._set_card(
                 self._d5,
-                f"最后清账：删除「{s.game_name}（{s.app_id}）」名下全部"
-                f"账目——mod 记录 {s.mod_total} 条（含软删除）、版本"
-                "快照、备份登记、失效归档。对话框会再盘点一次并自动生成"
-                "数据库快照兜底；content 下载目录与游戏侧目录不受它影响"
-                "（③④步已各自处理）。",
+                t('最后清账：删除「') + f"{s.game_name}" + f'（' + f"{s.app_id}" + t('）」名下全部账目——mod 记录 ') + f"{s.mod_total}" + t(' 条（含软删除）、版本快照、备份登记、失效归档。对话框会再盘点一次并自动生成数据库快照兜底；content 下载目录与游戏侧目录不受它影响（③④步已各自处理）。'),
                 _C_MUTED)
 
     # ---------- 卡片基建（migrationPage 同款） ----------
