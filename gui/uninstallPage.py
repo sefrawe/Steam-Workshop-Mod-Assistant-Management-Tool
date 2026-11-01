@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 from core import appPaths
 from core.appSettings import AppSettings
 from core.formatters import fmt_size
+from core.i18n import t
 from gui.consolePanel import LogBus
 from gui.sessionStore import (
     registry_has_keys, registry_key_display, session_file_exists,
@@ -84,7 +85,7 @@ class UninstallPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
         self._cards_host = root  # 卡片宿主布局（_make_card 往里放）
-        title = QLabel("卸载与清理", self)
+        title = QLabel(t("卸载与清理"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -118,12 +119,12 @@ class UninstallPage(QWidget):
         root.addWidget(note)
 
         # ---- 卡①：软件文件夹盘点 ----
-        self._d1, box1 = self._make_card("step1", "① 软件文件夹里有什么（只读盘点）")
+        self._d1, box1 = self._make_card("step1", t("① 软件文件夹里有什么（只读盘点）"))
         row1 = QHBoxLayout()
-        self._btn_scan = QPushButton("盘点软件文件夹", self)
+        self._btn_scan = QPushButton(t("盘点软件文件夹"), self)
         self._btn_scan.setToolTip(
-            "把 data\\ 与 config\\ 里的文件逐个列出，每个文件给一句"
-            "\"它是什么\"。纯只读——不写、不删、不改任何东西")
+            t("把 data\\ 与 config\\ 里的文件逐个列出，每个文件给一句"
+            "\"它是什么\"。纯只读——不写、不删、不改任何东西"))
         self._btn_scan.clicked.connect(self._on_inventory)
         row1.addWidget(self._btn_scan)
         row1.addStretch(1)
@@ -146,12 +147,12 @@ class UninstallPage(QWidget):
         box1.addWidget(self._d1_total)
 
         # ---- 卡②：会话记忆指路 ----
-        self._d2, box2 = self._make_card("step2", "② 会话记忆（界面状态存哪）")
+        self._d2, box2 = self._make_card("step2", t("② 会话记忆（界面状态存哪）"))
         row2 = QHBoxLayout()
-        self._btn_session_dir = QPushButton("打开所在文件夹", self)
+        self._btn_session_dir = QPushButton(t("打开所在文件夹"), self)
         self._btn_session_dir.setToolTip(
-            "在文件管理器打开会话记忆文件所在的文件夹（搬软件文件夹时"
-            "它随行，删文件夹时它随之消失）")
+            t("在文件管理器打开会话记忆文件所在的文件夹（搬软件文件夹时"
+            "它随行，删文件夹时它随之消失）"))
         self._btn_session_dir.clicked.connect(self._open_session_dir)
         row2.addWidget(self._btn_session_dir)
         row2.addStretch(1)
@@ -182,24 +183,24 @@ class UninstallPage(QWidget):
         if os.name != "nt":
             self._set_card(
                 self._d3,
-                "当前平台不使用注册表（那是旧 Windows 版本的记忆落点）；"
+                t("当前平台不使用注册表（那是旧 Windows 版本的记忆落点）；"
                 "Linux 的界面记忆按惯例存入配置文件——位置见卡②，"
-                "删除软件文件夹/配置文件即清零。",
+                "删除软件文件夹/配置文件即清零。"),
                 _C_OK)
             return
         key_path = registry_key_display()
         if registry_has_keys():
             self._set_card(
                 self._d3,
-                f"注册表里还留着界面记忆键：{key_path}\n"
-                "删除软件文件夹不会清它们——想清就打开注册表编辑器"
-                "（Win+R 输入 regedit）删掉上面这个键；不删也不影响"
-                "任何功能，只是残留。本软件不代删。",
+                t("注册表里还留着界面记忆键：") + f"{key_path}" + "\n"
+                + t("删除软件文件夹不会清它们——想清就打开注册表编辑器"
+                    "（Win+R 输入 regedit）删掉上面这个键；不删也不影响"
+                    "任何功能，只是残留。本软件不代删。"),
                 _C_WARN)
         else:
             self._set_card(
                 self._d3,
-                f"注册表里没有本软件的键（{key_path}）——干净，无需处理。",
+                t("注册表里没有本软件的键（") + f"{key_path}" + t("）——干净，无需处理。"),
                 _C_OK)
 
     # ---------- 卡①动作 ----------
@@ -218,24 +219,26 @@ class UninstallPage(QWidget):
         if not report.entries:
             self._set_card(
                 self._d1,
-                "data\\ 与 config\\ 都不存在——软件数据已是干净状态，"
-                "删除程序文件夹即完成卸载。",
+                t("data\\ 与 config\\ 都不存在——软件数据已是干净状态，"
+                "删除程序文件夹即完成卸载。"),
                 _C_OK)
             self._d1_total.setText("")
             return
         self._set_card(
             self._d1,
-            f"共 {len(report.entries)} 个文件。这只是预演——真正删除"
-            " = 资源管理器里删掉整个软件文件夹，一步到位。",
+            t("共 ") + f"{len(report.entries)}"
+            + t(" 个文件。这只是预演——真正删除 = 资源管理器里删掉整个软件文件夹，一步到位。"),
             _C_MUTED)
         self._d1_total.setText(
-            f"合计：{fmt_size(report.total_bytes)}"
-            f"（data\\ {'存在' if report.data_dir_exists else '不存在'}、"
-            f"config\\ {'存在' if report.config_dir_exists else '不存在'}）")
+            t("合计：") + f"{fmt_size(report.total_bytes)}"
+            + t("（data\\ ") + (t("存在") if report.data_dir_exists else t("不存在"))
+            + t("、config\\ ")
+            + (t("存在") if report.config_dir_exists else t("不存在"))
+            + t("）"))
         if self._log is not None:
             self._log.info(
-                f"卸载盘点：{len(report.entries)} 个文件，"
-                f"合计 {fmt_size(report.total_bytes)}")
+                t("卸载盘点：") + f"{len(report.entries)}"
+                + t(" 个文件，合计 ") + f"{fmt_size(report.total_bytes)}")
 
     # ---------- 卡②动作 ----------
     def _open_session_dir(self) -> None:
@@ -245,12 +248,12 @@ class UninstallPage(QWidget):
         if not path.exists():
             # 首次运行且没动过布局时可能还没生成——说明而不是静默失败
             if self._log is not None:
-                self._log.info(f"文件夹还不存在（暂无会话记忆）：{path}")
+                self._log.info(t("文件夹还不存在（暂无会话记忆）：") + f"{path}")
             return
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
             # openUrl 失败是静默的（老坑）：手动兜底提示
             if self._log is not None:
-                self._log.info(f"文件管理器没有响应，请手动打开：{path}")
+                self._log.info(t("文件管理器没有响应，请手动打开：") + f"{path}")
 
     # ---------- 卡片基建（与其余模块页同款） ----------
     def _make_card(self, name: str, title: str) -> tuple[QLabel, QVBoxLayout]:

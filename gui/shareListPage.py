@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 
 from core.appSettings import AppSettings
 from core.models import Game
+from core.i18n import t
 from gui.logBus import LogBus   # V2：LogBus 独立成文件
 from gui.theme import font_px  # 字号单源（D25）
 from gui.collapsibleSection import make_guide  # 先读我单源（共享件内）
@@ -85,21 +86,21 @@ class ShareListPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("分享清单", self)
+        title = QLabel(t("分享清单"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
         root.addWidget(make_guide(
-            "先读我：流程 · 为什么安全 · 术语与关系",
-            ("流程：① 整理好当前档案的备注、标签、特别关注 → 点【导出"
+            t("先读我：流程 · 为什么安全 · 术语与关系"),
+            (t("流程：① 整理好当前档案的备注、标签、特别关注 → 点【导出"
              "分享包】生成一个 JSON 文件发给朋友 → ② 朋友在本软件点"
              "【导入分享包】选那个文件（增量并入，已有的自动跳过）→ "
-             "③ 切到对应档案、跑一遍【更新检测】补全标题。",
-             "为什么安全：导入只新增、绝不改动现有数据——朋友清单里你"
+             "③ 切到对应档案、跑一遍【更新检测】补全标题。"),
+             t("为什么安全：导入只新增、绝不改动现有数据——朋友清单里你"
              "已经收过的 mod 原样保留，你的备注标签一字不动；所以导入"
-             "不需要确认弹窗，结果看状态栏报数。",
-             "术语与关系：分享包 = 收录清单 + 整理成果（备注/标签/特别"
+             "不需要确认弹窗，结果看状态栏报数。"),
+             t("术语与关系：分享包 = 收录清单 + 整理成果（备注/标签/特别"
              "关注），不含下载状态等本机信息；文件菜单里也有同款两项，"
-             "两边是同一个功能的两扇门。"),
+             "两边是同一个功能的两扇门。")),
             self, 170))
 
 
@@ -110,36 +111,36 @@ class ShareListPage(QWidget):
         root.addWidget(host)
 
         # ① 分享卡：导出按钮（按当前档案，无档案置灰）
-        self._d1, box1 = self._make_card("step1", "① 把整理成果分享给朋友")
+        self._d1, box1 = self._make_card("step1", t("① 把整理成果分享给朋友"))
         row1 = QHBoxLayout()
-        self._btn_out = QPushButton("导出分享包（当前档案）…", self)
+        self._btn_out = QPushButton(t("导出分享包（当前档案）…"), self)
         self._btn_out.setToolTip(
-            "把当前游戏的收录清单与整理成果（备注、标签、特别关注）"
-            "导出为 JSON 文件；不含下载状态等本机信息")
+            t("把当前游戏的收录清单与整理成果（备注、标签、特别关注）"
+            "导出为 JSON 文件；不含下载状态等本机信息"))
         self._btn_out.clicked.connect(self.share_out_requested.emit)
         row1.addWidget(self._btn_out)
         row1.addStretch(1)
         box1.addLayout(row1)
 
         # ② 收取卡：导入按钮（与档案无关，恒可点）
-        self._d2, box2 = self._make_card("step2", "② 收朋友的清单")
+        self._d2, box2 = self._make_card("step2", t("② 收朋友的清单"))
         row2 = QHBoxLayout()
-        self._btn_in = QPushButton("导入分享包…", self)
+        self._btn_in = QPushButton(t("导入分享包…"), self)
         self._btn_in.setToolTip(
-            "增量并入：已有的 mod 自动跳过，现有数据一字不改；"
-            "完成后状态栏报新增/跳过条数")
+            t("增量并入：已有的 mod 自动跳过，现有数据一字不改；"
+            "完成后状态栏报新增/跳过条数"))
         self._btn_in.clicked.connect(self.share_in_requested.emit)
         row2.addWidget(self._btn_in)
         row2.addStretch(1)
         box2.addLayout(row2)
 
         # ③ 收尾卡：跳更新检测
-        self._d3, box3 = self._make_card("step3", "③ 导入之后")
+        self._d3, box3 = self._make_card("step3", t("③ 导入之后"))
         row3 = QHBoxLayout()
-        self._btn_update = QPushButton("去更新检测（补全标题）", self)
+        self._btn_update = QPushButton(t("去更新检测（补全标题）"), self)
         self._btn_update.setToolTip(
-            "新登记的 mod 没有标题、作者、大小等远端信息，"
-            "跑一遍更新检测自动补全")
+            t("新登记的 mod 没有标题、作者、大小等远端信息，"
+            "跑一遍更新检测自动补全"))
         self._btn_update.clicked.connect(self.open_update_requested.emit)
         row3.addWidget(self._btn_update)
         row3.addStretch(1)
@@ -161,25 +162,26 @@ class ShareListPage(QWidget):
         if self._game is None:
             self._set_card(
                 self._d1,
-                "未选择档案——分享按当前档案导出，请先在左上角"
-                "添加或选择游戏档案", _C_WARN)
+                t("未选择档案——分享按当前档案导出，请先在左上角"
+                "添加或选择游戏档案"), _C_WARN)
         else:
             self._set_card(
                 self._d1,
-                f"将导出档案「{self._game.name}」"
-                f"（{self._game.app_id}）的收录清单与整理成果；"
-                "导出前建议先在 mod 库页把备注、标签、特别关注整理好。",
+                t("将导出档案「") + f"{self._game.name}"
+                + t("」（") + f"{self._game.app_id}"
+                + t("）的收录清单与整理成果；"
+                    "导出前建议先在 mod 库页把备注、标签、特别关注整理好。"),
                 _C_OK)
         self._set_card(
             self._d2,
-            "点下方按钮选朋友发来的 JSON 文件：已有的 mod 自动跳过，"
-            "现有数据一字不改；完成后状态栏报新增/跳过条数。",
+            t("点下方按钮选朋友发来的 JSON 文件：已有的 mod 自动跳过，"
+            "现有数据一字不改；完成后状态栏报新增/跳过条数。"),
             _C_MUTED)
         self._set_card(
             self._d3,
-            "到左上角切换到分享包对应的游戏；新登记的 mod 状态为"
+            t("到左上角切换到分享包对应的游戏；新登记的 mod 状态为"
             "「待下载」，跑一遍【更新检测】补全标题、作者、大小，"
-            "之后照常下载/备份/更新。",
+            "之后照常下载/备份/更新。"),
             _C_MUTED)
 
     def _make_card(self, name: str, title: str) -> tuple[QLabel, QVBoxLayout]:

@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from core.appSettings import AppSettings
 from core.models import Game
+from core.i18n import t
 from gui.consolePanel import LogBus
 from gui.theme import font_px  # 字号单源（D25）
 
@@ -90,7 +91,7 @@ class MigrationPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("换机迁移", self)
+        title = QLabel(t("换机迁移"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -134,7 +135,7 @@ class MigrationPage(QWidget):
         root.addWidget(host)
 
         # ① 离开旧机：导出完整账本（与档案无关，恒可点）
-        self._d1, box1 = self._make_card("step1", "① 离开旧机：导出完整账本")
+        self._d1, box1 = self._make_card("step1", t("① 离开旧机：导出完整账本"))
         self._btn_export = self._add_button(
             box1, "导出完整账本…",
             "把全部档案与全部 mod 记录（含快照、备份登记、判决史）"
@@ -143,7 +144,7 @@ class MigrationPage(QWidget):
         self._btn_export.clicked.connect(self.export_requested.emit)
 
         # ② 到新机：导入完整账本
-        self._d2, box2 = self._make_card("step2", "② 到新机：导入完整账本")
+        self._d2, box2 = self._make_card("step2", t("② 到新机：导入完整账本"))
         self._btn_import = self._add_button(
             box2, "导入完整账本…",
             "从导出的 JSON 恢复账本。注意：导入会整体替换当前账本"
@@ -151,7 +152,7 @@ class MigrationPage(QWidget):
         self._btn_import.clicked.connect(self.import_requested.emit)
 
         # ③ 配置 steamcmd
-        self._d3, box3 = self._make_card("step3", "③ 配置 steamcmd")
+        self._d3, box3 = self._make_card("step3", t("③ 配置 steamcmd"))
         self._btn_settings = self._add_button(
             box3, "打开设置页",
             "新机的 steamcmd 装好后填写程序路径；此后下载目录、备份根"
@@ -159,7 +160,7 @@ class MigrationPage(QWidget):
         self._btn_settings.clicked.connect(self.open_settings_requested.emit)
 
         # ④ 逐档案修正下载目录（按当前档案）
-        self._d4, box4 = self._make_card("step4", "④ 逐档案修正下载目录")
+        self._d4, box4 = self._make_card("step4", t("④ 逐档案修正下载目录"))
         self._btn_edit = self._add_button(
             box4, "编辑当前档案…",
             "编辑档案对话框里有【改回推导值】：按当前 steamcmd 位置"
@@ -168,10 +169,10 @@ class MigrationPage(QWidget):
 
         # ⑤ 搬运内容与备份区：软件外完成，纯说明卡、无按钮
         self._d5, _ = self._make_card(
-            "step5", "⑤ 搬运工坊内容与备份区（软件外完成）")
+            "step5", t("⑤ 搬运工坊内容与备份区（软件外完成）"))
 
         # ⑥ 重建联接与指认备份（两个转调入口）
-        self._d6, box6 = self._make_card("step6", "⑥ 重建联接与指认备份")
+        self._d6, box6 = self._make_card("step6", t("⑥ 重建联接与指认备份"))
         self._btn_link = self._add_button(
             box6, "打开联接检测页…",
             "游戏 mod 目录与下载目录的联接在新机上需要重建：跳到"
@@ -185,7 +186,7 @@ class MigrationPage(QWidget):
         self._btn_relocate.clicked.connect(self.open_relocate_requested.emit)
 
         # ⑦ 盘点确认收尾（按当前档案；V2 = 转接入账中心）
-        self._d7, box7 = self._make_card("step7", "⑦ 盘点确认收尾")
+        self._d7, box7 = self._make_card("step7", t("⑦ 盘点确认收尾"))
         self._btn_rescan = self._add_button(
             box7, "去入账中心盘点确认",
             "跳到入账中心并自动开始扫描当前档案的游戏目录：盘上有"
@@ -211,60 +212,61 @@ class MigrationPage(QWidget):
         # ①②③⑥ 静态
         self._set_card(
             self._d1,
-            "在旧电脑点这里，把账本装进一个 JSON 文件带走（U 盘 / 网盘"
-            "均可）。纯读操作，旧机数据原样不动。",
+            t("在旧电脑点这里，把账本装进一个 JSON 文件带走（U 盘 / 网盘"
+            "均可）。纯读操作，旧机数据原样不动。"),
             _C_MUTED)
         self._set_card(
             self._d2,
-            "在新电脑点这里选那个 JSON：全部档案、mod 记录（含标题与"
+            t("在新电脑点这里选那个 JSON：全部档案、mod 记录（含标题与"
             "快照）一次性恢复，左上角下拉即刻可选全部档案。新机首次"
-            "导入无损失；日后重复导入会覆盖当前数据——确认框会拦一道。",
+            "导入无损失；日后重复导入会覆盖当前数据——确认框会拦一道。"),
             _C_MUTED)
         self._set_card(
             self._d3,
-            "新机 steamcmd 安装好（或解压好）后，到设置页填 steamcmd "
-            "程序路径——第④步的目录推导靠它。",
+            t("新机 steamcmd 安装好（或解压好）后，到设置页填 steamcmd "
+            "程序路径——第④步的目录推导靠它。"),
             _C_MUTED)
         self._set_card(
             self._d6,
-            "只从自己目录读 mod 的游戏需要重建联接（到联接检测页按"
+            t("只从自己目录读 mod 的游戏需要重建联接（到联接检测页按"
             "步骤接通）；备份文件换了位置就用重定位指认——备份总览"
-            "「盘上」列失联的记录靠它对回来。",
+            "「盘上」列失联的记录靠它对回来。"),
             _C_MUTED)
 
         # ④⑦ 随档案
         if has:
             self._set_card(
                 self._d4,
-                f"当前档案「{self._game.name}」（{self._game.app_id}）："
-                "打开编辑档案 → 点【改回推导值】，下载目录即对准新机 "
-                "steamcmd 的位置；左上角切换档案，每个档案做一次。",
+                t("当前档案「") + f"{self._game.name}"
+                + t("」（") + f"{self._game.app_id}"
+                + t("）：打开编辑档案 → 点【改回推导值】，下载目录即对准新机 "
+                    "steamcmd 的位置；左上角切换档案，每个档案做一次。"),
                 _C_MUTED)
             self._set_card(
                 self._d7,
-                "content 复制完成后点这里：跳到入账中心自动盘点当前"
+                t("content 复制完成后点这里：跳到入账中心自动盘点当前"
                 "档案——盘上有文件、账上没版本的 mod 落成「待认领」"
                 "候选，核对后【认领入账】。标题与版本快照已随账本带来，"
                 "不必重查；想刷新远端状态再跑【更新检测】。换档案逐个"
-                "处理，全部做完即迁移完成。",
+                "处理，全部做完即迁移完成。"),
                 _C_MUTED)
         else:
             self._set_card(
                 self._d4,
-                "导入账本后（第②步）档案就有了；切到要处理的档案再操作。",
+                t("导入账本后（第②步）档案就有了；切到要处理的档案再操作。"),
                 _C_WARN)
             self._set_card(
                 self._d7,
-                "同第④步：先有档案，再逐个盘点确认。",
+                t("同第④步：先有档案，再逐个盘点确认。"),
                 _C_WARN)
 
         # ⑤ 静态说明卡
         self._set_card(
             self._d5,
-            "用资源管理器或 robocopy 把旧机 "
+            t("用资源管理器或 robocopy 把旧机 "
             "steamapps\\workshop\\content\\<游戏AppID>\\ 整目录复制到"
             "新机 steamcmd 的同一位置；旧机的备份区（mod_backups）整"
-            "目录一并带走。本步骤不涉及本软件——复制完进⑥⑦。",
+            "目录一并带走。本步骤不涉及本软件——复制完进⑥⑦。"),
             _C_MUTED)
 
     def _add_button(self, box: QVBoxLayout, text: str, tooltip: str) -> QPushButton:

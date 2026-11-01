@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from core.appSettings import AppSettings
 from core.models import Game
+from core.i18n import t
 from gui.consolePanel import LogBus
 from gui.theme import font_px  # 字号单源（D25）
 
@@ -81,7 +82,7 @@ class RescuePage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("恢复旧版本", self)
+        title = QLabel(t("恢复旧版本"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -120,27 +121,27 @@ class RescuePage(QWidget):
         root.addWidget(host)
 
         # ① 档案卡：只显示归属与空态引导
-        self._d1, _ = self._make_card("step1", "① 确认目标档案")
+        self._d1, _ = self._make_card("step1", t("① 确认目标档案"))
 
         # ② 备份卡：跳转按钮
-        self._d2, box2 = self._make_card("step2", "② 到备份页恢复")
+        self._d2, box2 = self._make_card("step2", t("② 到备份页恢复"))
         row2 = QHBoxLayout()
-        self._btn_backup = QPushButton("打开【备份与恢复】页", self)
+        self._btn_backup = QPushButton(t("打开【备份与恢复】页"), self)
         self._btn_backup.setToolTip(
-            "跳到备份管理页：勾选恰好一份目标备份，点"
-            "「对选中 ▾ → 恢复所选」；恢复前会自动备份当前版本")
+            t("跳到备份管理页：勾选恰好一份目标备份，点"
+            "「对选中 ▾ → 恢复所选」；恢复前会自动备份当前版本"))
         self._btn_backup.clicked.connect(self.go_backup_requested.emit)
         row2.addWidget(self._btn_backup)
         row2.addStretch(1)
         box2.addLayout(row2)
 
         # ③ 对齐卡：盘点转接按钮（V2：撤销确认 + 盘点认领）
-        self._d3, box3 = self._make_card("step3", "③ 恢复完成后：对齐账与盘")
+        self._d3, box3 = self._make_card("step3", t("③ 恢复完成后：对齐账与盘"))
         row3 = QHBoxLayout()
-        self._btn_rescan = QPushButton("去入账中心盘点认领", self)
+        self._btn_rescan = QPushButton(t("去入账中心盘点认领"), self)
         self._btn_rescan.setToolTip(
-            "跳到入账中心并自动开始扫描游戏目录：撤销确认后，盘上的"
-            "旧版本会落成「待认领」候选，核对后认领入账")
+            t("跳到入账中心并自动开始扫描游戏目录：撤销确认后，盘上的"
+            "旧版本会落成「待认领」候选，核对后认领入账"))
         self._btn_rescan.clicked.connect(self.rescan_requested.emit)
         row3.addWidget(self._btn_rescan)
         row3.addStretch(1)
@@ -162,29 +163,30 @@ class RescuePage(QWidget):
         self._btn_rescan.setEnabled(has)
 
         if self._game is None:
-            self._set_card(self._d1, "未选择档案——请先在左上角添加或选择游戏档案",
+            self._set_card(self._d1, t("未选择档案——请先在左上角添加或选择游戏档案"),
                            _C_WARN)
-            self._set_card(self._d2, "等待选择档案。", _C_MUTED)
-            self._set_card(self._d3, "恢复完成后回本页对齐账与盘。", _C_MUTED)
+            self._set_card(self._d2, t("等待选择档案。"), _C_MUTED)
+            self._set_card(self._d3, t("恢复完成后回本页对齐账与盘。"), _C_MUTED)
         else:
             self._set_card(
                 self._d1,
-                f"当前档案：{self._game.name}（{self._game.app_id}）——"
-                "恢复动作发生在这个档案名下；换游戏请先在左上角切换",
+                t("当前档案：") + f"{self._game.name}"
+                + t("（") + f"{self._game.app_id}"
+                + t("）——恢复动作发生在这个档案名下；换游戏请先在左上角切换"),
                 _C_OK)
             self._set_card(
                 self._d2,
-                "点下方按钮跳到备份页：勾选恰好一份目标备份"
+                t("点下方按钮跳到备份页：勾选恰好一份目标备份"
                 "（「版本时间」列帮你看回到哪个版本），点"
-                "「对选中 ▾ → 恢复所选」。",
+                "「对选中 ▾ → 恢复所选」。"),
                 _C_MUTED)
             self._set_card(
                 self._d3,
-                "恢复完成后做两件事对齐账与盘：\n"
+                t("恢复完成后做两件事对齐账与盘：\n"
                 "① 到【入账中心 · 最近判决】右键该 mod「撤销确认」"
                 "（账本回到未确认态，下次检测会重新报告）；\n"
                 "② 点下方按钮去入账中心盘点，把盘上旧版本认领回账。\n"
-                "不想对齐也能用：照常玩，想回新版重新下载即可。",
+                "不想对齐也能用：照常玩，想回新版重新下载即可。"),
                 _C_MUTED)
 
     def _make_card(self, name: str, title: str) -> tuple[QLabel, QVBoxLayout]:

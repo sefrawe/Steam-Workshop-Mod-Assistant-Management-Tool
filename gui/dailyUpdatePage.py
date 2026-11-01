@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from core.appSettings import AppSettings
 from core.models import Game
+from core.i18n import t
 from gui.consolePanel import LogBus
 from gui.theme import font_px  # 字号单源（D25）
 
@@ -77,7 +78,7 @@ class DailyUpdatePage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("日常更新", self)
+        title = QLabel(t("日常更新"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -120,16 +121,16 @@ class DailyUpdatePage(QWidget):
         root.addWidget(host)
 
         # ① 档案卡：只显示归属与空态引导
-        self._d1, _ = self._make_card("step1", "① 确认目标档案")
+        self._d1, _ = self._make_card("step1", t("① 确认目标档案"))
 
         # ② 检测卡：按钮 + 进度条 + 状态行
-        self._d2, box2 = self._make_card("step2", "② 更新检测")
+        self._d2, box2 = self._make_card("step2", t("② 更新检测"))
         row2 = QHBoxLayout()
-        self._btn_check = QPushButton("开始检测（后台运行）", self)
+        self._btn_check = QPushButton(t("开始检测（后台运行）"), self)
         self._btn_check.setToolTip(
-            "在后台检测本档案的全部 mod：逐个比对远端与你确认过的"
+            t("在后台检测本档案的全部 mod：逐个比对远端与你确认过的"
             "本地版本，本页进度条实时显示；逐条播报见底部控制台 · "
-            "运行日志，发现新版本会弹出更新确认清单")
+            "运行日志，发现新版本会弹出更新确认清单"))
         self._btn_check.clicked.connect(lambda: self.check_requested.emit())
         row2.addWidget(self._btn_check)
         row2.addStretch(1)
@@ -143,8 +144,8 @@ class DailyUpdatePage(QWidget):
         box2.addWidget(self._bar)
 
         # ③ ④ 两张卡是固定操作指引（清单与批次都走既有链，本页不复制）
-        self._d3, _ = self._make_card("step3", "③ 备份 + 下载（更新确认清单里执行）")
-        self._d4, _ = self._make_card("step4", "④ 确认入账（批次收尾的确认清单）")
+        self._d3, _ = self._make_card("step3", t("③ 备份 + 下载（更新确认清单里执行）"))
+        self._d4, _ = self._make_card("step4", t("④ 确认入账（批次收尾的确认清单）"))
 
         root.addStretch(1)
 
@@ -160,7 +161,7 @@ class DailyUpdatePage(QWidget):
         self._bar.setRange(0, 0)
         self._bar.setVisible(True)
         self._btn_check.setEnabled(False)
-        self._set_card(self._d2, "检测进行中：正在等待第一批查询结果…", _C_INFO)
+        self._set_card(self._d2, t("检测进行中：正在等待第一批查询结果…"), _C_INFO)
 
     def on_check_progress(self, done: int, total: int) -> None:
         """检测进度（更新检测页 progress_changed 直连本方法）。数据与
@@ -172,14 +173,14 @@ class DailyUpdatePage(QWidget):
             self._bar.setRange(0, total)
             self._bar.setValue(done)
         self._btn_check.setEnabled(False)  # 进行中一律不可再点
-        self._set_card(self._d2, f"检测进行中：已比对 {done}/{total}…", _C_INFO)
+        self._set_card(self._d2, t("检测进行中：已比对 ") + f"{done}/{total}" + t("…"), _C_INFO)
 
     def on_check_interrupted(self, reason: str) -> None:
         """检测非成功收尾（手动停止 / 网络层失败）：收起进度条、
         恢复按钮，卡片如实记录原因。成功收尾走 on_check_done。"""
         self._bar.setVisible(False)
         self._btn_check.setEnabled(self._game is not None)
-        self._set_card(self._d2, f"检测已中断：{reason}", _C_WARN)
+        self._set_card(self._d2, t("检测已中断：") + f"{reason}", _C_WARN)
 
     def on_check_done(self, found: int) -> None:
         """检测完成的回叫（更新检测页 checks_finished 直连）。
@@ -190,12 +191,12 @@ class DailyUpdatePage(QWidget):
         self._btn_check.setEnabled(self._game is not None)
         if found:
             self._set_card(self._d2,
-                           f"检测完成：发现 {found} 个 mod 有新版本。",
+                           t("检测完成：发现 ") + f"{found}" + t(" 个 mod 有新版本。"),
                            _C_INFO)
         else:
             self._set_card(self._d2,
-                           "检测完成：没有发现新版本（或档案没有可检测"
-                           "的条目）。",
+                           t("检测完成：没有发现新版本（或档案没有可检测"
+                           "的条目）。"),
                            _C_OK)
 
     def on_updates_found(self, app_id: int, n: int, auto: bool) -> None:
@@ -209,16 +210,18 @@ class DailyUpdatePage(QWidget):
         if auto:
             self._set_card(
                 self._d2,
-                f"发现 {n} 个 mod 有新版本（档案：{who}）——已按设置"
-                "直接开批下载（自动批次不带备份；进度见底部控制台 ·"
-                "「下载批次」）。",
+                t("发现 ") + f"{n}"
+                + t(" 个 mod 有新版本（档案：") + f"{who}"
+                + t("）——已按设置直接开批下载（自动批次不带备份；进度见底部控制台 ·"
+                    "「下载批次」）。"),
                 _C_INFO)
         else:
             self._set_card(
                 self._d2,
-                f"发现 {n} 个 mod 有新版本（档案：{who}）——更新确认"
-                "清单已弹出：勾选条目、底部选动作（备份+更新 / 仅更新）、"
-                "点【执行选中】；清单可以反复操作，分几批执行都行。",
+                t("发现 ") + f"{n}"
+                + t(" 个 mod 有新版本（档案：") + f"{who}"
+                + t("）——更新确认清单已弹出：勾选条目、底部选动作（备份+更新 / 仅更新）、"
+                    "点【执行选中】；清单可以反复操作，分几批执行都行。"),
                 _C_INFO)
 
     # ---------- 内部：清场与卡片基建（样式与加入新 mod 页同款） ----------
@@ -228,35 +231,36 @@ class DailyUpdatePage(QWidget):
         self._btn_check.setEnabled(self._game is not None)
 
         if self._game is None:
-            self._set_card(self._d1, "未选择档案——请先在左上角添加或选择游戏档案",
+            self._set_card(self._d1, t("未选择档案——请先在左上角添加或选择游戏档案"),
                            _C_WARN)
-            self._set_card(self._d2, "等待选择档案。", _C_MUTED)
+            self._set_card(self._d2, t("等待选择档案。"), _C_MUTED)
         else:
             self._set_card(
                 self._d1,
-                f"当前档案：{self._game.name}（{self._game.app_id}）——"
-                "检测与下载都以这个档案为准；换游戏请先在左上角切换",
+                t("当前档案：") + f"{self._game.name}"
+                + t("（") + f"{self._game.app_id}"
+                + t("）——检测与下载都以这个档案为准；换游戏请先在左上角切换"),
                 _C_OK)
             self._set_card(
                 self._d2,
-                "点【开始检测】在后台比对远端版本与你确认过的本地版本，"
-                "本页进度条实时显示；完成后自动弹出更新确认清单。",
+                t("点【开始检测】在后台比对远端版本与你确认过的本地版本，"
+                "本页进度条实时显示；完成后自动弹出更新确认清单。"),
                 _C_MUTED)
 
         # ③④ 固定操作指引（不随流程变——清单和批次都由既有链接管）
         self._set_card(
             self._d3,
-            "在更新确认清单里勾选条目、底部选动作、点【执行选中】："
+            t("在更新确认清单里勾选条目、底部选动作、点【执行选中】："
             "选「备份+更新」的条目先备份当前版本再下载（本地版本未"
             "确认的条目会被备份守卫剔出批次，先到 mod 库页右键"
             "「设定本地版本」）；批次在底部控制台 ·「下载批次」里"
-            "执行（需要 steamcmd 已启动并登录）。",
+            "执行（需要 steamcmd 已启动并登录）。"),
             _C_MUTED)
         self._set_card(
             self._d4,
-            "批次结束后自动弹出确认清单：终端明确报成功的下载在这里"
+            t("批次结束后自动弹出确认清单：终端明确报成功的下载在这里"
             "排队，勾选 = 本地版本入账（背书须显式）；当场关掉也不丢，"
-            "【入账中心 · 待确认】区随时接着处理。",
+            "【入账中心 · 待确认】区随时接着处理。"),
             _C_MUTED)
 
     def _make_card(self, name: str, title: str) -> tuple[QLabel, QVBoxLayout]:
