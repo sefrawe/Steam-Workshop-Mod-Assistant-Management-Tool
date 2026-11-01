@@ -57,6 +57,7 @@ from core.batchDownloadFlow import BatchDownloadFlow, resolve_written
 from core.modRepository import ModRepository
 from core.steamApiClient import SteamApiClient, SteamApiError
 from core.urlParser import workshop_url
+from core.i18n import t
 from gui.logBus import LogBus
 from gui.modFolderOpener import open_mod_folder
 
@@ -162,7 +163,7 @@ class _QueryWorker(QThread):
         error = ""
         owner = netGate.try_acquire(_GATE_OWNER)
         if owner is not None:
-            self.done.emit({}, f"联网查询名额被「{owner}」占用")
+            self.done.emit({}, t("联网查询名额被「") + owner + t("」占用"))
             return
         try:
             client = SteamApiClient()
@@ -259,22 +260,21 @@ class BatchDownloadController(QWidget):
         → 直接进下载阶段。trigger_versions 见文件头"触发值"。
         """
         if self.is_busy():
-            self._log.warn("已有批次在跑：等它结束或先停止再开新批次")
+            self._log.warn(t("已有批次在跑：等它结束或先停止再开新批次"))
             return False
         ids = list(dict.fromkeys(int(i) for i in mod_ids))
         if not ids:
             return False
         game = self._repo.get_game(app_id)
         if game is None:
-            self._log.error(f"游戏档案 {app_id} 不存在，无法开批")
+            self._log.error(t('游戏档案 ') + f"{app_id}" + t(' 不存在，无法开批'))
             return False
         if not self._terminal.is_busy():
-            self._log.warn("steamcmd 未启动：请先到「steamcmd 终端」页"
-                           "点【启动 steamcmd】，再开下载批次")
+            self._log.warn(t("steamcmd 未启动：请先到「steamcmd 终端」页"
+                           "点【启动 steamcmd】，再开下载批次"))
             return False
         if not str(game.download_dir or "").strip():
-            self._log.error("该档案没有设置下载目录：请到「游戏 → 编辑档案」"
-                            "补齐后再下载")
+            self._log.error(t('该档案没有设置下载目录：请到「游戏 → 编辑档案」补齐后再下载'))
             return False
         # 黑名单闸（修38）：彻底清账 = 物理删除 + 拉黑 + 断根，黑名单
         # 编号不该从任何入口偷渡回来。这里的入口是"旧命令 / 浏览器
@@ -289,9 +289,7 @@ class BatchDownloadController(QWidget):
             shown = "、".join(str(m) for m in blocked[:10])
             more = f" 等 {len(blocked)} 个" if len(blocked) > 10 else ""
             self._log.error(
-                f"批次未开始：这些编号在黑名单（已彻底清账）：{shown}{more}。"
-                "steamcmd 会把它们原样下载回来占盘——确要重新收录，先到"
-                "【已清账管理】页对对应条目点「允许录入」，再重新开批")
+                t('批次未开始：这些编号在黑名单（已彻底清账）：') + f"{shown}" + f"{more}" + t('。steamcmd 会把它们原样下载回来占盘——确要重新收录，先到【已清账管理】页对对应条目点「允许录入」，再重新开批'))
             return False
 
         # 决策 100（修35）：批次前清缓存——设置页开关默认开、hint 早已
@@ -308,8 +306,7 @@ class BatchDownloadController(QWidget):
                           (trigger_versions or {}).items()}
         self._step_list.reset_for_batch(
             len(ids), has_login=self._has_login_cmd())
-        self._log.info(f"下载批次开始：{game.name}（{app_id}），"
-                       f"共 {len(ids)} 条")
+        self._log.info(t('下载批次开始：') + f"{game.name}" + f'（' + f"{app_id}" + t('），共 ') + f"{len(ids)}" + t(' 条'))
 
         if backup_first:
             self._pending_ids = ids
@@ -340,7 +337,7 @@ class BatchDownloadController(QWidget):
         try:
             freed, cleared, skipped = steamPaths.clear_download_caches(cmd)
         except Exception as exc:  # 清理是优化：任何意外都不拦主流程
-            self._log.warn(f"{label}清缓存出错（不影响继续）：{exc}")
+            self._log.warn(f"{label}" + t('清缓存出错（不影响继续）：') + f"{exc}")
             return
         if cleared == 0 and not skipped:
             return  # 缓存本来就空 / 未配置：零日志噪音
@@ -369,9 +366,9 @@ class BatchDownloadController(QWidget):
         # 但若用户还在软件外手动跑 steamcmd，备份可能拿到不完整副本
         # ——只警告不拦（R7 口径：备份的对称建议）
         if steamcmd_running():
-            self._log.warn("检测到软件外另有 steamcmd 在跑：备份的旧版本"
-                           "可能不完整（建议等它退出再开批）")
-        self._log.info(f"备份阶段：先备份 {len(ids)} 条的现有旧版本…")
+            self._log.warn(t("检测到软件外另有 steamcmd 在跑：备份的旧版本"
+                           "可能不完整（建议等它退出再开批）"))
+        self._log.info(t('备份阶段：先备份 ') + f"{len(ids)}" + t(' 条的现有旧版本…'))
         self._backup_worker = _BackupPhaseWorker(
             self._repo, self._game, ids, self._settings)
         self._cleanup_worker_on_finish(self._backup_worker, "_backup_worker")
@@ -386,13 +383,13 @@ class BatchDownloadController(QWidget):
             # 边收边记进剔除集合：item_done 与 phase_done 两个信号的
             # 到达顺序没有保证，收尾时只读这个集合最稳
             self._dropped_ids.add(mod_id)
-            self._log.error(f"mod {mod_id} 已从本批剔除：{note.splitlines()[0]}")
+            self._log.error(f'mod ' + f"{mod_id}" + t(' 已从本批剔除：') + f"{note.splitlines()[0]}")
     def _on_backup_done(self, ok_n: int, dropped: int) -> None:
         # 幸存者 = 备份清单 − 剔除集合（集合在 _on_backup_item 边收边记，
         # 两个信号的先后顺序不影响这里的结果）
         survivors = [m for m in self._pending_ids if m not in self._dropped_ids]
         if not survivors:
-            self._log.error("备份阶段后没有可下载的条目，批次结束")
+            self._log.error(t('备份阶段后没有可下载的条目，批次结束'))
             self._step_list.handle_event(
                 {"type": "batch_done", "summary": {
                     "total": len(self._pending_ids),
@@ -401,10 +398,9 @@ class BatchDownloadController(QWidget):
                     "error": "全部条目备份失败被剔除"}})
             return
         if dropped:
-            self._log.warn(f"备份完成：成功 {ok_n} 条，剔除 {dropped} 条，"
-                           f"继续下载 {len(survivors)} 条")
+            self._log.warn(t('备份完成：成功 ') + f"{ok_n}" + t(' 条，剔除 ') + f"{dropped}" + t(' 条，继续下载 ') + f"{len(survivors)}" + t(' 条'))
         else:
-            self._log.ok(f"备份完成：{ok_n} 条旧版本已保护，开始下载")
+            self._log.ok(t('备份完成：') + f"{ok_n}" + t(' 条旧版本已保护，开始下载'))
         self._begin_download_phase(survivors)
 
 
@@ -415,8 +411,7 @@ class BatchDownloadController(QWidget):
         if missing:
             # 手动/终端粘贴批次：开批前补采一轮（此时还没下载，查到的
             # 版本满足触发值时序）。失败不拦批次——查不到的按无凭证走
-            self._log.info(f"正在核对 {len(missing)} 条的远端版本"
-                           "（作为本批的版本凭证）…")
+            self._log.info(t('正在核对 ') + f"{len(missing)}" + t(' 条的远端版本（作为本批的版本凭证）…'))
             self._query_worker = _QueryWorker(missing)
             self._cleanup_worker_on_finish(self._query_worker, "_query_worker")
             self._query_worker.done.connect(
@@ -427,8 +422,7 @@ class BatchDownloadController(QWidget):
     def _on_prefetch_done(self, ids: list[int], result: dict, error: str) -> None:
         if error:
             # 补采失败照发车（D3②）：全部按无凭证处理，收尾写版本未知
-            self._log.warn(f"远端版本核对失败（{error}）："
-                           "本批将没有版本凭证，成功条目按「版本未知」入账")
+            self._log.warn(t('远端版本核对失败（') + f"{error}" + t('）：本批将没有版本凭证，成功条目按「版本未知」入账'))
         else:
             got = 0
             for mid, (tu, _t, _s, _c) in result.items():
@@ -436,8 +430,7 @@ class BatchDownloadController(QWidget):
                     self._triggers[mid] = tu  # 只补表里没有的键
                     got += 1
 
-            self._log.info(f"版本凭证就绪：{got}/{len(ids)} 条"
-                           "（查不到的条目照常下载）")
+            self._log.info(t('版本凭证就绪：') + f"{got}" + f'/' + f"{len(ids)}" + t(' 条（查不到的条目照常下载）'))
         self._launch_flow(ids)
 
     # ---------------- 阶段三：发车 ----------------
@@ -478,8 +471,7 @@ class BatchDownloadController(QWidget):
         if ev.get("type") == "item_started":
             # 发车日志：命令发出的时刻要可见——否则 steamcmd 侧的
             # 断线重试、大文件慢下都会被误读成"程序卡住了"
-            self._log.info(f"发车：mod {ev.get('mod_id')}"
-                           f"（第 {(ev.get('index') or 0) + 1} 条）")
+            self._log.info(t('发车：mod ') + f"{ev.get('mod_id')}" + t('（第 ') + f"{(ev.get('index') or 0) + 1}" + t(' 条）'))
 
         if ev.get("type") == "need_login":
             self._log.warn(str(ev.get("note") or "需要手动登录"))
@@ -503,8 +495,8 @@ class BatchDownloadController(QWidget):
         ——强制中止 flow（在途条目记失败），收尾链照走（已下的条目
         照常入账，绝不白下）。"""
         if self._flow is not None and self._flow.state != "done":
-            self._log.warn("steamcmd 已退出：本批剩余条目中止"
-                           "（已下载的条目照常进入收尾）")
+            self._log.warn(t("steamcmd 已退出：本批剩余条目中止"
+                           "（已下载的条目照常进入收尾）"))
             self._flow.abort("steamcmd 已退出")
 
     # ---------------- 收尾链（D4/D11/D39） ----------------
@@ -520,7 +512,7 @@ class BatchDownloadController(QWidget):
         # ① 下载完成弹日志（用户拍板）：汇总必达，控制台按设置自动弹
         err = s.get("error") or ""
         if err:
-            self._log.error(f"下载批次出错：{err}")
+            self._log.error(t('下载批次出错：') + f"{err}")
         else:
             head = "下载批次结束：成功 {} · 失败 {} · 超时 {}（共 {}）".format(
                 len(ok), len(failed), len(timeout), s.get("total", 0))
@@ -553,7 +545,7 @@ class BatchDownloadController(QWidget):
             self._repo.record_verdicts(history)
         # ③ 没有成功条目：没有可确认的东西，到此为止
         if not ok:
-            self._log.info("本批没有成功条目：无待确认项")
+            self._log.info(t('本批没有成功条目：无待确认项'))
             return
         # ④ 剔黑名单（D11 三拦之一）：黑名单条目已下载的不拦（下载是
         # 盘面行为），但绝不落待确认——防手滑确认入账
@@ -564,11 +556,11 @@ class BatchDownloadController(QWidget):
                            "不列入待确认清单（编号：" +
                            "、".join(str(m) for m in sorted(purged)) + "）")
         if not net_ok:
-            self._log.info("成功条目全部在黑名单：无待确认项")
+            self._log.info(t('成功条目全部在黑名单：无待确认项'))
             return
         # ⑤ 收尾批查（下载后的现场核对）：成功条目逐条拿现场版本，
         # 供 resolve_written 判 verified / 降级 / 版本未知
-        self._log.info(f"正在核对 {len(net_ok)} 条成功条目的远端版本…")
+        self._log.info(t('正在核对 ') + f"{len(net_ok)}" + t(' 条成功条目的远端版本…'))
         self._query_worker = _QueryWorker([r.mod_id for r in net_ok])
         self._cleanup_worker_on_finish(self._query_worker, "_query_worker")
         self._query_worker.done.connect(
@@ -581,8 +573,7 @@ class BatchDownloadController(QWidget):
     def _on_final_query(self, game, net_ok: list, result: dict, error: str) -> None:
         if error:
             # 批查失败不拦入账（D4c）：全部按查询失败走，触发值照写
-            self._log.warn(f"远端版本核对失败（{error}）：成功条目将按"
-                           "「未验证」入账，下轮更新检测会重新核对")
+            self._log.warn(t('远端版本核对失败（') + f"{error}" + t('）：成功条目将按「未验证」入账，下轮更新检测会重新核对'))
         rows = []
         mismatched: list[int] = []  # 下载期间远端又更新了的（trigger≠query）
         metas: dict[int, dict] = {}  # 批查成功的远端元数据（回填库用）
@@ -623,9 +614,7 @@ class BatchDownloadController(QWidget):
         n_new = len(rows)
         n_ver = sum(1 for r in rows if r["source"] == "verified")
         self._log.ok(
-            f"{n_new} 条已列入待确认清单（黑名单已剔除；版本经现场核对"
-            f"吻合 {n_ver} 条）——请核对后点【确认入账】把版本登记进"
-            "账本；也可以先不管，之后在「入账中心」处理")
+            f"{n_new}" + t(' 条已列入待确认清单（黑名单已剔除；版本经现场核对吻合 ') + f"{n_ver}" + t(' 条）——请核对后点【确认入账】把版本登记进账本；也可以先不管，之后在「入账中心」处理'))
         # 下载期间远端已更新的点名（2026-10 增补）：盘上是下载开始时的
         # 版本（trigger），远端已到新版——按 trigger 诚实收录（来源
         # unverified，库页灰显），不批次内自动重下（作者连更时永不收敛）；
@@ -634,16 +623,14 @@ class BatchDownloadController(QWidget):
             shown = "、".join(str(m) for m in sorted(mismatched)[:10])
             more = f" 等 {len(mismatched)} 条" if len(mismatched) > 10 else ""
             self._log.warn(
-                f"{len(mismatched)} 条下载期间远端已更新：已按下载开始时"
-                f"的版本收录（未验证）——下轮检测会重报：{shown}{more}")
+                f"{len(mismatched)}" + t(' 条下载期间远端已更新：已按下载开始时的版本收录（未验证）——下轮检测会重报：') + f"{shown}" + f"{more}")
         # ⑮ 批次收尾自动盘点（D23/D36，默认开）：落 pending 之后、
         # 线程跑不等它——确认清单即刻弹，盘点完成进运行日志，候选在
         # 入账中心②区等（页面进页自动刷新）。刚下载的编号已由上面
         # 的去重口径跳过，这里捞的是账外内容 + 大小回填 + 失效清理
         if self._settings.get_int("auto_inventory_after_batch", 1) != 0:
             if self._scan_worker is not None:
-                self._log.info("上一轮收尾盘点还在跑：本批跳过自动盘点"
-                               "（需要时到入账中心手动扫）")
+                self._log.info(t('上一轮收尾盘点还在跑：本批跳过自动盘点（需要时到入账中心手动扫）'))
             else:
                 cmd = str(self._settings.get("steamcmd_path") or "")
                 self._scan_worker = _InventoryWorker(self._repo, game, cmd)
@@ -673,25 +660,21 @@ class BatchDownloadController(QWidget):
                 self._repo.update_api_metadata(mod_id, **meta)
                 done += 1
         except Exception as exc:
-            self._log.warn(f"远端信息回填中断（不影响收尾与入账）：{exc}")
+            self._log.warn(t('远端信息回填中断（不影响收尾与入账）：') + f"{exc}")
             return
         if done:
-            self._log.info(f"已回填 {done} 条的远端信息（远端版本/标题/"
-                           "作者/大小）——登记时没查到信息的条目借此补全")
+            self._log.info(t('已回填 ') + f"{done}" + t(' 条的远端信息（远端版本/标题/作者/大小）——登记时没查到信息的条目借此补全'))
 
     def _on_auto_inventory_done(self, report, error: str) -> None:
         """⑮ 收尾自动盘点回执：只进运行日志不弹窗——批次主结果
         （确认清单）已在用户眼前，盘点是顺手的卫生工作。"""
 
         if error:
-            self._log.warn(f"收尾自动盘点失败（不影响批次结果）：{error}")
+            self._log.warn(t('收尾自动盘点失败（不影响批次结果）：') + f"{error}")
             return
         if report is not None:
             self._log.info(
-                f"收尾自动盘点：盘上 {report.folders_found} 个 mod 文件夹，"
-                f"新候选 {len(report.candidates_new)} 条，"
-                f"清失效 {len(report.stale_removed)} 条，大小回填 "
-                f"{report.sizes_backfilled} 条")
+                t('收尾自动盘点：盘上 ') + f"{report.folders_found}" + t(' 个 mod 文件夹，新候选 ') + f"{len(report.candidates_new)}" + t(' 条，清失效 ') + f"{len(report.stale_removed)}" + t(' 条，大小回填 ') + f"{report.sizes_backfilled}" + t(' 条'))
 
 
     # ---------------- 工作线程收尾纪律（0xC0000409 修复） ----------------
@@ -716,7 +699,7 @@ class BatchDownloadController(QWidget):
         if action == "copy":
             QApplication.clipboard().setText(
                 "\n".join(str(m) for m in mod_ids))
-            self._log.info(f"已复制 {len(mod_ids)} 个编号到剪贴板")
+            self._log.info(t('已复制 ') + f"{len(mod_ids)}" + t(' 个编号到剪贴板'))
         elif action == "open_pages":
             for mid in mod_ids:
                 QDesktopServices.openUrl(QUrl(workshop_url(mid)))
@@ -725,7 +708,7 @@ class BatchDownloadController(QWidget):
         elif action == "open_folders":
             game = self._game or self._current_game_fallback()
             if game is None:
-                self._log.warn("没有当前游戏档案，无法定位 mod 文件夹")
+                self._log.warn(t("没有当前游戏档案，无法定位 mod 文件夹"))
                 return
             for mid in mod_ids:
                 # 批次条目可能不在账本（D39）：喂只带 mod_id 的兜底对象
@@ -735,11 +718,11 @@ class BatchDownloadController(QWidget):
             if not mod_ids:
                 return
             if self.is_busy():
-                self._log.warn("已有批次在跑：先把当前批次停止/等它结束")
+                self._log.warn(t("已有批次在跑：先把当前批次停止/等它结束"))
                 return
             game = self._current_game_fallback()
             if game is None:
-                self._log.error("重试需要游戏档案：请先在左上角选择档案")
+                self._log.error(t('重试需要游戏档案：请先在左上角选择档案'))
                 return
             # 重试不重复备份（首轮已备份过的旧版本还在备份区）；
             # 触发值沿用首轮记录（同一批该下的版本不变）
@@ -763,9 +746,9 @@ class BatchDownloadController(QWidget):
         if not self.is_busy():
             return True
         ret = QMessageBox.question(
-            self.window(), "下载批次进行中",
-            "steamcmd 一旦停止，本批剩余条目将不再执行（已下载的条目"
-            "照常进入收尾确认）。\n\n确定要停止 steamcmd 吗？")
+            self.window(), t("下载批次进行中"),
+            t("steamcmd 一旦停止，本批剩余条目将不再执行（已下载的条目"
+            "照常进入收尾确认）。\n\n确定要停止 steamcmd 吗？"))
         return ret == QMessageBox.StandardButton.Yes
 
     def confirm_exit(self) -> bool:
@@ -774,9 +757,9 @@ class BatchDownloadController(QWidget):
         if not self.is_busy():
             return True
         ret = QMessageBox.question(
-            self.window(), "下载批次进行中",
-            "退出会中止当前下载批次（已下载的条目照常进入收尾确认，"
-            "steamcmd 登录缓存会保留）。\n\n确定要退出吗？")
+            self.window(), t("下载批次进行中"),
+            t("退出会中止当前下载批次（已下载的条目照常进入收尾确认，"
+            "steamcmd 登录缓存会保留）。\n\n确定要退出吗？"))
         return ret == QMessageBox.StandardButton.Yes
 
     def shutdown(self) -> None:

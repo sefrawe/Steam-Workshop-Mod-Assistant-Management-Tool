@@ -43,6 +43,7 @@ from core import steamPaths
 from core.backupManager import steamcmd_running
 from core.formatters import abs_time  # V2：formatters 住 core
 from core.urlParser import workshop_url
+from core.i18n import t
 from gui.logBus import LogBus  # V2：LogBus 独立成文件
 from gui.theme import font_px  # 字号单源（D25）
 import shutil
@@ -105,7 +106,7 @@ class PurgedPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("已清账管理", self)
+        title = QLabel(t("已清账管理"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
         # 说明改可折叠（2026-10）：长文收进分区、内部滚动；收展状态
@@ -119,7 +120,7 @@ class PurgedPage(QWidget):
         tip_scroll.setWidgetResizable(True)
         tip_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         tip = QLabel(
-            "这里是「彻底清账」登记的黑名单：名单里的编号，入账中心"
+            t("这里是「彻底清账」登记的黑名单：名单里的编号，入账中心"
             "【扫描游戏目录】时一律拦截复活入库（steamcmd 把删掉的 mod "
             "装配回来也不入账——包括别的下载器清单残留和\"毒 mod\"下载"
             "尝试触发的装配）。黑名单拦的是「进本工具的账」：别的前端"
@@ -154,7 +155,7 @@ class PurgedPage(QWidget):
             "想重新收录某个编号：勾选它 →「允许录入」，再到入账中心"
             "【扫描游戏目录】。\n"
             "软件外手动删过文件夹、或从没入过账的\"毒 mod\"：用"
-            "【手动拉黑…】登记。",
+            "【手动拉黑…】登记。"),
             tip_scroll)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray; background: transparent;")
@@ -173,22 +174,22 @@ class PurgedPage(QWidget):
         frow = QWidget(self)
         fh = QHBoxLayout(frow)
         fh.setContentsMargins(0, 0, 0, 0)
-        fh.addWidget(QLabel("档案：", frow))
+        fh.addWidget(QLabel(t("档案："), frow))
         self._combo = QComboBox(frow)
-        self._combo.setToolTip("按游戏档案过滤黑名单；「全部档案」看所有")
+        self._combo.setToolTip(t("按游戏档案过滤黑名单；「全部档案」看所有"))
         self._combo.currentIndexChanged.connect(self._fill_table)
         fh.addWidget(self._combo)
         self._search = QLineEdit(frow)
-        self._search.setPlaceholderText("搜索：编号 / 标题 / 备注…")
+        self._search.setPlaceholderText(t("搜索：编号 / 标题 / 备注…"))
         self._search.setClearButtonEnabled(True)
         self._search.setToolTip(
-            "即时过滤当前列表：不命中的行隐藏，已勾选的原样保留；"
-            "清空恢复全部")
+            t("即时过滤当前列表：不命中的行隐藏，已勾选的原样保留；"
+            "清空恢复全部"))
         self._search.textChanged.connect(lambda *_: self._search_timer.start())
         fh.addWidget(self._search, 1)
         fh.addStretch(1)
-        btn_refresh = QPushButton("刷新", frow)
-        btn_refresh.setToolTip("重新读取黑名单（会清空当前勾选）")
+        btn_refresh = QPushButton(t("刷新"), frow)
+        btn_refresh.setToolTip(t("重新读取黑名单（会清空当前勾选）"))
         btn_refresh.clicked.connect(self._reload)
         fh.addWidget(btn_refresh)
         root.addWidget(frow)
@@ -197,35 +198,35 @@ class PurgedPage(QWidget):
         bar = QWidget(self)
         bh = QHBoxLayout(bar)
         bh.setContentsMargins(0, 0, 0, 0)
-        self._btn_sel = QPushButton("对选中 ▾", bar)
-        self._btn_sel.setToolTip("对勾选的黑名单条目执行动作")
+        self._btn_sel = QPushButton(t("对选中 ▾"), bar)
+        self._btn_sel.setToolTip(t("对勾选的黑名单条目执行动作"))
         menu = QMenu(self._btn_sel)
         menu.setToolTipsVisible(True)
-        act_all = QAction("全选当前显示", menu)
+        act_all = QAction(t("全选当前显示"), menu)
         act_all.triggered.connect(lambda: self._set_all_checks(True))
         menu.addAction(act_all)
-        act_none = QAction("清除勾选", menu)
+        act_none = QAction(t("清除勾选"), menu)
         act_none.triggered.connect(lambda: self._set_all_checks(False))
         menu.addAction(act_none)
         menu.addSeparator()
-        self._act_allow = QAction("允许录入…（移出黑名单）", menu)
+        self._act_allow = QAction(t("允许录入…（移出黑名单）"), menu)
         self._act_allow.setToolTip(
-            "把勾选的编号移出黑名单：之后入账中心【扫描游戏目录】不再"
-            "拦截它们——盘上已有文件的会正常落成待认领")
+            t("把勾选的编号移出黑名单：之后入账中心【扫描游戏目录】不再"
+            "拦截它们——盘上已有文件的会正常落成待认领"))
         self._act_allow.triggered.connect(self._allow_checked)
         menu.addAction(self._act_allow)
         # V2：动作名去内部缩写（acf），指向不变
-        self._act_acf = QAction("从 steamcmd 账本移除条目…", menu)
+        self._act_acf = QAction(t("从 steamcmd 账本移除条目…"), menu)
         self._act_acf.setToolTip(
-            "把勾选条目从 steamcmd 的工坊账本文件里删除——"
+            t("把勾选条目从 steamcmd 的工坊账本文件里删除——"
             "steamcmd 从此彻底忘了它们，不再校验装配、不再占磁盘。\n"
-            "steamcmd 运行中会拒绝执行；操作前自动备份原账本文件")
+            "steamcmd 运行中会拒绝执行；操作前自动备份原账本文件"))
         self._act_acf.triggered.connect(self._remove_from_acf_checked)
-        self._act_cleanup = QAction("清除残留…（目录+账本+半成品）", menu)
+        self._act_cleanup = QAction(t("清除残留…（目录+账本+半成品）"), menu)
         self._act_cleanup.setToolTip(
-            "把勾选条目残留在盘上的东西一次清掉：内容目录、steamcmd "
+            t("把勾选条目残留在盘上的东西一次清掉：内容目录、steamcmd "
             "账本条目、下载半成品。\nsteamcmd 运行中会拒绝执行；目录"
-            "删除不可撤销，账本移除前自动备份")
+            "删除不可撤销，账本移除前自动备份"))
         self._act_cleanup.triggered.connect(self._cleanup_residue_checked)
         menu.addAction(self._act_cleanup)
 
@@ -233,19 +234,19 @@ class PurgedPage(QWidget):
         self._btn_sel.setMenu(menu)
         bh.addWidget(self._btn_sel)
 
-        btn_black = QPushButton("手动拉黑…", bar)
+        btn_black = QPushButton(t("手动拉黑…"), bar)
         btn_black.setToolTip(
-            "把编号清单登记进黑名单（选所属档案）：对付软件外手动"
-            "删过文件夹、或从未入过账的\"毒 mod\"")
+            t("把编号清单登记进黑名单（选所属档案）：对付软件外手动"
+            "删过文件夹、或从未入过账的\"毒 mod\""))
         btn_black.clicked.connect(self._manual_blacklist)
         bh.addWidget(btn_black)
-        btn_sweep = QPushButton("立即执行退出扫尾", bar)
+        btn_sweep = QPushButton(t("立即执行退出扫尾"), bar)
         btn_sweep.setToolTip(
-            "把黑名单里全部编号（所有游戏）从 steamcmd 的工坊账本文件"
+            t("把黑名单里全部编号（所有游戏）从 steamcmd 的工坊账本文件"
             "里移除——退出软件时本来就会自动做这件事（写前自动备份、"
             "失败只记日志），本按钮 = 不等退出、现在就做一遍。\n"
             "适用：马上要用别的前端（RimSort 等）、或不想等下次关软件。"
-            "steamcmd 运行中会拒绝执行")
+            "steamcmd 运行中会拒绝执行"))
         btn_sweep.clicked.connect(self._sweep_all_now)
         bh.addWidget(btn_sweep)
 
@@ -286,7 +287,7 @@ class PurgedPage(QWidget):
         self._combo.blockSignals(True)
         try:
             self._combo.clear()
-            self._combo.addItem("全部档案", None)
+            self._combo.addItem(t('全部档案'), None)
             found = False
             for g in self._games_in_order:
                 self._combo.addItem(f"{g.name}（{g.app_id}）", g.app_id)
@@ -335,7 +336,7 @@ class PurgedPage(QWidget):
             ui.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             ui.setForeground(QBrush(QColor("#5aa9ff")))
             ui.setData(Qt.ItemDataRole.UserRole, r.mod_id)
-            ui.setToolTip("点击在浏览器打开该 mod 的创意工坊页面")
+            ui.setToolTip(t("点击在浏览器打开该 mod 的创意工坊页面"))
             self._table.setItem(row, COL_URL, ui)
             self._table.setItem(row, COL_PURGED,
                                 QTableWidgetItem(abs_time(r.purged_at)))
@@ -413,21 +414,16 @@ class PurgedPage(QWidget):
     def _allow_checked(self) -> None:
         recs = self._checked()
         if not recs:
-            QMessageBox.information(self, "允许录入",
-                                    "先勾选要移出黑名单的编号。")
+            QMessageBox.information(self, t("允许录入"),
+                                    t("先勾选要移出黑名单的编号。"))
             return
         ret = QMessageBox.question(
-            self, "允许录入",
-            f"把 {len(recs)} 个编号移出黑名单？\n\n"
-            "· 移出后入账中心【扫描游戏目录】不再拦截它们：盘上已有其"
-            "内容文件夹的，下次扫描会正常落成待认领；盘上没有的照旧"
-            "不入账（没文件不算下载成功）；\n"
-            "· steamcmd 侧的复活源头（RimSort 清单 / 毒 mod）没解决的话，"
-            "它们仍可能再次被装回——到时可再拉黑。",
+            self, t("允许录入"),
+            t('把 ') + f"{len(recs)}" + t(' 个编号移出黑名单？\n\n· 移出后入账中心【扫描游戏目录】不再拦截它们：盘上已有其内容文件夹的，下次扫描会正常落成待认领；盘上没有的照旧不入账（没文件不算下载成功）；\n· steamcmd 侧的复活源头（RimSort 清单 / 毒 mod）没解决的话，它们仍可能再次被装回——到时可再拉黑。'),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
-            self._log.info("已取消允许录入：黑名单未动")
+            self._log.info(t('已取消允许录入：黑名单未动'))
             return
         done = 0
         try:
@@ -436,44 +432,43 @@ class PurgedPage(QWidget):
                     self._repo.remove_purged(r.mod_id)
                     done += 1
         except Exception as exc:
-            QMessageBox.critical(self, "允许录入", f"失败（名单未改动）：{exc}")
+            QMessageBox.critical(self, t("允许录入"), t('失败（名单未改动）：') + f"{exc}")
             return
-        self._log.ok(f"已允许录入 {done} 个编号（已移出黑名单；"
-                     "要入库到入账中心【扫描游戏目录】）")
+        self._log.ok(t('已允许录入 ') + f"{done}" + t(' 个编号（已移出黑名单；要入库到入账中心【扫描游戏目录】）'))
         self._reload()
 
     def _manual_blacklist(self) -> None:
         if not self._games_in_order:
             QMessageBox.information(
-                self, "手动拉黑", "还没有任何游戏档案：先在左上角添加档案。")
+                self, t("手动拉黑"), t("还没有任何游戏档案：先在左上角添加档案。"))
             return
         dlg = QDialog(self)
-        dlg.setWindowTitle("手动拉黑（登记进黑名单）")
+        dlg.setWindowTitle(t("手动拉黑（登记进黑名单）"))
         v = QVBoxLayout(dlg)
         tip = QLabel(
-            "把编号登记进黑名单：之后入账中心【扫描游戏目录】会拦截这些"
+            t("把编号登记进黑名单：之后入账中心【扫描游戏目录】会拦截这些"
             "编号的复活入库。适用于软件外手动删过文件夹、或从未入过账的"
-            "\"毒 mod\"。\n已在名单里的编号 = 覆盖刷新标题与备注。",
+            "\"毒 mod\"。\n已在名单里的编号 = 覆盖刷新标题与备注。"),
             dlg)
         tip.setWordWrap(True)
         v.addWidget(tip)
         edit = QPlainTextEdit(dlg)   # V2：局部 import 已上提文件头
         edit.setFixedHeight(96)
-        edit.setPlaceholderText("每行一个工坊编号（纯数字）…")
+        edit.setPlaceholderText(t("每行一个工坊编号（纯数字）…"))
         v.addWidget(edit)
         row = QHBoxLayout()
-        row.addWidget(QLabel("所属游戏档案：", dlg))
+        row.addWidget(QLabel(t("所属游戏档案："), dlg))
         combo = QComboBox(dlg)
         for g in self._games_in_order:
             combo.addItem(f"{g.name}（{g.app_id}）", g.app_id)
         row.addWidget(combo, 1)
         v.addLayout(row)
         note_edit = QLineEdit(dlg)
-        note_edit.setPlaceholderText("备注（可选）：为什么拉黑，方便日后回想")
+        note_edit.setPlaceholderText(t("备注（可选）：为什么拉黑，方便日后回想"))
         v.addWidget(note_edit)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                               | QDialogButtonBox.StandardButton.Cancel, dlg)
-        bb.button(QDialogButtonBox.StandardButton.Ok).setText("登记")
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText(t("登记"))
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         v.addWidget(bb)
@@ -495,33 +490,29 @@ class PurgedPage(QWidget):
             bad.append(s)
         ids = sorted(set(ids))
         if not ids:
-            QMessageBox.information(self, "手动拉黑", "没有可登记的编号。")
+            QMessageBox.information(self, t("手动拉黑"), t("没有可登记的编号。"))
             return
         if bad:
-            self._log.warn(f"手动拉黑：{len(bad)} 行不是有效编号已忽略："
-                           f"{bad[:5]}{'…' if len(bad) > 5 else ''}")
+            self._log.warn(t('手动拉黑：') + f"{len(bad)}" + t(' 行不是有效编号已忽略：') + f"{bad[:5]}" + f"{'…' if len(bad) > 5 else ''}")
         game_id = combo.currentData()
         note = note_edit.text().strip() or None
         gname = self._games.get(game_id, str(game_id))
         ret = QMessageBox.question(
-            self, "手动拉黑",
-            f"把 {len(ids)} 个编号登记进「{gname}」的黑名单？\n"
-            "登记后【扫描游戏目录】将拦截它们的复活入库；想重新收录时到"
-            "本页「允许录入」。",
+            self, t("手动拉黑"),
+            t('把 ') + f"{len(ids)}" + t(' 个编号登记进「') + f"{gname}" + t('」的黑名单？\n登记后【扫描游戏目录】将拦截它们的复活入库；想重新收录时到本页「允许录入」。'),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
-            self._log.info("已取消手动拉黑：黑名单未动")
+            self._log.info(t('已取消手动拉黑：黑名单未动'))
             return
         try:
             with self._repo.transaction():
                 for mid in ids:
                     self._repo.add_purged(mid, game_id, note=note)
         except Exception as exc:
-            QMessageBox.critical(self, "手动拉黑", f"失败（名单未改动）：{exc}")
+            QMessageBox.critical(self, t("手动拉黑"), t('失败（名单未改动）：') + f"{exc}")
             return
-        self._log.warn(f"已把 {len(ids)} 个编号登记进「{gname}」黑名单"
-                       "（扫描游戏目录将拦截其复活入库）")
+        self._log.warn(t('已把 ') + f"{len(ids)}" + t(' 个编号登记进「') + f"{gname}" + t('」黑名单（扫描游戏目录将拦截其复活入库）'))
         self._reload()
 
     def _remove_from_acf_checked(self) -> None:
@@ -537,41 +528,35 @@ class PurgedPage(QWidget):
         """
         recs = self._checked()
         if not recs:
-            QMessageBox.information(self, "从 steamcmd 账本移除",
-                                    "先勾选要移除的编号。")
+            QMessageBox.information(self, t("从 steamcmd 账本移除"),
+                                    t("先勾选要移除的编号。"))
             return
         if steamcmd_running():
             QMessageBox.warning(
-                self, "steamcmd 正在运行",
-                "steamcmd 正在运行，现在改它的账本文件会在它退出时被"
+                self, t("steamcmd 正在运行"),
+                t("steamcmd 正在运行，现在改它的账本文件会在它退出时被"
                 "整个覆盖回去（等于白改）。\n\n请先停止 steamcmd"
-                "（控制台 → steamcmd 终端 → 停止），再回来执行。")
+                "（控制台 → steamcmd 终端 → 停止），再回来执行。"))
             return
         root = steamPaths.steamcmd_root(
             self._settings.get("steamcmd_path") if self._settings else "")
         if root is None:
             QMessageBox.information(
-                self, "从 steamcmd 账本移除",
-                "尚未设置 steamcmd 程序路径，无法定位工坊账本文件。\n"
-                "请先到设置页填写 steamcmd 程序路径。")
+                self, t("从 steamcmd 账本移除"),
+                t("尚未设置 steamcmd 程序路径，无法定位工坊账本文件。\n"
+                "请先到设置页填写 steamcmd 程序路径。"))
             return
         # 黑名单跨档案：条目可能属于多个游戏，按档案分组定位各自的账本文件
         by_game: dict[int, list[int]] = {}
         for r in recs:
             by_game.setdefault(r.game_id, []).append(r.mod_id)
         ret = QMessageBox.question(
-            self, "从 steamcmd 账本移除",
-            f"把 {len(recs)} 个编号从 steamcmd 的工坊账本文件里移除？\n\n"
-            "· steamcmd 从此彻底忘了这些条目：不再校验装配、不再占磁盘；\n"
-            "· 已下载的内容文件夹不受影响，要删去【清理与删除】页；\n"
-            "· 操作前自动备份原账本文件（同目录 .bak_时间戳），"
-            "改坏可还原；\n"
-            "· 黑名单登记保留：条目继续被拦截入账（想重新收录走"
-            "「允许录入」）。",
+            self, t("从 steamcmd 账本移除"),
+            t('把 ') + f"{len(recs)}" + t(' 个编号从 steamcmd 的工坊账本文件里移除？\n\n· steamcmd 从此彻底忘了这些条目：不再校验装配、不再占磁盘；\n· 已下载的内容文件夹不受影响，要删去【清理与删除】页；\n· 操作前自动备份原账本文件（同目录 .bak_时间戳），改坏可还原；\n· 黑名单登记保留：条目继续被拦截入账（想重新收录走「允许录入」）。'),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
-            self._log.info("已取消：steamcmd 账本未动")
+            self._log.info(t('已取消：steamcmd 账本未动'))
             return
         total_removed: list[int] = []
         missing_acf: list[str] = []
@@ -585,8 +570,7 @@ class PurgedPage(QWidget):
             try:
                 removed, absent = steamPaths.remove_items_from_acf(acf, mids)
             except ValueError as exc:
-                self._log.error(f"「{gname}」的 steamcmd 账本移除失败"
-                                f"（条目未动）：{exc}")
+                self._log.error(f'「' + f"{gname}" + t('」的 steamcmd 账本移除失败（条目未动）：') + f"{exc}")
                 continue
             total_removed.extend(removed)
             line = f"「{gname}」：已移除 {len(removed)} 个条目"
@@ -595,11 +579,9 @@ class PurgedPage(QWidget):
             self._log.ok(line)
         if total_removed:
             self._log.warn(
-                f"共从 steamcmd 账本移除 {len(total_removed)} 个条目"
-                "（原文件已自动备份在同目录；黑名单登记保留）")
+                t('共从 steamcmd 账本移除 ') + f"{len(total_removed)}" + t(' 个条目（原文件已自动备份在同目录；黑名单登记保留）'))
         for gname in missing_acf:
-            self._log.info(f"「{gname}」没有 steamcmd 的工坊账本文件——"
-                           "该游戏可能从没用本机 steamcmd 下载过，无需清理")
+            self._log.info(f'「' + f"{gname}" + t('」没有 steamcmd 的工坊账本文件——该游戏可能从没用本机 steamcmd 下载过，无需清理'))
         self._reload()
     def _sweep_all_now(self) -> None:
         """退出扫尾（修36/决策114）的手动版：黑名单全部编号、跨全部
@@ -611,38 +593,33 @@ class PurgedPage(QWidget):
         rows = self._repo.list_purged()
         if not rows:
             QMessageBox.information(
-                self, "退出扫尾", "黑名单是空的：没有需要扫除的编号。")
+                self, t("退出扫尾"), t("黑名单是空的：没有需要扫除的编号。"))
             return
         if steamcmd_running():
             QMessageBox.warning(
-                self, "steamcmd 正在运行",
-                "steamcmd 正在运行，现在改它的账本文件会在它退出时被"
+                self, t("steamcmd 正在运行"),
+                t("steamcmd 正在运行，现在改它的账本文件会在它退出时被"
                 "整个覆盖回去（等于白改）。\n\n请先停止 steamcmd"
-                "（控制台 → steamcmd 终端 → 停止），再回来执行。")
+                "（控制台 → steamcmd 终端 → 停止），再回来执行。"))
             return
         root = steamPaths.steamcmd_root(
             self._settings.get("steamcmd_path") if self._settings else "")
         if root is None:
             QMessageBox.information(
-                self, "退出扫尾",
-                "尚未设置 steamcmd 程序路径，无法定位工坊账本文件。\n"
-                "请先到设置页填写 steamcmd 程序路径。")
+                self, t("退出扫尾"),
+                t("尚未设置 steamcmd 程序路径，无法定位工坊账本文件。\n"
+                "请先到设置页填写 steamcmd 程序路径。"))
             return
         by_game: dict[int, list[int]] = {}
         for r in rows:
             by_game.setdefault(r.game_id, []).append(r.mod_id)
         ret = QMessageBox.question(
-            self, "立即执行退出扫尾",
-            f"把黑名单里全部 {len(rows)} 个编号从 steamcmd 的工坊账本"
-            f"文件里移除？（涉及 {len(by_game)} 个游戏档案）\n\n"
-            "· 这正是退出软件时自动做的那件事，本按钮 = 现在就做；\n"
-            "· steamcmd 从此彻底忘了这些条目，不再校验装配；\n"
-            "· 操作前自动备份原账本文件（同目录 .bak_时间戳）；\n"
-            "· 黑名单登记保留，条目继续被拦截入账。",
+            self, t("立即执行退出扫尾"),
+            t('把黑名单里全部 ') + f"{len(rows)}" + t(' 个编号从 steamcmd 的工坊账本文件里移除？（涉及 ') + f"{len(by_game)}" + t(' 个游戏档案）\n\n· 这正是退出软件时自动做的那件事，本按钮 = 现在就做；\n· steamcmd 从此彻底忘了这些条目，不再校验装配；\n· 操作前自动备份原账本文件（同目录 .bak_时间戳）；\n· 黑名单登记保留，条目继续被拦截入账。'),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
-            self._log.info("已取消退出扫尾：账本未动")
+            self._log.info(t('已取消退出扫尾：账本未动'))
             return
         total_removed: list[int] = []
         missing: list[str] = []
@@ -655,7 +632,7 @@ class PurgedPage(QWidget):
             try:
                 removed, absent = steamPaths.remove_items_from_acf(acf, mids)
             except ValueError as exc:
-                self._log.error(f"「{gname}」的账本扫除失败（条目未动）：{exc}")
+                self._log.error(f'「' + f"{gname}" + t('」的账本扫除失败（条目未动）：') + f"{exc}")
                 continue
             total_removed.extend(removed)
             line = f"「{gname}」：已移除 {len(removed)} 个条目"
@@ -663,13 +640,11 @@ class PurgedPage(QWidget):
                 line += f"；{len(absent)} 个编号账本里本来就没有"
             self._log.ok(line)
         if total_removed:
-            self._log.warn(f"退出扫尾完成：共移除 {len(total_removed)} 个"
-                           "账本条目（原文件已自动备份；黑名单登记保留）")
+            self._log.warn(t('退出扫尾完成：共移除 ') + f"{len(total_removed)}" + t(' 个账本条目（原文件已自动备份；黑名单登记保留）'))
         elif not missing:
-            self._log.info("退出扫尾：账本里本来就没有这些条目，无需处理")
+            self._log.info(t('退出扫尾：账本里本来就没有这些条目，无需处理'))
         for gname in missing:
-            self._log.info(f"「{gname}」没有 steamcmd 的工坊账本文件"
-                           "（该游戏可能从没用本机 steamcmd 下载过）")
+            self._log.info(f'「' + f"{gname}" + t('」没有 steamcmd 的工坊账本文件（该游戏可能从没用本机 steamcmd 下载过）'))
         self._reload()
 
     # ---------- 表格交互 ----------
@@ -682,10 +657,10 @@ class PurgedPage(QWidget):
         mid = it.data(Qt.ItemDataRole.UserRole)
         url = workshop_url(mid)
         if QDesktopServices.openUrl(QUrl(url)):
-            self._log.info(f"已在浏览器打开 mod {mid} 的创意工坊页面")
+            self._log.info(t('已在浏览器打开 mod ') + f"{mid}" + t(' 的创意工坊页面'))
         else:
-            QMessageBox.warning(self, "打开工坊页面",
-                                f"浏览器没有响应，请手动打开：\n{url}")
+            QMessageBox.warning(self, t("打开工坊页面"),
+                                t('浏览器没有响应，请手动打开：\n') + f"{url}")
 
     def _on_context_menu(self, pos) -> None:
         item = self._table.itemAt(pos)
@@ -698,28 +673,28 @@ class PurgedPage(QWidget):
         mid = chk.data(Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        act_open = QAction("打开工坊页面", menu)
+        act_open = QAction(t("打开工坊页面"), menu)
         act_open.triggered.connect(lambda: self._on_cell_clicked(row, COL_URL))
         menu.addAction(act_open)
-        act_copy = QAction("复制编号", menu)
+        act_copy = QAction(t("复制编号"), menu)
         act_copy.triggered.connect(lambda: self._copy_id(mid))
         menu.addAction(act_copy)
         menu.addSeparator()
-        act_allow = QAction("允许录入…（移出黑名单）", menu)
-        act_allow.setToolTip("把这一个编号移出黑名单（同批量动作，单条版）")
+        act_allow = QAction(t("允许录入…（移出黑名单）"), menu)
+        act_allow.setToolTip(t("把这一个编号移出黑名单（同批量动作，单条版）"))
         act_allow.triggered.connect(
             lambda: (self._table.item(row, COL_CHECK).setCheckState(
                 Qt.CheckState.Checked), self._allow_checked()))
         menu.addAction(act_allow)
-        act_acf = QAction("从 steamcmd 账本移除条目…", menu)
-        act_acf.setToolTip("把这一个编号从 steamcmd 账本里删除"
-                           "（同批量动作，单条版）")
+        act_acf = QAction(t("从 steamcmd 账本移除条目…"), menu)
+        act_acf.setToolTip(t("把这一个编号从 steamcmd 账本里删除"
+                           "（同批量动作，单条版）"))
         act_acf.triggered.connect(
             lambda: (self._table.item(row, COL_CHECK).setCheckState(
                 Qt.CheckState.Checked), self._remove_from_acf_checked()))
         menu.addAction(act_acf)
-        act_cleanup = QAction("清除残留…", menu)
-        act_cleanup.setToolTip("同批量动作，单条版")
+        act_cleanup = QAction(t("清除残留…"), menu)
+        act_cleanup.setToolTip(t("同批量动作，单条版"))
         act_cleanup.triggered.connect(
             lambda: (self._table.item(row, COL_CHECK).setCheckState(
                 Qt.CheckState.Checked), self._cleanup_residue_checked()))
@@ -729,7 +704,7 @@ class PurgedPage(QWidget):
 
     def _copy_id(self, mid: int) -> None:
         QApplication.clipboard().setText(str(mid))   # V2：import 已上提
-        self._log.info(f"已复制编号 {mid}")
+        self._log.info(t('已复制编号 ') + f"{mid}")
 
     # ---------- 对外 ----------
     def refresh(self) -> None:
@@ -755,21 +730,19 @@ class PurgedPage(QWidget):
             ddir = self._game_dirs.get(r.game_id)
             if ddir:
                 if (Path(ddir) / str(r.mod_id)).is_dir():
-                    parts.append("内容目录")
+                    parts.append(t('内容目录'))
             else:
-                unknown.append("内容目录（档案没记下载目录）")
+                unknown.append(t('内容目录（档案没记下载目录）'))
             ids = acf_by_game.get(r.game_id)
             if ids is None:
-                unknown.append("账本条目（未配 steamcmd 查不了——退出"
-                               "软件时会自动移除，无需手动）")
+                unknown.append(t('账本条目（未配 steamcmd 查不了——退出软件时会自动移除，无需手动）'))
             elif r.mod_id in ids:
-                parts.append("steamcmd 账本条目")
+                parts.append(t('steamcmd 账本条目'))
             if root is None:
-                unknown.append("下载半成品（未配 steamcmd 查不了——"
-                               "批次前清缓存会连带清掉）")
+                unknown.append(t('下载半成品（未配 steamcmd 查不了——批次前清缓存会连带清掉）'))
             elif (root / "steamapps" / "workshop" / "downloads"
                   / str(r.mod_id)).exists():
-                parts.append("下载半成品")
+                parts.append(t('下载半成品'))
             if not parts and not unknown:
                 out[r.mod_id] = ("✓", "三个位置都没有残留")
                 continue
@@ -787,14 +760,14 @@ class PurgedPage(QWidget):
         账本整个覆盖写回）。黑名单登记不受影响。"""
         recs = self._checked()
         if not recs:
-            QMessageBox.information(self, "清除残留", "先勾选编号。")
+            QMessageBox.information(self, t("清除残留"), t("先勾选编号。"))
             return
         if steamcmd_running():
             QMessageBox.warning(
-                self, "steamcmd 正在运行",
-                "steamcmd 正在运行：现在改账本会在它退出时被整个覆盖"
+                self, t("steamcmd 正在运行"),
+                t("steamcmd 正在运行：现在改账本会在它退出时被整个覆盖"
                 "回去，删目录也可能撞上正在写的文件。\n\n请先停止"
-                " steamcmd（控制台 → steamcmd 终端 → 停止）再执行。")
+                " steamcmd（控制台 → steamcmd 终端 → 停止）再执行。"))
             return
         root = steamPaths.steamcmd_root(
             self._settings.get("steamcmd_path") if self._settings else "")
@@ -818,9 +791,9 @@ class PurgedPage(QWidget):
                 jobs.append((r, spots))
         if not jobs:
             QMessageBox.information(
-                self, "清除残留",
-                "勾选的编号在三个位置都没有可清的残留（或 steamcmd "
-                "未配置无法定位账本——那两项会在退出软件时自动处理）。")
+                self, t("清除残留"),
+                t("勾选的编号在三个位置都没有可清的残留（或 steamcmd "
+                "未配置无法定位账本——那两项会在退出软件时自动处理）。"))
             return
         lines = [f"对 {len(jobs)} 个编号清除残留（黑名单登记保留）：",
                  "", "涉及："]
@@ -828,17 +801,17 @@ class PurgedPage(QWidget):
             lines.append(f" · {r.mod_id} {r.title or '（无标题）'}｜"
                          + "、".join(spots))
         if len(jobs) > 10:
-            lines.append(f" ……以及另外 {len(jobs) - 10} 个")
+            lines.append(t(' ……以及另外 ') + f"{len(jobs) - 10}" + t(' 个'))
         lines += ["", "· 内容目录与半成品物理删除，不可撤销；",
                   "· 账本条目移除前自动备份原账本文件（同目录 "
                   ".bak_时间戳）；",
                   "· 已是联接的目录跳过不动（绝不穿透删除）。"]
         ret = QMessageBox.question(
-            self, "清除残留", "\n".join(lines),
+            self, t("清除残留"), "\n".join(lines),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
-            self._log.info("已取消清除残留")
+            self._log.info(t('已取消清除残留'))
             return
         ok_n, fail_lines = 0, []
         # 账本条目按游戏分组，一次一个文件（少写几遍、少备几份）
@@ -859,14 +832,13 @@ class PurgedPage(QWidget):
                     if os.path.islink(str(path)) or os.path.isjunction(
                             str(path)):
                         fail_lines.append(
-                            f"{gname} {r.mod_id}：{spot} 是联接，"
-                            "跳过未动")
+                            f"{gname}" + f' ' + f"{r.mod_id}" + f'：' + f"{spot}" + t(' 是联接，跳过未动'))
                         continue
                     shutil.rmtree(path)
                     ok_n += 1
                 except OSError as exc:
                     fail_lines.append(
-                        f"{gname} {r.mod_id}：{spot} 删除失败（{exc}）")
+                        f"{gname}" + f' ' + f"{r.mod_id}" + f'：' + f"{spot}" + t(' 删除失败（') + f"{exc}" + f'）')
             if "acf" in spots:
                 acf_jobs.setdefault(r.game_id, []).append(r.mod_id)
         for game_id, mids in sorted(acf_jobs.items()):
@@ -878,14 +850,13 @@ class PurgedPage(QWidget):
                 removed, _absent = steamPaths.remove_items_from_acf(acf, mids)
                 ok_n += len(removed)
             except ValueError as exc:
-                fail_lines.append(f"{gname}：账本未动（{exc}）")
+                fail_lines.append(f"{gname}" + t('：账本未动（') + f"{exc}" + f'）')
         if ok_n:
-            self._log.ok(f"残留清除完成：{ok_n} 处已清"
-                         "（账本改动已自动备份原文件）")
+            self._log.ok(t('残留清除完成：') + f"{ok_n}" + t(' 处已清（账本改动已自动备份原文件）'))
         for line in fail_lines:
-            self._log.warn(f"残留清除：{line}")
+            self._log.warn(t('残留清除：') + f"{line}")
         if fail_lines:
-            QMessageBox.warning(self, "清除残留",
+            QMessageBox.warning(self, t("清除残留"),
                                 "部分失败（详见运行日志）：\n"
                                 + "\n".join(fail_lines[:10]))
         self._reload()

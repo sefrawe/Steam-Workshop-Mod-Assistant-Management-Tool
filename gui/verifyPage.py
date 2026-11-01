@@ -53,6 +53,7 @@ from core.models import Game
 from core.urlParser import workshop_url
 
 from core.formatters import status_zh          # V2：formatters 住 core
+from core.i18n import t
 from gui.logBus import LogBus                  # V2：LogBus 独立成文件
 from gui.modFolderOpener import open_mod_folder
 from gui.collapsibleSection import CollapsibleSection as _Section
@@ -135,7 +136,7 @@ class VerifyPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("账实核验", self)
+        title = QLabel(t("账实核验"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -145,9 +146,9 @@ class VerifyPage(QWidget):
 
 
         tip = QLabel(
-            "核验本身只读——写库只发生在你主动的动作（修复三选里的"
+            t("核验本身只读——写库只发生在你主动的动作（修复三选里的"
             "「标记为已移除」／设置游戏侧目录），不会删任何文件、不自动"
-            "改状态。两把尺子的区别与各桶含义，点开下方【先读我】。")
+            "改状态。两把尺子的区别与各桶含义，点开下方【先读我】。"))
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
@@ -158,18 +159,18 @@ class VerifyPage(QWidget):
         frow = QWidget(self)
         fh = QHBoxLayout(frow)
         fh.setContentsMargins(0, 0, 0, 0)
-        fh.addWidget(QLabel("查看：", frow))
+        fh.addWidget(QLabel(t("查看："), frow))
         self._bucket_combo = QComboBox(frow)
         for label, data in _BUCKETS:
             self._bucket_combo.addItem(label, data)
-        self._bucket_combo.setToolTip("只看某一类问题行；筛选只隐藏行")
+        self._bucket_combo.setToolTip(t("只看某一类问题行；筛选只隐藏行"))
         self._bucket_combo.currentIndexChanged.connect(self._apply_row_filter)
         fh.addWidget(self._bucket_combo)
 
         self._kw_edit = QLineEdit(frow)
         self._kw_edit.setClearButtonEnabled(True)
         self._kw_edit.setPlaceholderText(
-            "按编号 / 标题 / 建议过滤…（即时生效，只隐藏行）")
+            t("按编号 / 标题 / 建议过滤…（即时生效，只隐藏行）"))
         self._kw_edit.textChanged.connect(self._apply_row_filter)
         fh.addWidget(self._kw_edit, 1)
 
@@ -178,7 +179,7 @@ class VerifyPage(QWidget):
                             ("编号 从小到大", "id_asc"),
                             ("编号 从大到小", "id_desc")):
             self._sort_combo.addItem(label, data)
-        self._sort_combo.setToolTip("重灌式排序：数据按编号重排，内容不变")
+        self._sort_combo.setToolTip(t("重灌式排序：数据按编号重排，内容不变"))
         self._sort_combo.currentIndexChanged.connect(
             lambda _i: self._rebuild_table())
         fh.addWidget(self._sort_combo)
@@ -189,7 +190,7 @@ class VerifyPage(QWidget):
         h = QHBoxLayout(btn_row)
         h.setContentsMargins(0, 0, 0, 0)
 
-        self._verify_btn = QPushButton("开始核验", btn_row)
+        self._verify_btn = QPushButton(t("开始核验"), btn_row)
         self._verify_btn.clicked.connect(self._start_verify)
         h.addWidget(self._verify_btn)
         h.addStretch(1)
@@ -237,8 +238,8 @@ class VerifyPage(QWidget):
             lambda ex: self._save_fold(_SES_SEC_NN, ex))
 
         self._verify_btn.setToolTip(
-            "只读对账：账本↔磁盘实况；除你主动选择的动作（修复三选）外，"
-            "不写库、不删任何文件")
+            t("只读对账：账本↔磁盘实况；除你主动选择的动作（修复三选）外，"
+            "不写库、不删任何文件"))
 
         root.addStretch(1)   # 剩余空间留页尾：分区保持自然高度
 
@@ -290,11 +291,11 @@ class VerifyPage(QWidget):
         self._summary.setText("")
         if game is None:
             self._game_label.setText(
-                "当前游戏：（未选择）—— 请先在左上角添加或选择档案")
+                t("当前游戏：（未选择）—— 请先在左上角添加或选择档案"))
             self._verify_btn.setEnabled(False)
         else:
             self._game_label.setText(
-                f"当前游戏：{game.name}（{game.app_id}）")
+                t('当前游戏：') + f"{game.name}" + f'（' + f"{game.app_id}" + f'）')
             self._verify_btn.setEnabled(True)
 
 
@@ -312,7 +313,7 @@ class VerifyPage(QWidget):
                                    download_dir=effective_dir)
             self._game = self._repo.get_game(self._game.app_id)
             self._log.info(
-                f"下载目录已按当前 steamcmd 位置重新推导：{effective_dir}")
+                t('下载目录已按当前 steamcmd 位置重新推导：') + f"{effective_dir}")
 
         rows = self._repo.list_mods(self._game.app_id)
         status_by_id = {m.mod_id: m.status for m in rows}
@@ -335,10 +336,10 @@ class VerifyPage(QWidget):
 
             self._summary.setStyleSheet("color: #e5484d;")
             self._summary.setText(
-                "下载目录不存在，逐条对账没有意义（会满屏误报）。\n"
+                t("下载目录不存在，逐条对账没有意义（会满屏误报）。\n"
                 "请检查：① 设置页的 steamcmd 程序路径是否填对；"
-                "② 该游戏的 mod 是否用这台 steamcmd 下载过。")
-            self._log.warn("账实核验：下载目录不存在，未做逐条对账")
+                "② 该游戏的 mod 是否用这台 steamcmd 下载过。"))
+            self._log.warn(t("账实核验：下载目录不存在，未做逐条对账"))
             return
 
         self._fill_table(result)
@@ -356,12 +357,12 @@ class VerifyPage(QWidget):
                  f"｜盘上缺失 {len(result.missing)}",
                  f"｜空目录 {len(result.empty)}"]
         if n_claim:
-            parts.append(f"｜账本外 {n_claim}")
+            parts.append(t('｜账本外 ') + f"{n_claim}")
         if n_confirm:
-            parts.append(f"｜待下载待确认 {n_confirm}")
+            parts.append(t('｜待下载待确认 ') + f"{n_confirm}")
         if n_keep:
-            parts.append(f"｜软删/失效保留 {n_keep}")
-        parts.append(f"｜非数字内容 {len(result.non_numeric)}")
+            parts.append(t('｜软删/失效保留 ') + f"{n_keep}")
+        parts.append(t('｜非数字内容 ') + f"{len(result.non_numeric)}")
         self._summary.setText("".join(parts))
         self._log.ok(
             f"账实核验完成（{self._game.name}）：相符 {result.healthy}，"
@@ -455,11 +456,11 @@ class VerifyPage(QWidget):
         self._table.setItem(r, 4, QTableWidgetItem(s["advice"]))
 
         if s["kind"] in ("missing", "empty"):
-            btn = QPushButton("修复…", self._table)
+            btn = QPushButton(t("修复…"), self._table)
             btn.setToolTip(
-                "三种修法任选：重新下载（增量）／校验重下 validate"
+                t("三种修法任选：重新下载（增量）／校验重下 validate"
                 "（被改动过的文件冲回原版）／标记为已移除"
-                "（账本记为已删除，不再为它生成命令）")
+                "（账本记为已删除，不再为它生成命令）"))
             btn.clicked.connect(
                 lambda _=False, mid=mid: self._repair_row(mid))
             self._table.setCellWidget(r, 5, btn)
@@ -491,7 +492,7 @@ class VerifyPage(QWidget):
         if total:
             suffix = (f"（显示 {visible} / 共 {total}）"
                       if (bucket is not None or kw) else f"（共 {total}）")
-            self._sec_table.set_title(f"问题明细{suffix}")
+            self._sec_table.set_title(t("问题明细") + suffix)
 
     # ---------- 右键菜单（与行内按钮同一组口径）----------
     def _on_row_menu(self, pos) -> None:
@@ -508,34 +509,34 @@ class VerifyPage(QWidget):
         menu.setMinimumWidth(220)          # 中文菜单宽度兜底
         menu.setToolTipsVisible(True)      # 菜单 tooltip 默认不显示，显式开
 
-        act_copy = QAction("复制编号", menu)
-        act_copy.setToolTip(f"复制编号 {mid} 进剪贴板")
-        act_url = QAction("打开工坊页面", menu)
+        act_copy = QAction(t("复制编号"), menu)
+        act_copy.setToolTip(t('复制编号 ') + f"{mid}" + t(' 进剪贴板'))
+        act_url = QAction(t("打开工坊页面"), menu)
         act_url.setToolTip(
-            "在浏览器打开该编号的创意工坊页面（链接按模板现拼，"
-            "未收录也能开）")
+            t("在浏览器打开该编号的创意工坊页面（链接按模板现拼，"
+            "未收录也能开）"))
         menu.addAction(act_copy)
         menu.addAction(act_url)
 
         act_dir = None
         if kind != "missing":
             # missing 行目录本就不在；其余几类盘上都有内容
-            act_dir = QAction("打开 mod 文件夹", menu)
+            act_dir = QAction(t("打开 mod 文件夹"), menu)
             act_dir.setToolTip(
-                "在文件管理器打开该编号的下载内容文件夹"
-                "（空目录可借此查看后手动清理）")
+                t("在文件管理器打开该编号的下载内容文件夹"
+                "（空目录可借此查看后手动清理）"))
             menu.addAction(act_dir)
 
         act_fix = None
         if kind in ("missing", "empty"):
-            act_fix = QAction("修复…", menu)
-            act_fix.setToolTip("重新下载（增量）／校验重下 validate／标记为已移除")
+            act_fix = QAction(t("修复…"), menu)
+            act_fix.setToolTip(t("重新下载（增量）／校验重下 validate／标记为已移除"))
             menu.addAction(act_fix)
 
         chosen = menu.exec(self._table.viewport().mapToGlobal(pos))
         if chosen is act_copy:
             QApplication.clipboard().setText(str(mid))
-            self._log.ok(f"已复制编号 {mid}")
+            self._log.ok(t('已复制编号 ') + f"{mid}")
         elif chosen is act_url:
             QDesktopServices.openUrl(QUrl(workshop_url(mid)))
         elif act_dir is not None and chosen is act_dir:
@@ -553,18 +554,10 @@ class VerifyPage(QWidget):
         """缺失/空目录行的修复入口：三个修法摆在一起，各写清后果。
         双击行 = 直接走选项①（普通重下），是这里的快捷方式。"""
         box = QMessageBox(self)
-        box.setWindowTitle(f"修复 mod {mod_id}")
+        box.setWindowTitle(t('修复 mod ') + f"{mod_id}")
         box.setIcon(QMessageBox.Icon.Question)
         box.setText(
-            f"账本记为「已下载」，但磁盘上对不上。三种修法：\n\n"
-            "① 重新下载（增量）——生成普通下载命令，manifest 保证只补"
-            "差异（日常首选）\n\n"
-            "② 校验重下（validate）——命令加 validate 参数，逐文件核对 "
-            "manifest，被改动过的文件会冲回原版；文件夹缺失或为空时"
-            "等同完整重下（怀疑文件损坏时用）\n\n"
-            "③ 标记为已移除——账本记为「已删除」，本工具不再为它生成"
-            "下载命令；若其他工具（如 RimSort）的清单里还有它，"
-            "仍可能被下回来，需在那些工具里一并移除")
+            t('账本记为「已下载」，但磁盘上对不上。三种修法：\n\n① 重新下载（增量）——生成普通下载命令，manifest 保证只补差异（日常首选）\n\n② 校验重下（validate）——命令加 validate 参数，逐文件核对 manifest，被改动过的文件会冲回原版；文件夹缺失或为空时等同完整重下（怀疑文件损坏时用）\n\n③ 标记为已移除——账本记为「已删除」，本工具不再为它生成下载命令；若其他工具（如 RimSort）的清单里还有它，仍可能被下回来，需在那些工具里一并移除'))
         b_redownload = box.addButton(
             "重新下载（增量）", QMessageBox.ButtonRole.ActionRole)
         b_validate = box.addButton(
@@ -575,7 +568,7 @@ class VerifyPage(QWidget):
         box.exec()
         clicked = box.clickedButton()
         if clicked is b_redownload:
-            self._log.info(f"跳转命令生成页并勾选 {mod_id}（普通重下修复）")
+            self._log.info(t('跳转命令生成页并勾选 ') + f"{mod_id}" + t('（普通重下修复）'))
             self.command_gen_requested.emit([mod_id])
         elif clicked is b_validate:
             self._show_validate_dialog(mod_id)
@@ -589,22 +582,17 @@ class VerifyPage(QWidget):
             return
         text = build_validate_copy_text(self._game.app_id, [mod_id])
         box = QMessageBox(self)
-        box.setWindowTitle(f"校验重下 mod {mod_id}")
+        box.setWindowTitle(t('校验重下 mod ') + f"{mod_id}")
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(
-            "复制下面的命令，粘贴到 steamcmd 终端执行"
-            "（终端面板可从控制台菜单打开）：\n\n"
-            f"{text.strip()}\n\n"
-            "注意：validate 会把被改动过的文件冲回原版；"
-            "文件夹缺失或为空时等同完整重下。"
-            "执行完回到本页点【开始核验】即可看到结果。")
+            t('复制下面的命令，粘贴到 steamcmd 终端执行（终端面板可从控制台菜单打开）：\n\n') + f"{text.strip()}" + t('\n\n注意：validate 会把被改动过的文件冲回原版；文件夹缺失或为空时等同完整重下。执行完回到本页点【开始核验】即可看到结果。'))
         b_copy = box.addButton("复制命令", QMessageBox.ButtonRole.ActionRole)
         box.addButton("关闭", QMessageBox.ButtonRole.RejectRole)
         box.exec()
         if box.clickedButton() is b_copy:
             QApplication.clipboard().setText(text)
             self._log.info(
-                f"已复制 mod {mod_id} 的校验重下命令，请粘贴到 steamcmd 执行")
+                t('已复制 mod ') + f"{mod_id}" + t(' 的校验重下命令，请粘贴到 steamcmd 执行'))
 
     def _mark_removed(self, mod_id: int) -> None:
         """标记为已移除（修复三选选项③）：软删除——走 repo.mark_deleted
@@ -613,18 +601,14 @@ class VerifyPage(QWidget):
         mod = self._repo.get_mod(mod_id)
         if mod is None:
             self._log.error(
-                f"标记为已移除失败（mod {mod_id}）：账本中已找不到该条目")
+                t('标记为已移除失败（mod ') + f"{mod_id}" + t('）：账本中已找不到该条目'))
             QMessageBox.critical(
-                self, "操作失败",
-                f"mod {mod_id} 不在账本中，无法标记为已移除。\n"
-                "请重新点【开始核验】后再试。")
+                self, t("操作失败"),
+                f'mod ' + f"{mod_id}" + t(' 不在账本中，无法标记为已移除。\n请重新点【开始核验】后再试。'))
             return
         ret = QMessageBox.question(
-            self, "标记为已移除",
-            f"确定将「{mod.title or mod.mod_id}」标记为已删除？\n"
-            "本工具不再为它生成下载命令；记录保留（含删除前快照）。\n"
-            "若 RimSort 等其他前端清单里还有它，仍可能被下回来，"
-            "需在那些工具里一并移除。")
+            self, t("标记为已移除"),
+            t('确定将「') + f"{mod.title or mod.mod_id}" + t('」标记为已删除？\n本工具不再为它生成下载命令；记录保留（含删除前快照）。\n若 RimSort 等其他前端清单里还有它，仍可能被下回来，需在那些工具里一并移除。'))
         if ret != QMessageBox.StandardButton.Yes:
             return
         # ★ 待核点：快照字段清单请对 models.Mod 现稿核对。
@@ -641,16 +625,13 @@ class VerifyPage(QWidget):
         try:
             self._repo.mark_deleted(mod_id, last_state)
         except ValueError as exc:
-            self._log.error(f"标记为已移除失败（mod {mod_id}）：{exc}")
+            self._log.error(t('标记为已移除失败（mod ') + f"{mod_id}" + f'）：' + f"{exc}")
             QMessageBox.critical(
-                self, "操作失败",
-                f"mod {mod_id} 标记为已移除失败：{exc}\n"
-                "请重新点【开始核验】后再试。")
+                self, t("操作失败"),
+                f'mod ' + f"{mod_id}" + t(' 标记为已移除失败：') + f"{exc}" + t('\n请重新点【开始核验】后再试。'))
             return
         self._log.warn(
-            f"mod {mod_id} 已标记为已移除（账本记为已删除）："
-            "本工具不再为它生成下载命令；"
-            "其他前端清单里还有它的话记得一并移除")
+            f'mod ' + f"{mod_id}" + t(' 已标记为已移除（账本记为已删除）：本工具不再为它生成下载命令；其他前端清单里还有它的话记得一并移除'))
         self._start_verify()   # 刷新：该行应从问题清单里消失
 
     # ---------- 非数字内容桶 ----------
@@ -658,13 +639,12 @@ class VerifyPage(QWidget):
         self._nn_list.clear()
         n = len(result.non_numeric)
         self._nn_label.setText(
-            f"非数字内容桶（{n} 项）——来历不明的目录/文件，"
-            "本工具不代删，请人工确认后自行处理：")
+            t('非数字内容桶（') + f"{n}" + t(' 项）——来历不明的目录/文件，本工具不代删，请人工确认后自行处理：'))
         if result.non_numeric:
             for name in result.non_numeric:
                 self._nn_list.addItem(name)
         else:
-            self._nn_list.addItem("（无——正常）")
+            self._nn_list.addItem(t('（无——正常）'))
         self._sec_nn.set_expanded(n > 0)   # 空桶自动收起
 
 
@@ -676,5 +656,5 @@ class VerifyPage(QWidget):
         if not item.data(Qt.ItemDataRole.UserRole + 1):
             return   # 不可行动的行：双击没反应
         mid = item.data(Qt.ItemDataRole.UserRole)
-        self._log.info(f"跳转命令生成页并勾选 {mid}（重下修复）")
+        self._log.info(t('跳转命令生成页并勾选 ') + f"{mid}" + t('（重下修复）'))
         self.command_gen_requested.emit([mid])

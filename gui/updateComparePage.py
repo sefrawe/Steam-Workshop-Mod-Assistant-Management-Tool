@@ -58,6 +58,7 @@ from PySide6.QtWidgets import (
 
 from core.formatters import abs_time, status_zh
 from core.models import Game
+from core.i18n import t
 from gui.collapsibleSection import CollapsibleSection, make_guide
 from gui.logBus import LogBus
 from gui.modFolderOpener import open_mod_folder
@@ -176,20 +177,20 @@ class UpdateComparePage(QWidget):
         root.setSpacing(6)
 
         head = QHBoxLayout()
-        title = QLabel("更新对照", self)
+        title = QLabel(t("更新对照"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         head.addWidget(title)
         head.addStretch(1)
-        btn = QPushButton("刷新", self)
-        btn.setToolTip("重新读取当前档案的 mod 与版本快照")
+        btn = QPushButton(t("刷新"), self)
+        btn.setToolTip(t("重新读取当前档案的 mod 与版本快照"))
         btn.clicked.connect(self._reload)
         head.addWidget(btn)
         root.addLayout(head)
 
         tip = QLabel(
-            "两种看法：按 mod 分组 = 每个 mod 的版本变化时间线（卡片可"
+            t("两种看法：按 mod 分组 = 每个 mod 的版本变化时间线（卡片可"
             "折叠）；现状对照 = 每个 mod 一行，看落后多少天。"
-            "除备注外全页只读——详细说明点下方【先读我】。", self)
+            "除备注外全页只读——详细说明点下方【先读我】。"), self)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
@@ -200,13 +201,13 @@ class UpdateComparePage(QWidget):
         bar = QWidget(self)
         h = QHBoxLayout(bar)
         h.setContentsMargins(0, 0, 0, 0)
-        h.addWidget(QLabel("视图：", bar))
+        h.addWidget(QLabel(t("视图："), bar))
         self._view_combo = QComboBox(bar)
-        self._view_combo.addItem("按 mod 分组（更新历史）")
-        self._view_combo.addItem("现状对照（本地 ↔ 远端）")
+        self._view_combo.addItem(t('按 mod 分组（更新历史）'))
+        self._view_combo.addItem(t('现状对照（本地 ↔ 远端）'))
         self._view_combo.setToolTip(
-            "按 mod 分组 = 每个 mod 一张可折叠卡片，看它的版本变化；\n"
-            "现状对照 = 每个 mod 一行，看本地比远端旧了多久")
+            t("按 mod 分组 = 每个 mod 一张可折叠卡片，看它的版本变化；\n"
+            "现状对照 = 每个 mod 一行，看本地比远端旧了多久"))
         self._view_combo.currentIndexChanged.connect(self._on_view_changed)
         h.addWidget(self._view_combo)
 
@@ -221,9 +222,9 @@ class UpdateComparePage(QWidget):
             self._sort_combo.addItem(label, data)
 
         self._sort_combo.setToolTip(
-            "两个视图都生效——分组视图：卡片排列顺序；\n"
+            t("两个视图都生效——分组视图：卡片排列顺序；\n"
             "平铺视图：表格排序（点表头可随时改）。\n"
-            "「最近记录」在平铺按远端更新排（平铺没有快照列）")
+            "「最近记录」在平铺按远端更新排（平铺没有快照列）"))
 
         self._sort_combo.currentIndexChanged.connect(
             self._on_sort_combo_changed)
@@ -233,7 +234,7 @@ class UpdateComparePage(QWidget):
         for label, data in (("全部状态", None), ("已下载", "downloaded"),
                             ("待下载", "tracked"), ("已失败", "failed")):
             self._status_combo.addItem(label, data)
-        self._status_combo.setToolTip("只看某个状态的 mod（两个视图都生效）")
+        self._status_combo.setToolTip(t("只看某个状态的 mod（两个视图都生效）"))
 
         self._status_combo.currentIndexChanged.connect(
             lambda _i: self._reload())
@@ -241,15 +242,15 @@ class UpdateComparePage(QWidget):
 
         self._kw_edit = QLineEdit(bar)
         self._kw_edit.setClearButtonEnabled(True)
-        self._kw_edit.setPlaceholderText("按标题 / 编号 / 备注 / 日期（如 2026-09-26）过滤…（即时生效，只隐藏）")
+        self._kw_edit.setPlaceholderText(t("按标题 / 编号 / 备注 / 日期（如 2026-09-26）过滤…（即时生效，只隐藏）"))
         self._kw_edit.setToolTip(
-            "标题、编号、备注、远端/本地版本日期，包含就保留；\n输 2026-09-26 查某天、输 2026-09 查整月；清空恢复全部")
+            t("标题、编号、备注、远端/本地版本日期，包含就保留；\n输 2026-09-26 查某天、输 2026-09 查整月；清空恢复全部"))
         self._kw_edit.textChanged.connect(lambda *_: self._debounce.start())
         h.addWidget(self._kw_edit, 1)
 
-        self._stale_check = QCheckBox("只看落后的", bar)
+        self._stale_check = QCheckBox(t("只看落后的"), bar)
         self._stale_check.setToolTip(
-            "现状对照视图下只显示本地版本落后于远端的 mod")
+            t("现状对照视图下只显示本地版本落后于远端的 mod"))
         self._stale_check.toggled.connect(lambda _v: self._reload())
         h.addWidget(self._stale_check)
         root.addWidget(bar)
@@ -298,7 +299,7 @@ class UpdateComparePage(QWidget):
     def _make_guide(self) -> CollapsibleSection:
         """先读我折叠卡：形态收进 collapsibleSection.make_guide 单源。"""
         return make_guide(
-            "先读我：两种视图 · 更新=整个替换 · 落后天数 · 动作与备注",
+            t("先读我：两种视图 · 更新=整个替换 · 落后天数 · 动作与备注"),
             _GUIDE_PARAS, self, 250)
 
     # ---------- 对外 ----------
@@ -341,12 +342,12 @@ class UpdateComparePage(QWidget):
     def _reload(self) -> None:
         if self._game is None:
             self._clear_sections()
-            self._empty_hint = QLabel("请先在左上角选择游戏档案。", self)
+            self._empty_hint = QLabel(t("请先在左上角选择游戏档案。"), self)
             self._empty_hint.setStyleSheet("color: gray;")
             self._body_layout.addWidget(self._empty_hint)
             self._body_layout.addStretch(1)
             self._table.setRowCount(0)
-            self._summary.setText("请先在左上角选择游戏档案。")
+            self._summary.setText(t("请先在左上角选择游戏档案。"))
             return
         if self._view_mode == "grouped":
             self._fill_grouped()
@@ -474,25 +475,25 @@ class UpdateComparePage(QWidget):
         ah = QHBoxLayout(acts)
         ah.setContentsMargins(0, 0, 0, 0)
         ah.setSpacing(6)
-        b_url = QPushButton("↗ 工坊页面", acts)
-        b_url.setToolTip("在浏览器打开该 mod 的创意工坊页面")
+        b_url = QPushButton(t("↗ 工坊页面"), acts)
+        b_url.setToolTip(t("在浏览器打开该 mod 的创意工坊页面"))
         b_url.setEnabled(bool(m.url))
         if m.url:
             b_url.clicked.connect(
                 lambda _=False, u=m.url: self._open_url(u))
-        b_dir = QPushButton("📁 打开文件夹", acts)
+        b_dir = QPushButton(t("📁 打开文件夹"), acts)
         b_dir.setToolTip(
-            "在文件管理器打开该 mod 的下载内容文件夹（下载目录\\编号）")
+            t("在文件管理器打开该 mod 的下载内容文件夹（下载目录\\编号）"))
         b_dir.clicked.connect(
             lambda _=False, mm=m: self._open_mod_folder(mm))
-        b_note = QPushButton("📝 编辑备注", acts)
+        b_note = QPushButton(t("📝 编辑备注"), acts)
         b_note.setToolTip(
-            "写点给自己看的话（为什么装它/替换了谁/坑在哪）；"
-            "保存后 mod 库页同步可见")
+            t("写点给自己看的话（为什么装它/替换了谁/坑在哪）；"
+            "保存后 mod 库页同步可见"))
         b_note.clicked.connect(
             lambda _=False, mm=m: self._edit_note(mm))
-        b_copy = QPushButton("📋 复制编号", acts)
-        b_copy.setToolTip(f"复制 mod 编号 {m.mod_id} 进剪贴板")
+        b_copy = QPushButton(t("📋 复制编号"), acts)
+        b_copy.setToolTip(t('复制 mod 编号 ') + f"{m.mod_id}" + t(' 进剪贴板'))
         b_copy.clicked.connect(
             lambda _=False, mm=m: self._copy_id(mm))
         for b in (b_url, b_dir, b_note, b_copy):
@@ -501,10 +502,10 @@ class UpdateComparePage(QWidget):
         cv.addWidget(acts)
         # ---- 备注行（没有也给个"怎么加"的指引）----
         if m.note:
-            note_lbl = QLabel(f"备注：{m.note}", content)
+            note_lbl = QLabel(t('备注：') + f"{m.note}", content)
         else:
             note_lbl = QLabel(
-                "备注：（无——点【📝 编辑备注】给自己留句话）",
+                t("备注：（无——点【📝 编辑备注】给自己留句话）"),
                 content)
         note_lbl.setWordWrap(True)
         note_lbl.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
@@ -584,8 +585,8 @@ class UpdateComparePage(QWidget):
         url_item = QTableWidgetItem("↗")
         url_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         url_item.setForeground(QBrush(QColor("#5aa9ff")))
-        url_item.setToolTip("点击在浏览器打开该 mod 的创意工坊页面；"
-                            "行上右键有更多动作")
+        url_item.setToolTip(t("点击在浏览器打开该 mod 的创意工坊页面；"
+                            "行上右键有更多动作"))
         self._set_item(i, C_URL, url_item, m)
 
         title = _SortItem(m.title or "（无标题）", (m.title or "").casefold())
@@ -618,10 +619,10 @@ class UpdateComparePage(QWidget):
             item = _SortItem("最新", 0)
             item.setForeground(QBrush(QColor(_C_OK)))
         else:
-            item = _SortItem(f"{days} 天", days)
+            item = _SortItem(f"{days} " + t("天"), days)
             item.setForeground(QBrush(QColor(
                 _C_WARN if days <= 30 else _C_FAIL)))
-        item.setToolTip("确认版本比远端最新版落后的大约天数（按天取整）")
+        item.setToolTip(t("确认版本比远端最新版落后的大约天数（按天取整）"))
         self._set_item(i, C_LAG, item, m)
 
 
@@ -647,11 +648,11 @@ class UpdateComparePage(QWidget):
             return
         menu = QMenu(self)
         menu.setToolTipsVisible(True)  # T19① 教训
-        a_url = QAction("打开工坊页面", menu)
+        a_url = QAction(t("打开工坊页面"), menu)
         a_url.setEnabled(bool(m.url))
-        a_dir = QAction("打开 mod 文件夹", menu)
-        a_copy = QAction("复制编号", menu)
-        a_note = QAction("编辑备注…", menu)
+        a_dir = QAction(t("打开 mod 文件夹"), menu)
+        a_copy = QAction(t("复制编号"), menu)
+        a_note = QAction(t("编辑备注…"), menu)
         for a in (a_url, a_dir, a_copy, a_note):
             menu.addAction(a)
         chosen = menu.exec(self._table.viewport().mapToGlobal(pos))
@@ -669,9 +670,8 @@ class UpdateComparePage(QWidget):
             pass  # 纯浏览动作；失败才弹窗（v2.18 教训：openUrl 静默）
         else:
             QMessageBox.warning(
-                self, "打开工坊页面",
-                f"系统没有响应打开请求：\n{url}\n"
-                "可复制网址粘到浏览器地址栏打开。")
+                self, t("打开工坊页面"),
+                t('系统没有响应打开请求：\n') + f"{url}" + t('\n可复制网址粘到浏览器地址栏打开。'))
 
     def _open_mod_folder(self, m) -> None:
         """实现单源 gui/modFolderOpener（与 mod 库页共用）。"""
@@ -679,25 +679,25 @@ class UpdateComparePage(QWidget):
 
     def _copy_id(self, m) -> None:
         QApplication.clipboard().setText(str(m.mod_id))
-        self._log.ok(f"已复制编号 {m.mod_id}")
+        self._log.ok(t('已复制编号 ') + f"{m.mod_id}")
 
     def _edit_note(self, m) -> None:
         """编辑备注 = 本页唯一写操作（repo.set_note 正门，决策 8；
         mod 库页右键同款语义）。保存后整页重算，备注行/列即时可见。"""
         text, ok = QInputDialog.getMultiLineText(
-            self, "编辑备注",
-            f"mod {m.mod_id}（{m.title or '（无标题）'}）的备注——"
-            "写给自己看的话（为什么装它、替换了谁、坑在哪）：",
+            self, t("编辑备注"),
+            f"mod {m.mod_id}" + t("（") + (m.title or t("（无标题）"))
+            + t("）的备注——写给自己看的话（为什么装它、替换了谁、坑在哪）："),
             m.note or "")
         if not ok:
             return
         try:
             self._repo.set_note(m.mod_id, text.strip())
         except Exception as exc:
-            self._log.error(f"写备注失败（mod {m.mod_id}）：{exc}")
-            QMessageBox.warning(self, "编辑备注", f"保存失败：{exc}")
+            self._log.error(t('写备注失败（mod ') + f"{m.mod_id}" + f'）：' + f"{exc}")
+            QMessageBox.warning(self, t("编辑备注"), t('保存失败：') + f"{exc}")
             return
-        self._log.ok(f"已更新 mod {m.mod_id} 的备注")
+        self._log.ok(t('已更新 mod ') + f"{m.mod_id}" + t(' 的备注'))
         self._reload()
 
     # ---------- 小件 ----------
