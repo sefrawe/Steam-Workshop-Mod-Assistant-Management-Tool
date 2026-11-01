@@ -40,3 +40,6 @@ logs/
 /tools/one_shot_font_scale.py
 /pytest.ini
 /Steam Workshop Mod Assistant Management Tool-2.0.0.zip
+
+# 多语言审计与打包工具（本地脚本，不入库）
+_dev/

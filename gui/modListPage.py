@@ -379,7 +379,8 @@ class ModListPage(QWidget):
         self._color_combo.addItem(t('全部颜色'), "any")
         self._color_combo.addItem(t('无标记'), "none")
         for _name in COLOR_CHOICES:
-            self._color_combo.addItem(_name, _name)
+            # 显示过 t()，数据仍是原词（颜色词是落库值，不能翻）
+            self._color_combo.addItem(t(_name), _name)
         self._color_combo.setToolTip(
             t("不筛选（颜色）：不做颜色过滤；\n"
             "全部颜色：只看上过色的条目；\n"
@@ -1225,22 +1226,24 @@ class ModListPage(QWidget):
             self._log.error(f'mod ' + f"{mod_id}" + t(' 译文落库失败：') + f"{exc}")
 
     def _pick_color(self, m) -> None:
-        names = [*COLOR_CHOICES.keys(), t('（自定义颜色…）'), t('（清除标记）')]
+        codes = list(COLOR_CHOICES)
+        names = [t(c) for c in codes] + [t('（自定义颜色…）'), t('（清除标记）')]
         name, ok = QInputDialog.getItem(
             self, t("颜色标记"), f"mod {m.mod_id}：",
             names, current=0, editable=False)
         if not ok:
             return
+        idx = names.index(name) if name in names else -1
         tag = None
-        if name == "（自定义颜色…）":
+        if idx == len(codes):
             c = QColorDialog.getColor(
                 _color_qcolor(m) or QColor("#808080"),
                 self, t('自定义颜色'))
             if not c.isValid():
                 return  # 取色器里取消了：什么都不改
             tag = c.name()  # 规范形 #rrggbb，D26：任意 hex 照认
-        elif not name.startswith("（"):
-            tag = COLOR_CHOICES.get(name)
+        elif 0 <= idx < len(codes):
+            tag = COLOR_CHOICES.get(codes[idx])
         self._repo.set_color_tag(m.mod_id, tag)
         self._reload()
 
@@ -1802,7 +1805,8 @@ class ModListPage(QWidget):
             QMessageBox.information(
                 self, t("批量颜色标记"), t("先在表格第一列勾选要标记的 mod。"))
             return
-        names = [*COLOR_CHOICES.keys(), t('（自定义颜色…）'), t('（清除标记）')]
+        codes = list(COLOR_CHOICES)
+        names = [t(c) for c in codes] + [t('（自定义颜色…）'), t('（清除标记）')]
 
         name, ok = QInputDialog.getItem(
             self, t("批量颜色标记"),
@@ -1810,14 +1814,15 @@ class ModListPage(QWidget):
             names, current=0, editable=False)
         if not ok:
             return
+        idx = names.index(name) if name in names else -1
         tag = None
-        if name == "（自定义颜色…）":
+        if idx == len(codes):
             c = QColorDialog.getColor(parent=self, title=t('自定义颜色'))
             if not c.isValid():
                 return
             tag = c.name()
-        elif not name.startswith("（"):
-            tag = COLOR_CHOICES.get(name)
+        elif 0 <= idx < len(codes):
+            tag = COLOR_CHOICES.get(codes[idx])
 
         with self._repo.transaction():
             for mid in ids:
