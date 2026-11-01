@@ -50,6 +50,7 @@ from PySide6.QtWidgets import (
 from core.appSettings import AppSettings
 from core.formatters import status_zh
 from core.models import Game
+from core.i18n import t
 from gui.consolePanel import LogBus
 from workflows import addModFlow
 from gui.theme import font_px  # 字号单源（D25）
@@ -110,7 +111,7 @@ class AddModPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("加入新 mod", self)
+        title = QLabel(t("加入新 mod"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -152,40 +153,40 @@ class AddModPage(QWidget):
         root.addWidget(host)
 
         # ① 档案卡：只显示归属与空态引导
-        self._d1, _ = self._make_card("step1", "① 确认目标档案")
+        self._d1, _ = self._make_card("step1", t("① 确认目标档案"))
 
         # ② 解析卡：明细行 + 输入框 + 按钮行
-        self._d2, box2 = self._make_card("step2", "② 粘贴网址或读入文本")
+        self._d2, box2 = self._make_card("step2", t("② 粘贴网址或读入文本"))
         self._preview_detail = QLabel("", self)
         self._preview_detail.setWordWrap(True)
         self._preview_detail.setStyleSheet(f"border:none; font-size: {font_px(12)}px;")
         box2.addWidget(self._preview_detail)
         self._input = QPlainTextEdit(self)
         self._input.setPlaceholderText(
-            "粘贴工坊网址或 steamcmd 下载命令（之前生成的命令文件内容"
-            "可直接粘贴）：每行一条，整行空格分隔也行")
+            t("粘贴工坊网址或 steamcmd 下载命令（之前生成的命令文件内容"
+            "可直接粘贴）：每行一条，整行空格分隔也行"))
         self._input.setMaximumHeight(110)
         box2.addWidget(self._input)
         row2 = QHBoxLayout()
-        self._btn_parse = QPushButton("解析预览", self)
+        self._btn_parse = QPushButton(t("解析预览"), self)
         self._btn_parse.setToolTip(
-            "解析输入内容并与当前档案的账本对表：分出新增/已在库/认不出"
-            "三堆，顺便核对命令所属游戏。只解析不写入任何数据")
+            t("解析输入内容并与当前档案的账本对表：分出新增/已在库/认不出"
+            "三堆，顺便核对命令所属游戏。只解析不写入任何数据"))
         self._btn_parse.clicked.connect(self._on_parse_clicked)
-        self._btn_file = QPushButton("从文本文件读入…", self)
+        self._btn_file = QPushButton(t("从文本文件读入…"), self)
         self._btn_file.setToolTip(
-            "从 txt 文件读入内容填入输入框并自动解析"
-            "（网址清单、命令清单都行；记事本存的文件也能读）")
+            t("从 txt 文件读入内容填入输入框并自动解析"
+            "（网址清单、命令清单都行；记事本存的文件也能读）"))
         self._btn_file.clicked.connect(self._on_load_file_clicked)
-        self._btn_clear = QPushButton("清空", self)
+        self._btn_clear = QPushButton(t("清空"), self)
         self._btn_clear.setToolTip(
-            "清空第②步的输入框和解析结果（不影响已入库的批次）")
+            t("清空第②步的输入框和解析结果（不影响已入库的批次）"))
         self._btn_clear.clicked.connect(self._on_clear_clicked)
-        self._btn_browser = QPushButton("从浏览器取标签页…", self)
+        self._btn_browser = QPushButton(t("从浏览器取标签页…"), self)
         self._btn_browser.setToolTip(
-            "弹出选择器读取浏览器当前打开的标签页：勾选后自动填进"
+            t("弹出选择器读取浏览器当前打开的标签页：勾选后自动填进"
             "上面的输入框并解析预览（实时采集会占用鼠标键盘，"
-            "选择器里有说明）")
+            "选择器里有说明）"))
         self._btn_browser.clicked.connect(self._go_browser)
 
         row2.addWidget(self._btn_parse)
@@ -197,13 +198,13 @@ class AddModPage(QWidget):
         box2.addLayout(row2)
 
         # ③ 入库卡：入库按钮 + 只读命令文本框 + 复制/核验/开批按钮
-        self._d3, box3 = self._make_card("step3", "③ 入库并生成下载命令")
+        self._d3, box3 = self._make_card("step3", t("③ 入库并生成下载命令"))
         row_reg = QHBoxLayout()
-        self._btn_register = QPushButton("入库并生成命令", self)
+        self._btn_register = QPushButton(t("入库并生成命令"), self)
         self._btn_register.setToolTip(
-            "把预览出的新编号整批登记为「待下载」，并生成对应的 "
+            t("把预览出的新编号整批登记为「待下载」，并生成对应的 "
             "steamcmd 下载命令。整批一个事务：任何一条失败全部回滚，"
-            "不会导入一半")
+            "不会导入一半"))
         self._btn_register.clicked.connect(self._on_register_clicked)
         row_reg.addWidget(self._btn_register)
         row_reg.addStretch(1)
@@ -211,25 +212,25 @@ class AddModPage(QWidget):
         self._cmd_view = QPlainTextEdit(self)
         self._cmd_view.setReadOnly(True)
         self._cmd_view.setMaximumHeight(120)
-        self._cmd_view.setPlaceholderText("（入库成功后，下载命令显示在这里）")
+        self._cmd_view.setPlaceholderText(t("（入库成功后，下载命令显示在这里）"))
         box3.addWidget(self._cmd_view)
         row3 = QHBoxLayout()
-        self._btn_copy = QPushButton("复制命令", self)
+        self._btn_copy = QPushButton(t("复制命令"), self)
         self._btn_copy.setToolTip(
-            "把命令文本复制到剪贴板；到程序底部的 steamcmd 终端里登录后"
-            "粘贴回车即可开始下载")
+            t("把命令文本复制到剪贴板；到程序底部的 steamcmd 终端里登录后"
+            "粘贴回车即可开始下载"))
         self._btn_copy.clicked.connect(self._on_copy_clicked)
-        self._btn_batch = QPushButton("开批下载", self)
+        self._btn_batch = QPushButton(t("开批下载"), self)
         self._btn_batch.setToolTip(
-            "把本批编号交给底部控制台 ·「下载批次」逐条下载（与【mod 库】"
+            t("把本批编号交给底部控制台 ·「下载批次」逐条下载（与【mod 库】"
             "页【下载选中项】同一条链）：\n需要 steamcmd 已启动并登录，"
-            "未启动时会提示；\n批次结束后自动弹确认清单，勾选 = 入账")
+            "未启动时会提示；\n批次结束后自动弹确认清单，勾选 = 入账"))
         self._btn_batch.clicked.connect(self._on_batch_download_clicked)
-        self._btn_verify = QPushButton("核验命令可行性…", self)
+        self._btn_verify = QPushButton(t("核验命令可行性…"), self)
         self._btn_verify.setToolTip(
-            "把上面生成的命令送进「快速命令查询」联网核实：游戏与 mod "
+            t("把上面生成的命令送进「快速命令查询」联网核实：游戏与 mod "
             "是否对应、条目是否已被下架——确认没问题再复制去 steamcmd"
-            "（联网走官方接口；本页勾选与批次不受影响）")
+            "（联网走官方接口；本页勾选与批次不受影响）"))
         self._btn_verify.clicked.connect(self._on_verify_clicked)
         row3.addWidget(self._btn_copy)
         row3.addWidget(self._btn_verify)
@@ -239,20 +240,20 @@ class AddModPage(QWidget):
 
         # ④ 盘点卡：说明 + 只读盘点按钮（判决制：无复扫，账本状态
         # 只经确认门写入；这里只看现状）
-        self._d4, box4 = self._make_card("step4", "④ 盘点本批状态（只读）")
+        self._d4, box4 = self._make_card("step4", t("④ 盘点本批状态（只读）"))
         note4 = QLabel(
-            "点【开批下载】的话：批次结束后自动弹确认清单，勾选 = 入账。"
+            t("点【开批下载】的话：批次结束后自动弹确认清单，勾选 = 入账。"
             "复制命令到终端手动跑的，跑完（并在确认清单里勾选入账）回来"
             "点下方按钮，看这批编号在账本里是已下载还是待下载。本步只读"
-            "账本，不写任何状态。", self)
+            "账本，不写任何状态。"), self)
         note4.setWordWrap(True)
         note4.setStyleSheet(f"border:none; font-size: {font_px(12)}px;")
         box4.addWidget(note4)
         row4 = QHBoxLayout()
-        self._btn_status = QPushButton("盘点本批状态", self)
+        self._btn_status = QPushButton(t("盘点本批状态"), self)
         self._btn_status.setToolTip(
-            "只读盘点本批编号在账本里的现状：已下载（收尾确认清单里"
-            "背书过的）/ 待下载（还没入账）的分布")
+            t("只读盘点本批编号在账本里的现状：已下载（收尾确认清单里"
+            "背书过的）/ 待下载（还没入账）的分布"))
         self._btn_status.clicked.connect(self._on_check_status_clicked)
         row4.addWidget(self._btn_status)
         row4.addStretch(1)
@@ -270,9 +271,9 @@ class AddModPage(QWidget):
         self._game = game
         self._reset_flow()
         if (had_preview or had_batch) and game is not None:
-            self._set_card(self._d2, "档案已切换：原解析结果与本页批次已"
-                           "作废，请重新解析预览。", _C_WARN)
-            self._log.info("档案已切换：加入新 mod 的解析结果与批次已作废")
+            self._set_card(self._d2, t("档案已切换：原解析结果与本页批次已"
+                           "作废，请重新解析预览。"), _C_WARN)
+            self._log.info(t('档案已切换：加入新 mod 的解析结果与批次已作废'))
 
     def receive_external_lines(self, lines: list[str]) -> None:
         """跨页交接入口（浏览器选择器回填用；改善项池——tabCollector
@@ -282,7 +283,7 @@ class AddModPage(QWidget):
         """addModPage.py——receive_external_lines 的 docstring 说“改善项池——tabCollector 迁入后恢复‘从浏览器取标签页’按钮即可接上”，但按钮与信号本批已是活的。docstring 首句改为："""
         """跨页交接入口（浏览器选择器回填用）：填入第②步输入框并自动解析预览。…"""
         self._input.setPlainText("\n".join(lines))
-        self._log.info(f"收到 {len(lines)} 条外部网址，已自动解析预览")
+        self._log.info(t('收到 ') + f"{len(lines)}" + t(' 条外部网址，已自动解析预览'))
         self._run_preview()
 
     # ---------- 流程：清场（初始化与切档案共用） ----------
@@ -293,7 +294,7 @@ class AddModPage(QWidget):
         self._preview_detail.setText("")
         self._cmd_view.clear()
         self._btn_register.setEnabled(False)
-        self._btn_register.setText("入库并生成命令")
+        self._btn_register.setText(t("入库并生成命令"))
         self._btn_copy.setEnabled(False)
         self._btn_verify.setEnabled(False)
         self._btn_batch.setEnabled(False)
@@ -304,32 +305,30 @@ class AddModPage(QWidget):
 
         if self._game is None:
             self._set_card(self._d1,
-                           "未选择档案——请先在左上角添加或选择游戏档案",
+                           t("未选择档案——请先在左上角添加或选择游戏档案"),
                            _C_WARN)
-            self._set_card(self._d2, "等待选择档案。", _C_MUTED)
+            self._set_card(self._d2, t("等待选择档案。"), _C_MUTED)
         else:
             self._set_card(
                 self._d1,
-                f"当前档案：{self._game.name}（{self._game.app_id}）"
-                "——本页的解析、入库、下载、盘点都以这个档案为准；"
-                "换游戏请先在左上角切换",
+                t('当前档案：') + f"{self._game.name}" + f'（' + f"{self._game.app_id}" + t('）——本页的解析、入库、下载、盘点都以这个档案为准；换游戏请先在左上角切换'),
                 _C_OK)
             self._set_card(
                 self._d2,
-                "把网址或命令文本粘贴到下方，点【解析预览】；这一步只"
-                "解析与对表，不写入任何数据。",
+                t("把网址或命令文本粘贴到下方，点【解析预览】；这一步只"
+                "解析与对表，不写入任何数据。"),
                 _C_MUTED)
             self._set_card(
                 self._d3,
-                "先在第②步解析预览，确认无误后再入库。下载命令粘贴进 "
+                t("先在第②步解析预览，确认无误后再入库。下载命令粘贴进 "
                 "steamcmd 前，可以点【核验命令可行性】联网验证（游戏与 "
-                "mod 是否对应、条目是否被下架）。",
+                "mod 是否对应、条目是否被下架）。"),
                 _C_MUTED)
             self._set_card(
                 self._d4,
-                "入库后点【开批下载】（批次结束后自动弹确认清单，勾选 "
+                t("入库后点【开批下载】（批次结束后自动弹确认清单，勾选 "
                 "= 入账），或复制命令到终端手动执行后回来点【盘点本批"
-                "状态】。",
+                "状态】。"),
                 _C_MUTED)
 
     # ---------- 流程：② 解析预览 ----------
@@ -343,9 +342,9 @@ class AddModPage(QWidget):
         self._preview = None
         self._preview_detail.setText("")
         self._btn_register.setEnabled(False)
-        self._btn_register.setText("入库并生成命令")
+        self._btn_register.setText(t("入库并生成命令"))
         self._set_card(self._d2,
-                       "已清空。粘贴新的网址或命令文本，点【解析预览】。",
+                       t("已清空。粘贴新的网址或命令文本，点【解析预览】。"),
                        _C_MUTED)
     def _go_browser(self) -> None:
         """弹出浏览器选择器（对话框内嵌，不跳页）。弹之前先查依赖：
@@ -353,7 +352,7 @@ class AddModPage(QWidget):
         基础功能页。"""
         msg = tabCollector.missing_packages_message()
         if msg:
-            QMessageBox.information(self, "需要先安装采集依赖", msg)
+            QMessageBox.information(self, t("需要先安装采集依赖"), msg)
             return
         self.open_browser_picker.emit()
 
@@ -370,10 +369,10 @@ class AddModPage(QWidget):
             text = Path(path).read_text(encoding="utf-8-sig",
                                         errors="replace")
         except OSError as exc:
-            QMessageBox.warning(self, "读取失败", f"无法读取文件：\n{exc}")
+            QMessageBox.warning(self, t("读取失败"), t('无法读取文件：\n') + f"{exc}")
             return
         self._input.setPlainText(text)
-        self._log.info(f"已读入文本文件：{path}")
+        self._log.info(t('已读入文本文件：') + f"{path}")
         self._run_preview()
 
     def _run_preview(self, quiet: bool = False
@@ -387,7 +386,7 @@ class AddModPage(QWidget):
         lines = self._input.toPlainText().splitlines()
         if not any(line.strip() for line in lines):
             if not quiet:
-                self._log.warn("没有可解析的内容：请先粘贴网址或读入文本文件")
+                self._log.warn(t("没有可解析的内容：请先粘贴网址或读入文本文件"))
             return None
         preview = addModFlow.preview_input(
             lines, self._repo, app_id=self._game.app_id)
@@ -406,29 +405,25 @@ class AddModPage(QWidget):
             apps = "、".join(str(a) for a in p.command_app_ids)
             self._set_card(
                 self._d2,
-                f"⚠ 命令所属游戏（AppID {apps}）与当前档案「{gname}」"
-                "不一致——已阻止入库。工坊编号只属于一个游戏；请确认要"
-                "加入的是哪个游戏，切换到对应档案后重新解析。",
+                t('⚠ 命令所属游戏（AppID ') + f"{apps}" + t('）与当前档案「') + f"{gname}" + t('」不一致——已阻止入库。工坊编号只属于一个游戏；请确认要加入的是哪个游戏，切换到对应档案后重新解析。'),
                 _C_FAIL)
             self._log.error(
-                f"解析被拦：命令所属游戏（AppID {apps}）与当前档案"
-                f"「{gname}」不一致")
+                t('解析被拦：命令所属游戏（AppID ') + f"{apps}" + t('）与当前档案「') + f"{gname}" + t('」不一致'))
         else:
             self._set_card(
                 self._d2,
-                f"识别 {len(p.mod_ids)} 个编号：新增 {len(p.new_ids)} · "
-                f"已在库跳过 {len(p.dup_ids)} · 认不出 {len(p.invalid)}",
+                t('识别 ') + f"{len(p.mod_ids)}" + t(' 个编号：新增 ') + f"{len(p.new_ids)}" + t(' · 已在库跳过 ') + f"{len(p.dup_ids)}" + t(' · 认不出 ') + f"{len(p.invalid)}",
                 _C_OK if p.has_new else _C_INFO)
             if p.command_app_ids and not quiet:
                 apps = "、".join(str(a) for a in p.command_app_ids)
-                self._log.info(f"命令所属游戏（AppID {apps}）与当前档案一致")
+                self._log.info(t('命令所属游戏（AppID ') + f"{apps}" + t('）与当前档案一致'))
         # 入库按钮带计数（与【网址批量导入】页"导入（N 个）"同款）
         if p.has_new:
             suffix = (f"（{len(p.new_ids)} 个，已被拦）"
                       if p.app_id_mismatch else f"（{len(p.new_ids)} 个）")
             self._btn_register.setText("入库并生成命令" + suffix)
         else:
-            self._btn_register.setText("入库并生成命令")
+            self._btn_register.setText(t("入库并生成命令"))
         # 明细区：三堆各一行（超长截断，认不出的原样展示）
         parts: list[str] = []
         if p.new_ids:
@@ -445,8 +440,7 @@ class AddModPage(QWidget):
         self._preview_detail.setText("\n".join(parts))
         if p.has_new and not quiet:
             self._log.info(
-                f"解析完成：{len(p.mod_ids)} 个编号，新增 {len(p.new_ids)}"
-                f"，已在库跳过 {len(p.dup_ids)}，认不出 {len(p.invalid)}")
+                t('解析完成：') + f"{len(p.mod_ids)}" + t(' 个编号，新增 ') + f"{len(p.new_ids)}" + t('，已在库跳过 ') + f"{len(p.dup_ids)}" + t('，认不出 ') + f"{len(p.invalid)}")
 
     # ---------- 流程：③ 入库 + 命令 + 下载 ----------
     def _on_register_clicked(self) -> None:
@@ -466,10 +460,10 @@ class AddModPage(QWidget):
             # 不会导一半）。重新解析后这批会进"已在库跳过"堆，再入库
             # 就只剩真正没入过的
             QMessageBox.warning(
-                self, "入库失败",
-                "部分编号刚被其他页面导入过，本次已整批回滚，未写入任何"
-                "数据。\n请重新点【解析预览】后再入库。")
-            self._log.error("入库失败：编号与其他页面撞车，已整批回滚")
+                self, t("入库失败"),
+                t("部分编号刚被其他页面导入过，本次已整批回滚，未写入任何"
+                "数据。\n请重新点【解析预览】后再入库。"))
+            self._log.error(t('入库失败：编号与其他页面撞车，已整批回滚'))
             return
         text = addModFlow.build_commands_text(app_id, ids)
         self._batch_ids = ids
@@ -481,11 +475,9 @@ class AddModPage(QWidget):
         self._btn_status.setEnabled(True)
         self._set_card(
             self._d3,
-            f"已入库 {n} 条（状态「{status_zh('tracked')}」），下载命令已"
-            f"生成（{len(ids)} 行）。点【开批下载】交给控制台执行，或"
-            "【复制命令】到终端手动粘贴。",
+            t('已入库 ') + f"{n}" + t(' 条（状态「') + f"{status_zh('tracked')}" + t('」），下载命令已生成（') + f"{len(ids)}" + t(' 行）。点【开批下载】交给控制台执行，或【复制命令】到终端手动粘贴。'),
             _C_OK)
-        self._log.ok(f"已入库 {n} 个新 mod，下载命令已生成（{len(ids)} 行）")
+        self._log.ok(t('已入库 ') + f"{n}" + t(' 个新 mod，下载命令已生成（') + f"{len(ids)}" + t(' 行）'))
 
     def _on_verify_clicked(self) -> None:
         """【核验命令可行性…】：跳到独立成页的【快速命令查询】并预填
@@ -500,8 +492,7 @@ class AddModPage(QWidget):
         if not text.strip():
             return
         QApplication.clipboard().setText(text)
-        self._log.info(f"已复制 {text.count(chr(10)) + 1} 行下载命令到剪贴板："
-                       "去终端粘贴执行")
+        self._log.info(t('已复制 ') + f"{text.count(chr(10)) + 1}" + t(' 行下载命令到剪贴板：去终端粘贴执行'))
 
     def _on_batch_download_clicked(self) -> None:
         """【开批下载】：把本批编号交给批量下载控制器（与【mod 库】页
@@ -516,13 +507,10 @@ class AddModPage(QWidget):
             return  # 按钮本该已禁用；双保险
         self._set_card(
             self._d3,
-            f"已请求批量下载（{len(self._batch_ids)} 个）——进度与结果"
-            "见底部控制台 ·「下载批次」；批次结束后自动弹确认清单，"
-            "勾选 = 本地版本入账。再回本页点【盘点本批状态】可看现状。",
+            t('已请求批量下载（') + f"{len(self._batch_ids)}" + t(' 个）——进度与结果见底部控制台 ·「下载批次」；批次结束后自动弹确认清单，勾选 = 本地版本入账。再回本页点【盘点本批状态】可看现状。'),
             _C_INFO)
         self._log.info(
-            f"请求批量下载（加入新 mod 批次，{len(self._batch_ids)} 个"
-            "编号）……")
+            t('请求批量下载（加入新 mod 批次，') + f"{len(self._batch_ids)}" + t(' 个编号）……'))
         self.download_requested.emit(self._batch_app_id,
                                      list(self._batch_ids))
 
@@ -544,20 +532,16 @@ class AddModPage(QWidget):
         if done_n == total:
             self._set_card(
                 self._d4,
-                f"{done_n}/{total} 个已是「{status_zh('downloaded')}」"
-                "——本批全部入账，闭环完成。",
+                f"{done_n}" + f'/' + f"{total}" + t(' 个已是「') + f"{status_zh('downloaded')}" + t('」——本批全部入账，闭环完成。'),
                 _C_OK)
-            self._log.ok(f"加入新 mod 批次盘点：{total}/{total} 已下载")
+            self._log.ok(t('加入新 mod 批次盘点：') + f"{total}" + f'/' + f"{total}" + t(' 已下载'))
             return
         seg = [f"已下载 {done_n}/{total}"]
         color = _C_WARN
         if wait_n:
-            seg.append(f"{wait_n} 个仍「{status_zh('tracked')}」"
-                       "（命令可能没跑完，或跑完还没在收尾确认清单里"
-                       "勾选入账）")
+            seg.append(f"{wait_n}" + t(' 个仍「') + f"{status_zh('tracked')}" + t('」（命令可能没跑完，或跑完还没在收尾确认清单里勾选入账）'))
         if odd:
-            seg.append(f"{len(odd)} 个状态异常（编号 {_ids_text(odd)}；"
-                       "正常流程到不了这个状态，到【mod 库】页核对现状）")
+            seg.append(f"{len(odd)}" + t(' 个状态异常（编号 ') + f"{_ids_text(odd)}" + t('；正常流程到不了这个状态，到【mod 库】页核对现状）'))
             color = _C_FAIL
         self._set_card(self._d4, "；".join(seg) + "。", color)
         self._log.info(

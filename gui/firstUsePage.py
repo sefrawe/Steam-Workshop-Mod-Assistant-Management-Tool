@@ -48,6 +48,7 @@ from core.models import Game
 import os
 
 from core.steamPaths import client_library_roots, workshop_content_dir
+from core.i18n import t
 from gui.consolePanel import LogBus
 from workflows.intakeFlow import ClientIntakePlan, apply_intake, classify_client_items
 from gui.theme import font_px  # 字号单源（D25）
@@ -140,7 +141,7 @@ class FirstUsePage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("首次使用", self)
+        title = QLabel(t("首次使用"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -191,15 +192,15 @@ class FirstUsePage(QWidget):
         _d_prep2.setText(_GUIDE_WATT)
 
         # ① steamcmd 卡：状态 + 去设置页 + 重新检查
-        self._d1, box1 = self._make_card("step1", "① 定位 steamcmd")
+        self._d1, box1 = self._make_card("step1", t("① 定位 steamcmd"))
         row1 = QHBoxLayout()
-        self._btn_settings = QPushButton("去设置页填写")
-        self._btn_settings.setToolTip("跳到「设置」页填 steamcmd 程序路径；"
-                                      "填完回来点【重新检查】")
+        self._btn_settings = QPushButton(t("去设置页填写"))
+        self._btn_settings.setToolTip(t("跳到「设置」页填 steamcmd 程序路径；"
+                                      "填完回来点【重新检查】"))
         self._btn_settings.clicked.connect(self.settings_requested.emit)
-        self._btn_recheck = QPushButton("重新检查")
-        self._btn_recheck.setToolTip("重读设置刷新四张卡片的状态"
-                                     "（从设置页回来后点它）")
+        self._btn_recheck = QPushButton(t("重新检查"))
+        self._btn_recheck.setToolTip(t("重读设置刷新四张卡片的状态"
+                                     "（从设置页回来后点它）"))
         self._btn_recheck.clicked.connect(self._on_recheck)
         row1.addWidget(self._btn_settings)
         row1.addWidget(self._btn_recheck)
@@ -207,12 +208,12 @@ class FirstUsePage(QWidget):
         box1.addLayout(row1)
 
         # ② 建档卡：状态 + 转调建档对话框
-        self._d2, box2 = self._make_card("step2", "② 建立游戏档案")
+        self._d2, box2 = self._make_card("step2", t("② 建立游戏档案"))
         row2 = QHBoxLayout()
-        self._btn_addgame = QPushButton("添加游戏档案…")
-        self._btn_addgame.setToolTip("打开建档对话框（与左上角「＋ 添加游戏"
+        self._btn_addgame = QPushButton(t("添加游戏档案…"))
+        self._btn_addgame.setToolTip(t("打开建档对话框（与左上角「＋ 添加游戏"
                                      "档案」同一份）：查重、自动查名、下载"
-                                     "目录推导预览")
+                                     "目录推导预览"))
         self._btn_addgame.clicked.connect(self.add_game_requested.emit)
         row2.addWidget(self._btn_addgame)
         row2.addStretch(1)
@@ -221,27 +222,27 @@ class FirstUsePage(QWidget):
         # ③ 连接卡：状态 + 跳联接检测页 + 重新检查（联接检测页写库
         # 后本页不广播不自动知道——切回本页有进页钩子兜底，按钮再
         # 给个手动对账口，从检测页回来点一下即亮绿）
-        self._d3, box3 = self._make_card("step3", "③ 接通游戏读取目录")
+        self._d3, box3 = self._make_card("step3", t("③ 接通游戏读取目录"))
         row3 = QHBoxLayout()
-        self._btn_link = QPushButton("打开联接检测页…")
-        self._btn_link.setToolTip("跳到「联接检测」页（与「游戏」菜单的"
+        self._btn_link = QPushButton(t("打开联接检测页…"))
+        self._btn_link.setToolTip(t("跳到「联接检测」页（与「游戏」菜单的"
                                   "连接指引同一落点）：判定游戏读取目录"
                                   "与下载目录的联接状态，按步骤接通；"
-                                  "检测通过会自动记录")
+                                  "检测通过会自动记录"))
         self._btn_link.clicked.connect(self.link_guide_requested.emit)
         row3.addWidget(self._btn_link)
-        self._btn_recheck3 = QPushButton("重新检查")
+        self._btn_recheck3 = QPushButton(t("重新检查"))
         self._btn_recheck3.setToolTip(
-            "从联接检测页检测通过回来后点它：重读档案最新状态，"
+            t("从联接检测页检测通过回来后点它：重读档案最新状态，"
             "第③步就会亮绿。切回本页时其实也会自动刷新，"
-            "按钮是手动兜底")
+            "按钮是手动兜底"))
         self._btn_recheck3.clicked.connect(self._on_recheck)
         row3.addWidget(self._btn_recheck3)
         row3.addStretch(1)
         box3.addLayout(row3)
 
         # ④ 纳入卡：本页唯一的新功能
-        self._d4, box4 = self._make_card("step4", "④ 纳入客户端已有的 mod")
+        self._d4, box4 = self._make_card("step4", t("④ 纳入客户端已有的 mod"))
         self._intake_detail = QLabel("", self)
         self._intake_detail.setWordWrap(True)
         self._intake_detail.setStyleSheet(f"border:none; font-size: {font_px(12)}px;")
@@ -269,26 +270,26 @@ class FirstUsePage(QWidget):
             "Steam 客户端库目录，如 ~/.local/share/Steam——"
             "选库根、steamapps 或 workshop 层都行（可手动输入）")
         row_dir.addWidget(self._dir_edit, 1)
-        self._btn_browse = QPushButton("浏览…", self)
-        self._btn_browse.setToolTip("打开系统目录选择窗口，选 Steam 客户端库目录")
+        self._btn_browse = QPushButton(t("浏览…"), self)
+        self._btn_browse.setToolTip(t("打开系统目录选择窗口，选 Steam 客户端库目录"))
         self._btn_browse.clicked.connect(self._on_browse)
         row_dir.addWidget(self._btn_browse)
         box4.addLayout(row_dir)
 
         row4 = QHBoxLayout()
-        self._btn_preview = QPushButton("解析预览", self)
-        self._btn_preview.setToolTip("读客户端库里的 appworkshop_<appid>.acf，"
-                                     "与当前档案账本对表；只读不写")
+        self._btn_preview = QPushButton(t("解析预览"), self)
+        self._btn_preview.setToolTip(t("读客户端库里的 appworkshop_<appid>.acf，"
+                                     "与当前档案账本对表；只读不写"))
         self._btn_preview.clicked.connect(self._on_preview)
-        self._btn_intake = QPushButton("纳入账本", self)
-        self._btn_intake.setToolTip("把预览出的「待纳入」条目写进账本"
+        self._btn_intake = QPushButton(t("纳入账本"), self)
+        self._btn_intake.setToolTip(t("把预览出的「待纳入」条目写进账本"
                                     "（状态「待下载」）；只补缺不覆盖，"
-                                    "写前有确认弹窗")
+                                    "写前有确认弹窗"))
         self._btn_intake.setEnabled(False)
         self._btn_intake.clicked.connect(self._on_intake)
-        self._btn_copy = QPushButton("复制下载命令", self)
-        self._btn_copy.setToolTip("把纳入条目对应的 steamcmd 下载命令复制到"
-                                  "剪贴板（与「下载命令生成」同源）")
+        self._btn_copy = QPushButton(t("复制下载命令"), self)
+        self._btn_copy.setToolTip(t("把纳入条目对应的 steamcmd 下载命令复制到"
+                                  "剪贴板（与「下载命令生成」同源）"))
         self._btn_copy.setEnabled(False)
         self._btn_copy.clicked.connect(self._on_copy)
         row4.addWidget(self._btn_preview)
@@ -300,9 +301,9 @@ class FirstUsePage(QWidget):
         # 三个按钮 = 跳既有页面的既有入口，本页只串联（文件头"只做
         # 串联，不抄第二份实现"同纪律）。落点由主窗口接三个信号
         self._d5, box5 = self._make_card(
-            "step5", "⑤ 录入已有的 mod 文件 → 跑通第一轮日常更新")
+            "step5", t("⑤ 录入已有的 mod 文件 → 跑通第一轮日常更新"))
         guide = QLabel(
-            "mod 文件已经在手里（以前用 steamcmd 下过、换机带来的、"
+            t("mod 文件已经在手里（以前用 steamcmd 下过、换机带来的、"
             "别的下载器下的——Steam 客户端订阅来的走第④步，不要两边"
             "重复），不用重新下载，四小步：\n"
             "a. 复制进下载目录：mod 文件夹（每个 mod 一个以工坊编号"
@@ -322,23 +323,23 @@ class FirstUsePage(QWidget):
             "信息（标题、大小、远端版本）自动补全回写账本，并报出"
             "所有比你版本基准更新的 mod，勾选执行即可。\n"
             "自检点：检测结果里「版本未知」应为 0——不是 0 = 有条目"
-            "漏了 c 步，回 mod 库页补上，再检测一次。")
+            "漏了 c 步，回 mod 库页补上，再检测一次。"))
         guide.setWordWrap(True)
         guide.setStyleSheet(
             f"border:none; color:{_C_MUTED}; font-size: {font_px(12)}px;")
         box5.addWidget(guide)
         row5 = QHBoxLayout()
-        self._btn_goto_account = QPushButton("去入账中心认领…")
+        self._btn_goto_account = QPushButton(t("去入账中心认领…"))
         self._btn_goto_account.setToolTip(
-            "跳到「入账中心」：【扫描游戏目录】认领盘上已有文件")
+            t("跳到「入账中心」：【扫描游戏目录】认领盘上已有文件"))
         self._btn_goto_account.clicked.connect(self.goto_account_center.emit)
-        self._btn_goto_modlist = QPushButton("去 mod 库设基准…")
+        self._btn_goto_modlist = QPushButton(t("去 mod 库设基准…"))
         self._btn_goto_modlist.setToolTip(
-            "跳到「mod 库」：全选条目 → 操作 ▾ →【批量设定本地版本…】")
+            t("跳到「mod 库」：全选条目 → 操作 ▾ →【批量设定本地版本…】"))
         self._btn_goto_modlist.clicked.connect(self.goto_mod_list.emit)
-        self._btn_goto_daily = QPushButton("去日常更新检测…")
+        self._btn_goto_daily = QPushButton(t("去日常更新检测…"))
         self._btn_goto_daily.setToolTip(
-            "跳到「日常更新」：【开始检测】补全远端信息并报出更新")
+            t("跳到「日常更新」：【开始检测】补全远端信息并报出更新"))
         self._btn_goto_daily.clicked.connect(self.goto_daily_update.emit)
         for b in (self._btn_goto_account, self._btn_goto_modlist,
                   self._btn_goto_daily):
@@ -358,7 +359,7 @@ class FirstUsePage(QWidget):
         self._plan = None
         self._refresh_all()
         if had_plan and game is not None:
-            self._log.info("档案已切换：纳入已有 mod 的预览已作废，请重新解析")
+            self._log.info(t('档案已切换：纳入已有 mod 的预览已作废，请重新解析'))
 
     def refresh(self) -> None:
         """公开的刷新入口（主窗口切到本页时自动调——进页刷新钩子；
@@ -372,7 +373,7 @@ class FirstUsePage(QWidget):
     # ---------- 卡片刷新 ----------
     def _on_recheck(self) -> None:
         self._refresh_all()
-        self._log.info("已重新检查首次使用向导各步状态")
+        self._log.info(t('已重新检查首次使用向导各步状态'))
 
     def _refresh_all(self) -> None:
         """刷新四张卡。开头先从账本重读当前档案：联接检测页检测
@@ -393,12 +394,11 @@ class FirstUsePage(QWidget):
     def _refresh_step1(self) -> None:
         exe = self._settings.get("steamcmd_path") if self._settings else ""
         if not exe:
-            self._set_card(self._d1, "未配置 steamcmd 程序路径——本工具的下载、"
-                           "备份都靠它定位。", _C_WARN)
+            self._set_card(self._d1, t("未配置 steamcmd 程序路径——本工具的下载、"
+                           "备份都靠它定位。"), _C_WARN)
             return
         if not Path(exe).is_file():
-            self._set_card(self._d1, f"配置的 steamcmd 路径暂不存在：{exe}"
-                           "（可先继续后面的步骤，用到前修正即可）", _C_WARN)
+            self._set_card(self._d1, t('配置的 steamcmd 路径暂不存在：') + f"{exe}" + t('（可先继续后面的步骤，用到前修正即可）'), _C_WARN)
             return
         text = f"已定位：{exe}"
         if self._game is not None:
@@ -409,22 +409,20 @@ class FirstUsePage(QWidget):
 
     def _refresh_step2(self) -> None:
         if self._game is None:
-            self._set_card(self._d2, "还没有游戏档案——需要游戏的 AppID"
-                           "（商店页面网址里那串数字）。", _C_WARN)
+            self._set_card(self._d2, t("还没有游戏档案——需要游戏的 AppID"
+                           "（商店页面网址里那串数字）。"), _C_WARN)
         else:
-            self._set_card(self._d2, f"当前档案：{self._game.name}"
-                           f"（{self._game.app_id}）——已就绪。", _C_OK)
+            self._set_card(self._d2, t('当前档案：') + f"{self._game.name}" + f'（' + f"{self._game.app_id}" + t('）——已就绪。'), _C_OK)
 
     def _refresh_step3(self) -> None:
         if self._game is None:
-            self._set_card(self._d3, "等待建档。", _C_MUTED)
+            self._set_card(self._d3, t("等待建档。"), _C_MUTED)
         elif self._game.game_mod_dir:
-            self._set_card(self._d3, f"已记录游戏读取目录：{self._game.game_mod_dir}"
-                           "（随时可重新检查）。", _C_OK)
+            self._set_card(self._d3, t('已记录游戏读取目录：') + f"{self._game.game_mod_dir}" + t('（随时可重新检查）。'), _C_OK)
         else:
-            self._set_card(self._d3, "尚未确认连接——部分游戏只从自己的目录读 mod，"
+            self._set_card(self._d3, t("尚未确认连接——部分游戏只从自己的目录读 mod，"
                            "需要把游戏读取目录和下载目录接通。"
-                           "不确定就打开检测页判一次，不影响跳过。", _C_WARN)
+                           "不确定就打开检测页判一次，不影响跳过。"), _C_WARN)
 
     def _refresh_step4(self) -> None:
         has_game = self._game is not None
@@ -433,20 +431,12 @@ class FirstUsePage(QWidget):
         if not has_game:
             self._btn_intake.setEnabled(False)
             self._btn_copy.setEnabled(False)
-            self._set_card(self._d4, "等待建档。", _C_MUTED)
+            self._set_card(self._d4, t("等待建档。"), _C_MUTED)
             return
         if self._plan is None:
             self._set_card(
                 self._d4,
-                f"把 Steam 客户端库目录填在下面（{self._game.name}"
-                " 的订阅记录），点【解析预览】核对，再【纳入账本】。\n"
-                "· 没用 Steam 客户端装过 mod 的话，这里扫不到东西是正常的"
-                "——只读客户端的订阅记录。\n"
-                "· 两套账互不相通：Steam 客户端和 steamcmd 是两棵独立的树，"
-                "各有各的工坊文件夹和记录，互不知情。同一个游戏不要两边"
-                "同时订阅——两处各存一份，版本可能错乱。\n"
-                "· 登录 steamcmd 会把 Steam 客户端顶下线（Steam 单点登录），"
-                "属正常现象，回客户端重新登录即可。",
+                t('把 Steam 客户端库目录填在下面（') + f"{self._game.name}" + t(' 的订阅记录），点【解析预览】核对，再【纳入账本】。\n· 没用 Steam 客户端装过 mod 的话，这里扫不到东西是正常的——只读客户端的订阅记录。\n· 两套账互不相通：Steam 客户端和 steamcmd 是两棵独立的树，各有各的工坊文件夹和记录，互不知情。同一个游戏不要两边同时订阅——两处各存一份，版本可能错乱。\n· 登录 steamcmd 会把 Steam 客户端顶下线（Steam 单点登录），属正常现象，回客户端重新登录即可。'),
                 _C_MUTED)
 
     # ---------- 第④步：预览与纳入 ----------
@@ -463,7 +453,7 @@ class FirstUsePage(QWidget):
             return
         raw = self._dir_edit.currentText().strip()
         if not raw:
-            QMessageBox.information(self, "解析预览", "先选择 Steam 客户端库目录。")
+            QMessageBox.information(self, t("解析预览"), t("先选择 Steam 客户端库目录。"))
             return
         # locate_acf 认三种填写层（库根 / steamapps / workshop），
         # 与工坊目录布局同一份定位逻辑——单源复用，不重写
@@ -471,19 +461,16 @@ class FirstUsePage(QWidget):
         if acf is None:
             self._set_card(
                 self._d4,
-                f"在所选目录下没找到 appworkshop_{self._game.app_id}"
-                ".acf——确认选的是客户端的库（含 steamapps/workshop"
-                " 层级），且这个游戏在该库里装过工坊内容。",
+                t('在所选目录下没找到 appworkshop_') + f"{self._game.app_id}" + t('.acf——确认选的是客户端的库（含 steamapps/workshop 层级），且这个游戏在该库里装过工坊内容。'),
                 _C_FAIL)
-            self._log.warn(f"未找到客户端账本：{raw}"
-                           f"（appworkshop_{self._game.app_id}.acf）")
+            self._log.warn(t('未找到客户端账本：') + f"{raw}" + f'（appworkshop_' + f"{self._game.app_id}" + f'.acf）')
             return
         try:
             result = scan_acf(acf)
         except ValueError as exc:
             # 文件级问题显式转述，绝不静默
-            self._set_card(self._d4, f"客户端账本读取失败：{exc}", _C_FAIL)
-            self._log.error(f"客户端账本读取失败：{exc}")
+            self._set_card(self._d4, t('客户端账本读取失败：') + f"{exc}", _C_FAIL)
+            self._log.error(t('客户端账本读取失败：') + f"{exc}")
             return
         existing = {m.mod_id: m for m in self._repo.list_mods(self._game.app_id)}
         plan = classify_client_items(result.items, existing,
@@ -506,22 +493,19 @@ class FirstUsePage(QWidget):
         inter = len(result.interrupted)
         other = len(result.skipped) - inter
         if result.skipped:
-            lines.append(f"（客户端账本里跳过 {len(result.skipped)} 条："
-                         f"疑似下载中断 {inter}、格式不完整 {other}）")
+            lines.append(t('（客户端账本里跳过 ') + f"{len(result.skipped)}" + t(' 条：疑似下载中断 ') + f"{inter}" + t('、格式不完整 ') + f"{other}" + f'）')
         lines += [f"· {w}" for w in result.warnings]
         if not result.items:
-            lines.append("客户端账本里没有已安装条目：只订阅了、客户端还没"
-                         "下载完成的不会出现在这里——本来也没有文件。")
+            lines.append(t('客户端账本里没有已安装条目：只订阅了、客户端还没下载完成的不会出现在这里——本来也没有文件。'))
         elif plan.to_register:
             lines.append("待纳入编号：" + _ids_text(
                 [i.mod_id for i in plan.to_register]))
         if n_work:
-            self._set_card(self._d4, f"解析完成，{n_work} 条可写入（只补缺"
-                           "不覆盖）——核对下方明细后点【纳入账本】。",
+            self._set_card(self._d4, t('解析完成，') + f"{n_work}" + t(' 条可写入（只补缺不覆盖）——核对下方明细后点【纳入账本】。'),
                            _C_INFO)
         else:
-            self._set_card(self._d4, "全部已在册，无事可做（重复纳入是安全的："
-                           "要么跳过要么不动）。", _C_OK)
+            self._set_card(self._d4, t("全部已在册，无事可做（重复纳入是安全的："
+                           "要么跳过要么不动）。"), _C_OK)
         self._intake_detail.setText("\n".join(lines))
 
     def _on_intake(self) -> None:
@@ -532,11 +516,8 @@ class FirstUsePage(QWidget):
         if not n_work:
             return
         ret = QMessageBox.question(
-            self, "纳入账本",
-            f"把 {n_work} 条纳入档案「{self._game.name}」？\n\n"
-            "· 只补缺不覆盖：已在册的一律不动（版本字段一个不碰，\n"
-            "  真实版本等下载后在确认清单里背书）\n"
-            "· 已删除 / 已失效的条目不会复活")
+            self, t("纳入账本"),
+            t('把 ') + f"{n_work}" + t(' 条纳入档案「') + f"{self._game.name}" + t('」？\n\n· 只补缺不覆盖：已在册的一律不动（版本字段一个不碰，\n  真实版本等下载后在确认清单里背书）\n· 已删除 / 已失效的条目不会复活'))
         if ret != QMessageBox.StandardButton.Yes:
             return
         try:
@@ -544,10 +525,10 @@ class FirstUsePage(QWidget):
         except sqlite3.IntegrityError:
             # 对表之后别的页面恰好登记了同一编号：整批回滚（引擎保证
             # 不会写一半），重新预览即可
-            QMessageBox.warning(self, "纳入失败",
-                                "部分编号刚被其他页面登记过，本次已整批回滚，"
-                                "未写入任何数据。\n请重新点【解析预览】。")
-            self._log.error("纳入失败：编号与其他页面撞车，已整批回滚")
+            QMessageBox.warning(self, t("纳入失败"),
+                                t("部分编号刚被其他页面登记过，本次已整批回滚，"
+                                "未写入任何数据。\n请重新点【解析预览】。"))
+            self._log.error(t('纳入失败：编号与其他页面撞车，已整批回滚'))
             return
         # 命令覆盖"纳入后还没有本地内容"的条目（= 新纳入的全部）：
         # 已下载跳过的除外——steamcmd 已经管着它们了
@@ -563,15 +544,7 @@ class FirstUsePage(QWidget):
             self._settings.save()
         self._set_card(
             self._d4,
-            f"纳入完成：新入库 {rep.registered} 条（状态「待下载」）。接下来：\n"
-            "① 【复制下载命令】粘贴到程序底部的 steamcmd 终端执行——"
-            "走本工具的批次链，下载完自动弹确认清单，勾选 = 入账；\n"
-            "（也可以复制到自己开的终端里跑：跑完到【入账中心】点"
-            "【扫描游戏目录】把它们认领入账）\n"
-            "② 确认入账后，到 Steam 客户端把这批 mod 退订——不要两边"
-            "同时订阅：不退订的话，客户端会按它自己的订阅清单继续维护"
-            "那份拷贝（有更新就自动下载到客户端自己的目录），与本工具"
-            "这份并存，版本各走各的还白占空间。",
+            t('纳入完成：新入库 ') + f"{rep.registered}" + t(' 条（状态「待下载」）。接下来：\n① 【复制下载命令】粘贴到程序底部的 steamcmd 终端执行——走本工具的批次链，下载完自动弹确认清单，勾选 = 入账；\n（也可以复制到自己开的终端里跑：跑完到【入账中心】点【扫描游戏目录】把它们认领入账）\n② 确认入账后，到 Steam 客户端把这批 mod 退订——不要两边同时订阅：不退订的话，客户端会按它自己的订阅清单继续维护那份拷贝（有更新就自动下载到客户端自己的目录），与本工具这份并存，版本各走各的还白占空间。'),
             _C_OK)
         self._log.ok(f"纳入已有 mod 完成：新入库 {rep.registered} 条（待下载）"
                      + (f"；下载命令已生成（{len(cmd_ids)} 个编号）"
@@ -582,8 +555,7 @@ class FirstUsePage(QWidget):
         if not text.strip():
             return
         QApplication.clipboard().setText(text)
-        self._log.info(f"已复制 {text.count(chr(10)) + 1} 行下载命令到剪贴板："
-                       "去终端粘贴执行")
+        self._log.info(t('已复制 ') + f"{text.count(chr(10)) + 1}" + t(' 行下载命令到剪贴板：去终端粘贴执行'))
 
     # ---------- 卡片基建（样式与加入新 mod 页同款） ----------
     def _make_card(self, name: str, title: str) -> tuple[QLabel, QVBoxLayout]:

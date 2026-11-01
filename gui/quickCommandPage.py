@@ -34,6 +34,7 @@ from core import urlParser
 from core.appSettings import AppSettings
 from core.commandBuilder import build_plain_commands
 from core.steamApiClient import SteamApiCancelled, SteamApiClient, SteamApiError
+from core.i18n import t
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QHeaderView, QHBoxLayout, QLabel,
@@ -120,41 +121,41 @@ class QuickCommandPage(QWidget):
         outer.addWidget(page_scroll, 1)
         v = QVBoxLayout(page_body)
         v.setContentsMargins(16, 16, 16, 16)
-        title = QLabel("快速命令查询", page_body)
+        title = QLabel(t("快速命令查询"), page_body)
         title.setStyleSheet(
             f"font-size: {font_px(18)}px; font-weight: 600;")
         v.addWidget(title)
         v.addWidget(make_guide(
-            "先读我：三种输入随便混 · 按条目自己的游戏出命令",
-            ("每行贴一个，三种随便混：工坊网址 / 纯编号 / 整行下载命令"
+            t("先读我：三种输入随便混 · 按条目自己的游戏出命令"),
+            (t("每行贴一个，三种随便混：工坊网址 / 纯编号 / 整行下载命令"
              "（可多游戏混杂）。查询后按每个条目自己的游戏生成命令——"
              "与当前界面显示的游戏、与账本都无关；命令行里的旧 AppID "
-             "以重查结果为准（填错的会被纠正）。",
-             "复制后粘到 控制台 → steamcmd 终端 回车执行：批次按命令"
+             "以重查结果为准（填错的会被纠正）。"),
+             t("复制后粘到 控制台 → steamcmd 终端 回车执行：批次按命令"
              "自带的 AppID 归属；批次收尾自动盘点，盘上内容进该档案的"
              "待认领区，到【入账中心】勾选确认。命令已按游戏分组，"
-             "一个批次只服务一个游戏——逐游戏复制粘贴最稳。"),
+             "一个批次只服务一个游戏——逐游戏复制粘贴最稳。")),
             self, 140))
 
         self._input = QPlainTextEdit(page_body)
         self._input.setPlaceholderText(
-            "例如：\n"
+            t("例如：\n"
             "https://steamcommunity.com/sharedfiles/filedetails/?id=3563882422\n"
             "3563882422\n"
-            "workshop_download_item 1158310 3563882422")
+            "workshop_download_item 1158310 3563882422"))
         self._input.setMinimumHeight(64)  # 挤压下限：宁可页面滚动不变形
         self._input.setMaximumHeight(90)
         v.addWidget(self._input)
         row = QHBoxLayout()
-        self._btn_go = QPushButton("解析并查询", page_body)
+        self._btn_go = QPushButton(t("解析并查询"), page_body)
         self._btn_go.setDefault(True)
         self._btn_go.clicked.connect(self._start)
         row.addWidget(self._btn_go)
-        self._btn_offline = QPushButton("离线生成（当前档案游戏）", page_body)
+        self._btn_offline = QPushButton(t("离线生成（当前档案游戏）"), page_body)
         self._btn_offline.setToolTip(
-            "不联网，直接按当前档案的游戏 AppID 给全部编号出命令"
+            t("不联网，直接按当前档案的游戏 AppID 给全部编号出命令"
             "——网络不畅时的兜底。贴进来的条目若属于别的游戏会"
-            " No match，点下去前有确认弹窗说清风险")
+            " No match，点下去前有确认弹窗说清风险"))
         self._btn_offline.clicked.connect(self._on_offline)
         row.addWidget(self._btn_offline)
         self._status = QLabel("", page_body)
@@ -181,12 +182,12 @@ class QuickCommandPage(QWidget):
         self._output = QPlainTextEdit(self)
         self._output.setReadOnly(True)
         self._output.setPlaceholderText(
-            "查询成功后，这里显示可粘贴进 steamcmd 的命令")
+            t("查询成功后，这里显示可粘贴进 steamcmd 的命令"))
         self._output.setMinimumHeight(72)
         self._output.setMaximumHeight(110)
         outer.addWidget(self._output)
         bottom = QHBoxLayout()
-        self._btn_copy = QPushButton("复制命令", self)
+        self._btn_copy = QPushButton(t("复制命令"), self)
         self._btn_copy.setEnabled(False)
         self._btn_copy.clicked.connect(self._on_copy)
         bottom.addStretch(1)
@@ -199,7 +200,7 @@ class QuickCommandPage(QWidget):
             return
         text = self._input.toPlainText()
         if not text.strip():
-            self._set_status("先在上面贴点东西：网址 / 编号 / 命令行均可。", "")
+            self._set_status(t('先在上面贴点东西：网址 / 编号 / 命令行均可。'), "")
             return
         report = urlParser.parse_lines(text.splitlines())
         if not report.mod_ids:
@@ -211,13 +212,13 @@ class QuickCommandPage(QWidget):
         busy = netGate.try_acquire(constants.NET_GATE_QUICK_QUERY)
         if busy is not None:
             self._set_status(
-                f"另有联网任务在进行（{busy}），等它结束再试。",
+                t('另有联网任务在进行（') + f"{busy}" + t('），等它结束再试。'),
                 "color: #f5a623;")
             return
         self._net_held = True
         self._invalid = list(report.invalid)
         self._dup_counts, self._line_app_of = self._analyze_lines(text)
-        self._set_status(f"已解析 {len(report.mod_ids)} 个编号，正在查询…", "")
+        self._set_status(t('已解析 ') + f"{len(report.mod_ids)}" + t(' 个编号，正在查询…'), "")
         self._btn_go.setEnabled(False)
         self._worker = _QueryWorker(
             report.mod_ids,
@@ -257,28 +258,24 @@ class QuickCommandPage(QWidget):
             row_app = it.consumer_app_id if it.result == 1 else None
             if it.result == 1 and it.consumer_app_id:
                 pairs.append((it.consumer_app_id, mid))
-                notes.append("✓ 已生成命令")
+                notes.append(t('✓ 已生成命令'))
                 src = self._line_app_of.get(mid)
                 if src is not None and src != it.consumer_app_id:
                     n_mismatch += 1
-                    notes.insert(0, f"⚠ 原命令 AppID {src} 与条目实际"
-                                    f"所属不符，已纠正为 {it.consumer_app_id}")
+                    notes.insert(0, t('⚠ 原命令 AppID ') + f"{src}" + t(' 与条目实际所属不符，已纠正为 ') + f"{it.consumer_app_id}")
                 if cur_app is not None and it.consumer_app_id != cur_app:
                     n_cross += 1
-                    notes.append(f"属其他游戏（非当前档案"
-                                 f"「{self._game.name}」）")
+                    notes.append(t('属其他游戏（非当前档案「') + f"{self._game.name}" + f'」）')
             elif it.result == 1:
                 n_noapp += 1
-                notes.append("接口没返回所属游戏，无法生成命令（极少见）")
+                notes.append(t('接口没返回所属游戏，无法生成命令（极少见）'))
             else:
                 n_invisible += 1
                 notes.append(
-                    f"Steam 接口看不见（result={it.result}）——多半已"
-                    "下架/删除或从未存在；少数情况是仍可下载的隐藏"
-                    "条目。未生成命令，可到【异常处置】页核实")
+                    t('Steam 接口看不见（result=') + f"{it.result}" + t('）——多半已下架/删除或从未存在；少数情况是仍可下载的隐藏条目。未生成命令，可到【异常处置】页核实'))
             n_seen = self._dup_counts.get(mid, 0)
             if n_seen > 1:
-                notes.append(f"输入中重复出现 {n_seen} 次（已合并）")
+                notes.append(t('输入中重复出现 ') + f"{n_seen}" + t(' 次（已合并）'))
             rows.append({"mid": mid, "title": title, "app": row_app,
                          "note": "；".join(notes)})
         # 表格行序 = 命令行序（按游戏分组、组内按编号）；查不到的垫底
@@ -295,36 +292,31 @@ class QuickCommandPage(QWidget):
         self._btn_copy.setEnabled(bool(self._commands))
         extras = []
         if n_invisible:
-            extras.append(f"接口看不见 {n_invisible}")
+            extras.append(t('接口看不见 ') + f"{n_invisible}")
         if n_noapp:
-            extras.append(f"缺归属 {n_noapp}")
+            extras.append(t('缺归属 ') + f"{n_noapp}")
         if self._invalid:
-            extras.append(f"认不出 {len(self._invalid)}")
+            extras.append(t('认不出 ') + f"{len(self._invalid)}")
         if n_mismatch:
-            extras.append(f"错配已纠正 {n_mismatch}")
+            extras.append(t('错配已纠正 ') + f"{n_mismatch}")
         if n_cross:
-            extras.append(f"跨档案 {n_cross}")
+            extras.append(t('跨档案 ') + f"{n_cross}")
         if n_dup:
-            extras.append(f"输入重复 {n_dup}")
+            extras.append(t('输入重复 ') + f"{n_dup}")
         tail = ("；另有：" + "、".join(extras)) if extras else ""
         self._set_status(
-            f"查询完成：生成 {len(self._commands)} 条命令，"
-            f"涉及 {len(apps)} 个游戏{tail}", "")
-        self._log.ok(f"快速命令查询：生成 {len(self._commands)} 条命令"
-                     f"（涉及 {len(apps)} 个游戏）{tail}")
+            t('查询完成：生成 ') + f"{len(self._commands)}" + t(' 条命令，涉及 ') + f"{len(apps)}" + t(' 个游戏') + f"{tail}", "")
+        self._log.ok(t('快速命令查询：生成 ') + f"{len(self._commands)}" + t(' 条命令（涉及 ') + f"{len(apps)}" + t(' 个游戏）') + f"{tail}")
         if n_mismatch:
-            self._log.warn(f"{n_mismatch} 条命令行里的 AppID 与条目实际"
-                           "所属不符，已按重查结果纠正（明细见表格说明列）")
+            self._log.warn(f"{n_mismatch}" + t(' 条命令行里的 AppID 与条目实际所属不符，已按重查结果纠正（明细见表格说明列）'))
         if self._invalid:
             self._log.warn("认不出的片段（原样保留未处理）："
                            + "、".join(self._invalid[:8]))
 
     def _on_fail(self, message: str) -> None:
         self._set_status(
-            f"联网查询失败：{message}\n"
-            "（本次给不出命令——绝不拿当前档案的 AppID 猜归属，"
-            "猜错的命令就是 No match。）", "color: #e5484d;")
-        self._log.error(f"快速命令查询失败：{message}")
+            t('联网查询失败：') + f"{message}" + t('\n（本次给不出命令——绝不拿当前档案的 AppID 猜归属，猜错的命令就是 No match。）'), "color: #e5484d;")
+        self._log.error(t('快速命令查询失败：') + f"{message}")
 
     def _on_offline(self) -> None:
         """【离线生成】：不联网，按当前档案的 AppID 出命令。确认弹窗
@@ -333,12 +325,11 @@ class QuickCommandPage(QWidget):
             return
         if self._game is None:
             self._set_status(
-                "离线生成需要知道游戏：请先在左上角选择档案；"
-                "或者联网查询（那条路不需要档案）。", "color: #f5a623;")
+                t('离线生成需要知道游戏：请先在左上角选择档案；或者联网查询（那条路不需要档案）。'), "color: #f5a623;")
             return
         text = self._input.toPlainText()
         if not text.strip():
-            self._set_status("先在上面贴点东西：网址 / 编号 / 命令行均可。", "")
+            self._set_status(t('先在上面贴点东西：网址 / 编号 / 命令行均可。'), "")
             return
         report = urlParser.parse_lines(text.splitlines())
         if not report.mod_ids:
@@ -349,13 +340,8 @@ class QuickCommandPage(QWidget):
             return
         app_id = self._game.app_id
         ret = QMessageBox.question(
-            self, "离线生成（不联网）",
-            f"不联网核实，直接按当前档案「{self._game.name}」"
-            f"（AppID {app_id}）给全部 {len(report.mod_ids)} 个编号出"
-            "命令？\n\n风险（离线 = 靠假定，不靠事实）：\n"
-            "· 贴进来的条目若其实属于别的游戏 → steamcmd 报 No match；\n"
-            "· 命令行里原带的游戏 AppID 会被当前档案的覆盖。\n\n"
-            "网络通畅时更推荐【解析并查询】——按条目自己的游戏出命令。")
+            self, t("离线生成（不联网）"),
+            t('不联网核实，直接按当前档案「') + f"{self._game.name}" + f'」（AppID ' + f"{app_id}" + t('）给全部 ') + f"{len(report.mod_ids)}" + t(' 个编号出命令？\n\n风险（离线 = 靠假定，不靠事实）：\n· 贴进来的条目若其实属于别的游戏 → steamcmd 报 No match；\n· 命令行里原带的游戏 AppID 会被当前档案的覆盖。\n\n网络通畅时更推荐【解析并查询】——按条目自己的游戏出命令。'))
         if ret != QMessageBox.StandardButton.Yes:
             return
         self._invalid = list(report.invalid)
@@ -374,12 +360,9 @@ class QuickCommandPage(QWidget):
         self._output.setPlainText("\n".join(self._commands) + "\n")
         self._btn_copy.setEnabled(True)
         self._set_status(
-            f"离线生成 {len(self._commands)} 条命令（AppID {app_id}，"
-            "未联网核实）——贴进 steamcmd 后若见 No match，说明条目"
-            "属于别的游戏，联网重查即可纠正。", "")
+            t('离线生成 ') + f"{len(self._commands)}" + t(' 条命令（AppID ') + f"{app_id}" + t('，未联网核实）——贴进 steamcmd 后若见 No match，说明条目属于别的游戏，联网重查即可纠正。'), "")
         self._log.warn(
-            f"快速命令查询（离线）：按当前档案「{self._game.name}」生成 "
-            f"{len(self._commands)} 条命令（未联网核实归属）")
+            t('快速命令查询（离线）：按当前档案「') + f"{self._game.name}" + t('」生成 ') + f"{len(self._commands)}" + t(' 条命令（未联网核实归属）'))
 
     def _on_finished(self) -> None:
         # 线程收尾纪律：摘引用置 None 后再 wait（0xC0000409 老坑）
@@ -434,11 +417,10 @@ class QuickCommandPage(QWidget):
             return
         text = "\n".join(self._commands) + "\n"
         QApplication.clipboard().setText(text)
-        self._log.ok(f"已复制 {len(self._commands)} 条下载命令，"
-                     "去 steamcmd 终端粘贴回车即可")
+        self._log.ok(t('已复制 ') + f"{len(self._commands)}" + t(' 条下载命令，去 steamcmd 终端粘贴回车即可'))
         # 记账与命令生成页同款：operations_log 存完整命令原文
         try:
             op_id = self._repo.add_operation(text)
             self._repo.finish_operation(op_id, result="generated")
         except Exception as exc:
-            self._log.error(f"写 operations_log 失败（复制本身不受影响）：{exc}")
+            self._log.error(t('写 operations_log 失败（复制本身不受影响）：') + f"{exc}")

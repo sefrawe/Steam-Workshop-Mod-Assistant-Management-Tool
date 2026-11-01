@@ -56,6 +56,7 @@ import os
 
 from core import steamPaths
 from core.models import Game
+from core.i18n import t
 from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
 
@@ -134,7 +135,7 @@ class JunctionCheckPage(QWidget):
         v.setContentsMargins(12, 12, 12, 12)
         v.setSpacing(6)
 
-        title = QLabel("联接检测", self)
+        title = QLabel(t("联接检测"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         v.addWidget(title)
 
@@ -142,11 +143,11 @@ class JunctionCheckPage(QWidget):
         v.addWidget(self._game_label)
 
         tip = QLabel(
-            "部分游戏只从自己的目录读 mod（如 CK3：Documents 下的 mod 文件夹），"
+            t("部分游戏只从自己的目录读 mod（如 CK3：Documents 下的 mod 文件夹），"
             "而 steamcmd 下载的内容在 steamcmd 的工坊 content 目录里。\n"
             "办法：用目录联接（junction）把两边接通——联接建在哪侧都行"
             "（本工具两种方向都认识），游戏就能读到全部下载内容。\n"
-            "不知道路径？查该游戏的 mod 安装说明——路径随游戏而定，本工具无法代查。",
+            "不知道路径？查该游戏的 mod 安装说明——路径随游戏而定，本工具无法代查。"),
             self)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
@@ -170,10 +171,10 @@ class JunctionCheckPage(QWidget):
         row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
-        h.addWidget(QLabel("游戏 mod 目录（联接所在位置）：", row))
+        h.addWidget(QLabel(t("游戏 mod 目录（联接所在位置）："), row))
         self._input = QLineEdit(row)
         self._input.setPlaceholderText(
-            r"Windows 如 C:\Users\<用户名>\Documents\Paradox Interactive\Crusader Kings III\mod；Linux 如 ~/.local/share/Paradox Interactive/Crusader Kings III/mod")
+            t(r"Windows 如 C:\Users\<用户名>\Documents\Paradox Interactive\Crusader Kings III\mod；Linux 如 ~/.local/share/Paradox Interactive/Crusader Kings III/mod"))
         self._input.returnPressed.connect(self._on_check)
         self._input.textEdited.connect(self._on_edited)
         h.addWidget(self._input, 1)
@@ -181,20 +182,20 @@ class JunctionCheckPage(QWidget):
         # 选完只填框、不自动判定——判定可能写档案（linked /
         # linked_reverse 落 game_mod_dir），写库动作仍由【检测】
         # 显式触发，与 returnPressed 的先例同一哲学
-        self._btn_browse = QPushButton("浏览文件夹…", row)
+        self._btn_browse = QPushButton(t("浏览文件夹…"), row)
         self._btn_browse.setToolTip(
-            "打开系统目录选择器，选中游戏读取 mod 的目录填入输入框；"
-            "填入后点【检测】判定。")
+            t("打开系统目录选择器，选中游戏读取 mod 的目录填入输入框；"
+            "填入后点【检测】判定。"))
         self._btn_browse.clicked.connect(self._on_browse)
         h.addWidget(self._btn_browse)
         v.addWidget(row)
         # 检测键独立成行靠左（任务⑫）：浏览键占住输入行右端后，
         # 两键相邻误认的旧顾虑重新成立——挪出来单列一行，建链后
         # 反复点【检测】核对结果也好找
-        self._check_btn = QPushButton("检测", row)
+        self._check_btn = QPushButton(t("检测"), row)
         self._check_btn.setToolTip(
-            "判定你填的目录现在处于哪种连接状态，"
-            "并按状态给出对应的操作步骤与命令。")
+            t("判定你填的目录现在处于哪种连接状态，"
+            "并按状态给出对应的操作步骤与命令。"))
         self._check_btn.clicked.connect(self._on_check)
         v.addWidget(self._check_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
@@ -250,8 +251,8 @@ class JunctionCheckPage(QWidget):
         head = QHBoxLayout()
         t = QLabel("", box)
         t.setStyleSheet("font-weight: 600;")
-        btn = QPushButton("复制", box)
-        btn.setToolTip(f"复制这条命令，粘贴到{_TERM}窗口里回车执行。")
+        btn = QPushButton(t("复制"), box)
+        btn.setToolTip(t('复制这条命令，粘贴到') + f"{_TERM}" + t('窗口里回车执行。'))
         btn.setFixedWidth(64)
         head.addWidget(t, 1)
         head.addWidget(btn)
@@ -272,15 +273,15 @@ class JunctionCheckPage(QWidget):
         self._show_idle()
         if game is None:
             self._game_label.setText(
-                "当前游戏：（未选择）—— 请先在左上角添加或选择档案")
-            self._target_label.setText("下载目录（联接应指向的实体）：（未选择档案）")
+                t("当前游戏：（未选择）—— 请先在左上角添加或选择档案"))
+            self._target_label.setText(t("下载目录（联接应指向的实体）：（未选择档案）"))
             self._target = ""
             self._mismatch_note.hide()
             self._input.clear()
             self._check_btn.setEnabled(False)
             return
         self._check_btn.setEnabled(True)
-        self._game_label.setText(f"当前游戏：{game.name}（{game.app_id}）")
+        self._game_label.setText(t('当前游戏：') + f"{game.name}" + f'（' + f"{game.app_id}" + f'）')
         self._target = self._derive_target(game)
         self._target_label.setText(
             "下载目录（联接应指向的实体）：\n" + (self._target or "（推导不出，档案里也没有记录）"))
@@ -289,8 +290,7 @@ class JunctionCheckPage(QWidget):
         if self._target and stored and \
                 stored.casefold() != self._target.casefold():
             self._mismatch_note.setText(
-                f"注：档案里记录的下载目录是 {stored}，与上面按 steamcmd "
-                "当前位置推导的值不同——本页以推导值为准。")
+                t('注：档案里记录的下载目录是 ') + f"{stored}" + t('，与上面按 steamcmd 当前位置推导的值不同——本页以推导值为准。'))
             self._mismatch_note.show()
         else:
             self._mismatch_note.hide()
@@ -312,7 +312,7 @@ class JunctionCheckPage(QWidget):
     def _show_idle(self) -> None:
         """初始 / 输入被改动后的待判定状态：清空结论、藏起命令。
         改了路径还挂着上一条的绿勾是会出事的，必须立刻清掉。"""
-        self._state_label.setText("在上方填入游戏 mod 目录后点【检测】。")
+        self._state_label.setText(t("在上方填入游戏 mod 目录后点【检测】。"))
         self._state_label.setStyleSheet("color: gray;")
         self._detail_label.setText("")
         self._steps_label.setText("")
@@ -321,7 +321,7 @@ class JunctionCheckPage(QWidget):
 
     def _on_edited(self) -> None:
         self._show_idle()
-        self._state_label.setText("内容已改动，点【检测】重新判定。")
+        self._state_label.setText(t("内容已改动，点【检测】重新判定。"))
     def _on_browse(self) -> None:
         """浏览选择游戏 mod 目录：选完只填框并作废旧结论（新路径 =
         旧判定作废，与 textEdited 同口径），判定仍由【检测】触发。"""
@@ -516,7 +516,7 @@ class JunctionCheckPage(QWidget):
         self._repo.update_game(self._game.app_id, game_mod_dir=link)
         self._game = self._repo.get_game(self._game.app_id)   # 内存同步
         self._log.ok(
-            f"联接检测通过：游戏读取 mod 的目录已记入档案：{link}")
+            t('联接检测通过：游戏读取 mod 的目录已记入档案：') + f"{link}")
         # 通知主窗口同步档案切换器：它手里的档案信息还停在写库前，
         # 不同步的话编辑档案会一直显示旧值、直到重启
         self.game_dir_written.emit(self._game.app_id)

@@ -69,6 +69,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.commandBuilder import build_copy_text, group_mods
+from core.i18n import t
 from gui.collapsibleSection import CollapsibleSection
 from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
@@ -151,24 +152,24 @@ class CommandGenPage(QWidget):
         root = QVBoxLayout(page_body)
         # 页标题：本页此前直接以游戏信息行开头，是任务清单
         # 「部分页面缺少标题」的主体；补齐与其他页一致的页首标题
-        title = QLabel("下载命令生成", self)
+        title = QLabel(t("下载命令生成"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         # 第 1 块：游戏信息 + 重新载入
         top = QHBoxLayout()
-        self._lbl_game = QLabel("（还没有选择游戏）")
-        btn_reload = QPushButton("重新载入")
+        self._lbl_game = QLabel(t("（还没有选择游戏）"))
+        btn_reload = QPushButton(t("重新载入"))
         btn_reload.setToolTip(
-            "从数据库重新读取当前游戏的 mod 清单并重建勾选状态"
-            "（别的页面改过备注/状态后，点这里同步最新数据）")
+            t("从数据库重新读取当前游戏的 mod 清单并重建勾选状态"
+            "（别的页面改过备注/状态后，点这里同步最新数据）"))
         btn_reload.clicked.connect(self._reload)
         top.addWidget(self._lbl_game, 1)
         top.addWidget(btn_reload)
-        btn_quick = QPushButton("快速命令查询…")
+        btn_quick = QPushButton(t("快速命令查询…"))
         btn_quick.setToolTip(
-            "贴任意工坊网址 / 编号 / 命令行，联网查归属后生成"
-            "「条目自己游戏」的下载命令——不限于当前档案的游戏"
+            t("贴任意工坊网址 / 编号 / 命令行，联网查归属后生成"
+            "「条目自己游戏」的下载命令——不限于当前档案的游戏")
             )
         btn_quick.clicked.connect(self._on_quick_query)
         top.addWidget(btn_quick)
@@ -193,26 +194,26 @@ class CommandGenPage(QWidget):
         self._usage_sec.set_content(usage_scroll, 48)  # ≈三行 12px 文本
         hint = QHBoxLayout()
         hint.addWidget(self._usage_sec, 1)
-        self._btn_login = QPushButton("复制登录命令")
+        self._btn_login = QPushButton(t("复制登录命令"))
         self._btn_login.setToolTip(
-            "复制设置页里填的 steamcmd 登录命令；"
-            "还没填的话去设置页 → steamcmd 登录命令")
+            t("复制设置页里填的 steamcmd 登录命令；"
+            "还没填的话去设置页 → steamcmd 登录命令"))
         self._btn_login.clicked.connect(self._on_copy_login)
         hint.addWidget(self._btn_login, 0, Qt.AlignTop)  # 与分区标题行齐平
         root.addLayout(hint)
 
         # 第 2.5 块：页内筛选框——三组清单共用一个过滤词
         filter_row = QHBoxLayout()
-        lbl_filter = QLabel("筛选")
+        lbl_filter = QLabel(t("筛选"))
         lbl_filter.setStyleSheet("color: gray;")
         self._filter = QLineEdit()
         self._filter.setPlaceholderText(
-            "按 mod 标题或编号过滤下面的清单…（即时生效；只隐藏行，"
-            "不清勾选；全选/清空只作用于筛出的行）")
+            t("按 mod 标题或编号过滤下面的清单…（即时生效；只隐藏行，"
+            "不清勾选；全选/清空只作用于筛出的行）"))
         self._filter.setClearButtonEnabled(True)
         self._filter.setToolTip(
-            "三组清单同时过滤：标题包含或编号包含都算命中；"
-            "清空输入框（或点右侧 ×）恢复全部行")
+            t("三组清单同时过滤：标题包含或编号包含都算命中；"
+            "清空输入框（或点右侧 ×）恢复全部行"))
         self._filter.textChanged.connect(self._apply_filter)
         filter_row.addWidget(lbl_filter)
         filter_row.addWidget(self._filter, 1)
@@ -229,16 +230,16 @@ class CommandGenPage(QWidget):
         # 第 4 块：预览 + 统计 + 按钮
         self._preview = QPlainTextEdit()
         self._preview.setReadOnly(True)
-        self._preview.setPlaceholderText("勾选 mod 后，这里实时显示将要复制的命令")
+        self._preview.setPlaceholderText(t("勾选 mod 后，这里实时显示将要复制的命令"))
         self._preview.setMaximumHeight(110)
         outer.addWidget(self._preview)  # 壳外常驻：矮窗口也能边勾边看命令
 
         bottom = QHBoxLayout()
-        self._lbl_summary = QLabel("已勾选 0 个")
-        btn_save = QPushButton("另存为 txt")
-        btn_save.setToolTip("把当前勾选对应的命令存成 txt 文件，内容与复制的完全一致")
-        btn_copy = QPushButton("复制命令")
-        btn_copy.setToolTip("把当前勾选对应的命令复制进剪贴板，去 steamcmd 窗口粘贴回车即可")
+        self._lbl_summary = QLabel(t("已勾选 0 个"))
+        btn_save = QPushButton(t("另存为 txt"))
+        btn_save.setToolTip(t("把当前勾选对应的命令存成 txt 文件，内容与复制的完全一致"))
+        btn_copy = QPushButton(t("复制命令"))
+        btn_copy.setToolTip(t("把当前勾选对应的命令复制进剪贴板，去 steamcmd 窗口粘贴回车即可"))
         btn_copy.setDefault(True)
         btn_save.clicked.connect(self._on_save)
         btn_copy.clicked.connect(self._on_copy)
@@ -253,12 +254,12 @@ class CommandGenPage(QWidget):
         """MainWindow 切换游戏时调用。game 可能为 None（还没添加档案）。"""
         self._game = game
         if game is None:
-            self._lbl_game.setText("（还没有选择游戏）—— 请先添加档案")
+            self._lbl_game.setText(t("（还没有选择游戏）—— 请先添加档案"))
             self._clear_body()
             self._preview.clear()
-            self._lbl_summary.setText("已勾选 0 个")
+            self._lbl_summary.setText(t("已勾选 0 个"))
             return
-        self._lbl_game.setText(f"当前游戏：{game.name}（AppID {game.app_id}）")
+        self._lbl_game.setText(t('当前游戏：') + f"{game.name}" + f'（AppID ' + f"{game.app_id}" + f'）')
         self._reload()
 
     def focus_ids(self, mod_ids):
@@ -282,7 +283,7 @@ class CommandGenPage(QWidget):
         missing = id_set - found
         if missing:
             self._log.warn(
-                f"这些 mod 不在可下载清单中（可能已删除/失败）：{sorted(missing)}")
+                t('这些 mod 不在可下载清单中（可能已删除/失败）：') + f"{sorted(missing)}")
         for key in hit_groups:
             self._sec_state[key] = True  # 登记用户"应该看到展开"的选择
             sec = self._sections.get(key)
@@ -340,11 +341,11 @@ class CommandGenPage(QWidget):
         # 高度预算已计入 _section_height 的 +40
         if key == "not_downloaded":
             tip = QLabel(
-                "「待下载」= 已入库还没下载的正常排队，以及已下载但版本"
+                t("「待下载」= 已入库还没下载的正常排队，以及已下载但版本"
                 "未知的条目（重下无害，正好补版本），不是异常。默认已"
                 "全部勾上——点右下角【复制命令】去 steamcmd 执行；下完"
                 "到【入账中心】点【扫描游戏目录】，盘上内容会出现在待"
-                "认领区，勾选确认后转正「已下载」并记下版本。",
+                "认领区，勾选确认后转正「已下载」并记下版本。"),
                 content)
 
             tip.setWordWrap(True)  # 踩坑⑨
@@ -354,7 +355,7 @@ class CommandGenPage(QWidget):
         if not rows:
             # 空组：不给工具行也不给内滚区（全选/清空无意义），
             # 一行静态说明 + 56px 固定高度即可
-            lbl = QLabel("（本组当前没有条目）", content)
+            lbl = QLabel(t("（本组当前没有条目）"), content)
             lbl.setStyleSheet("color: gray;")
             cv.addWidget(lbl)
         else:
@@ -363,13 +364,13 @@ class CommandGenPage(QWidget):
             tools.setFixedHeight(_TOOLS_H)
             th = QHBoxLayout(tools)
             th.setContentsMargins(0, 0, 0, 0)
-            btn_all = QPushButton("全选", tools)
+            btn_all = QPushButton(t("全选"), tools)
             btn_all.setToolTip(
-                "勾选本组当前显示的 mod（有筛选词时只作用于筛出的行；"
-                "没有筛选 = 全组）")
-            btn_none = QPushButton("清空", tools)
+                t("勾选本组当前显示的 mod（有筛选词时只作用于筛出的行；"
+                "没有筛选 = 全组）"))
+            btn_none = QPushButton(t("清空"), tools)
             btn_none.setToolTip(
-                "取消本组当前显示的 mod 的勾选（有筛选词时只作用于筛出的行）")
+                t("取消本组当前显示的 mod 的勾选（有筛选词时只作用于筛出的行）"))
             # 用 k=key 把"当前组名"固定住，避免按钮触发时读到循环变量的最后值
             btn_all.clicked.connect(
                 lambda _=False, k=key: self._set_group(k, True))
@@ -382,7 +383,7 @@ class CommandGenPage(QWidget):
 
             # ---- 筛空占位行：筛选激活且本组零命中时显示（决策 22④）----
             empty_lbl = QLabel(
-                "（没有匹配当前筛选的行——清空上方筛选框即可全部显示）",
+                t("（没有匹配当前筛选的行——清空上方筛选框即可全部显示）"),
                 content)
             empty_lbl.setStyleSheet("color: gray;")
             empty_lbl.setVisible(False)
@@ -398,8 +399,8 @@ class CommandGenPage(QWidget):
             for m in rows:
                 # 标题还没补全（没跑过更新检测）时显示"（无标题）"而不是
                 # "None"——和 mod 库页列表的兜底口径保持一致
-                cb = QCheckBox(f"{m.mod_id} {m.title or '（无标题）'}", rows_widget)
-                cb.setToolTip(f"{m.mod_id}　{m.title or '（无标题）'}")
+                cb = QCheckBox(f"{m.mod_id} {m.title or t('（无标题）')}", rows_widget)
+                cb.setToolTip(f"{m.mod_id}　{m.title or t('（无标题）')}")
                 # 推荐勾选：需要更新 + 已收录 默认勾上；已最新默认不勾
                 cb.setChecked(key in ("needs_update", "not_downloaded"))
                 cb.toggled.connect(self._refresh_stats)
@@ -412,7 +413,7 @@ class CommandGenPage(QWidget):
                 rh.addWidget(cb, 1)
                 btn_open = QPushButton("↗", row_w)
                 btn_open.setFixedWidth(28)
-                btn_open.setToolTip("在浏览器打开该 mod 的创意工坊页面")
+                btn_open.setToolTip(t("在浏览器打开该 mod 的创意工坊页面"))
                 btn_open.setEnabled(bool(m.url))
                 if m.url:
                     btn_open.clicked.connect(
@@ -512,7 +513,7 @@ class CommandGenPage(QWidget):
             if sec is not None:
                 sec.set_title(label)  # 标题常显：收起也看得到勾了多少
             parts.append(f"{title} {n}")
-        self._lbl_summary.setText(f"已勾选 {total} 个（{' + '.join(parts)}）")
+        self._lbl_summary.setText(t('已勾选 ') + f"{total}" + t(' 个（') + f"{' + '.join(parts)}" + f'）')
         self._preview.setPlainText(self._current_text() or "")
 
     def _checked_ids(self):
@@ -539,8 +540,8 @@ class CommandGenPage(QWidget):
         if self._game is not None:
             return True
         QMessageBox.information(
-            self, "请先选择档案",
-            "命令按当前游戏档案生成——请先在左上角添加或选择游戏档案。")
+            self, t("请先选择档案"),
+            t("命令按当前游戏档案生成——请先在左上角添加或选择游戏档案。"))
         return False
 
     # ---------------- 三个动作 ----------------
@@ -555,13 +556,13 @@ class CommandGenPage(QWidget):
         cmd = str(self._settings.get(_LOGIN_CMD_KEY) or "").strip()
         if not cmd:
             QMessageBox.information(
-                self, "还没填登录命令",
-                "设置页 → steamcmd 登录命令 还没有填写。\n"
-                "填好后回来点【复制登录命令】即可。")
-            self._log.warn("登录命令为空：未复制，请先到设置页填写")
+                self, t("还没填登录命令"),
+                t("设置页 → steamcmd 登录命令 还没有填写。\n"
+                "填好后回来点【复制登录命令】即可。"))
+            self._log.warn(t("登录命令为空：未复制，请先到设置页填写"))
             return
         QApplication.clipboard().setText(cmd)
-        self._log.ok("已复制登录命令，打开 steamcmd 后先粘贴这条回车")
+        self._log.ok(t("已复制登录命令，打开 steamcmd 后先粘贴这条回车"))
 
     def _on_copy(self):
         """把勾选的下载命令复制进剪贴板。"""
@@ -569,11 +570,11 @@ class CommandGenPage(QWidget):
             return
         ids = self._checked_ids()
         if not ids:
-            QMessageBox.information(self, "提示", "还没勾选任何 mod。")
+            QMessageBox.information(self, t("提示"), t("还没勾选任何 mod。"))
             return
         text = self._current_text()  # 上面已挡掉无游戏的情况，这里必非 None
         QApplication.clipboard().setText(text)
-        self._log.ok(f"已复制 {len(ids)} 条下载命令，去 steamcmd 窗口粘贴回车即可")
+        self._log.ok(t('已复制 ') + f"{len(ids)}" + t(' 条下载命令，去 steamcmd 窗口粘贴回车即可'))
         self._log_generated(text)
 
     def _on_save(self):
@@ -582,7 +583,7 @@ class CommandGenPage(QWidget):
             return
         ids = self._checked_ids()
         if not ids:
-            QMessageBox.information(self, "提示", "还没勾选任何 mod。")
+            QMessageBox.information(self, t("提示"), t("还没勾选任何 mod。"))
             return
         default_name = f"下载命令_{date.today():%Y%m%d}.txt"
         # 默认存到系统"文档"目录，而不是游戏的下载目录（download_dir）。
@@ -604,7 +605,7 @@ class CommandGenPage(QWidget):
             return
         text = self._current_text()
         Path(path).write_text(text, encoding="utf-8")
-        self._log.ok(f"已保存 {len(ids)} 条下载命令：{path}")
+        self._log.ok(t('已保存 ') + f"{len(ids)}" + t(' 条下载命令：') + f"{path}")
         self._log_generated(text)
 
     # ---------------- 记账 ----------------
@@ -631,4 +632,4 @@ class CommandGenPage(QWidget):
             op_id = self._repo.add_operation(command_text)
             self._repo.finish_operation(op_id, result="generated")
         except Exception as exc:
-            self._log.error(f"写 operations_log 失败（复制/另存本身不受影响）：{exc}")
+            self._log.error(t('写 operations_log 失败（复制/另存本身不受影响）：') + f"{exc}")
