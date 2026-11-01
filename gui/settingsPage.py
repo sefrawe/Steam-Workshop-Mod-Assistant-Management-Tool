@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
 
 from gui.theme import reapply_theme, font_px
 from core.appSettings import DEFAULTS, AppSettings
-from core.i18n import available_languages  # 语言下拉选项：扫 gui/i18n_*.json 自动发现
+from core.i18n import available_languages, t  # 语言下拉选项：扫 gui/i18n_*.json 自动发现
 from core.steamPaths import (clear_download_caches, ensure_steamcmd_exe,
                               steamcmd_exe_names)
 from gui.logBus import LogBus
@@ -252,7 +252,7 @@ class SettingsPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("全局设置")
+        title = QLabel(t("全局设置"))
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
@@ -273,27 +273,27 @@ class SettingsPage(QWidget):
                 # 开关项：勾选框自带状态语义，不设说明/校验两层；
                 # hint 放 tooltip（决策 22② 的等价满足）
                 cb = QCheckBox()
-                cb.setToolTip(hint)
+                cb.setToolTip(t(hint))
                 self._checks[key] = cb
                 if key == "steamcmd_clear_cache_before_batch":
                     # 机制开关与就地执行同排：这条机制的"要不要自动"
                     # 和"现在手动来一次"一眼看全（用户拍板的手动入口）
-                    btn = QPushButton("立即清理缓存")
-                    btn.setToolTip(
+                    btn = QPushButton(t("立即清理缓存"))
+                    btn.setToolTip(t(
                         "马上清空一次 steamcmd 的下载缓存（depotcache 与 "
                         "workshop\\downloads），用的就是批次前自动清理"
                         "的同一套引擎：内容目录一概不碰，steamcmd 正在"
                         "运行时只清没被占用的部分（占用的跳过，属正常）。\n"
-                        "缓存特别大时界面可能卡几秒（删除在主线程执行）")
+                        "缓存特别大时界面可能卡几秒（删除在主线程执行）"))
                     btn.clicked.connect(self._clean_caches_now)
                     h = QHBoxLayout()
                     h.setContentsMargins(0, 0, 0, 0)
                     h.addWidget(cb)
                     h.addWidget(btn)
                     h.addStretch(1)
-                    form.addRow(label, h)
+                    form.addRow(t(label), h)
                 else:
-                    form.addRow(label, cb)
+                    form.addRow(t(label), cb)
                 continue
 
             if kind == "text_multi":
@@ -325,7 +325,7 @@ class SettingsPage(QWidget):
                 # 路径行 = 输入框 + 浏览按钮并排；文本项直接放输入框。
                 # 不设最小宽度：QLineEdit 横向本来就是扩张策略，
                 # 会自动填满页面剩余宽度，设了反而把窗口顶宽（踩坑 ⑨）
-                browse = QPushButton("浏览…")
+                browse = QPushButton(t("浏览…"))
                 browse.clicked.connect(
                     lambda _=False, e=edit, f=(kind == "file"):
                     self._browse(e, f))
@@ -337,7 +337,7 @@ class SettingsPage(QWidget):
             else:
                 v.addWidget(edit)
 
-            desc = QLabel(hint)
+            desc = QLabel(t(hint))
             desc.setWordWrap(True)   # 必须换行，否则整句长度变成窗口最小宽度
             desc.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
             v.addWidget(desc)
@@ -346,7 +346,7 @@ class SettingsPage(QWidget):
             status.setWordWrap(True)
             self._statuses[key] = status
             v.addWidget(status)
-            form.addRow(label, field)
+            form.addRow(t(label), field)
 
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
@@ -354,14 +354,14 @@ class SettingsPage(QWidget):
         # 界面主题三态（决策 66）：独立于 _FIELDS 校验体系（无需校验、
         # 且即时生效不走"保存"），一行横排放按钮区上方
         theme_row = QHBoxLayout()
-        theme_row.addWidget(QLabel("界面主题："))
+        theme_row.addWidget(QLabel(t("界面主题：")))
         self._theme_combo = QComboBox()
-        self._theme_combo.addItem("跟随系统", "auto")
-        self._theme_combo.addItem("深色", "dark")
-        self._theme_combo.addItem("亮色", "light")
-        self._theme_combo.setToolTip(
+        self._theme_combo.addItem(t("跟随系统"), "auto")
+        self._theme_combo.addItem(t("深色"), "dark")
+        self._theme_combo.addItem(t("亮色"), "light")
+        self._theme_combo.setToolTip(t(
             "跟随系统：系统深浅色切换时软件跟着变（推荐）；\n"
-            "深色 / 亮色：固定配色，切换即时生效并记住")
+            "深色 / 亮色：固定配色，切换即时生效并记住"))
         theme_row.addWidget(self._theme_combo)
 
         # 界面语言（2026-11）：与主题同排同惯例——DEFAULTS 键 + 就地
@@ -373,11 +373,11 @@ class SettingsPage(QWidget):
         self._lang_combo = QComboBox()
         for code, name in available_languages():
             self._lang_combo.addItem(name, code)
-        self._lang_combo.setToolTip(
+        self._lang_combo.setToolTip(t(
             "切换界面语言。改后需重启程序生效；当前翻译覆盖菜单/工具栏/"
             "采集页等操作面，其余页面仍显示中文。\n"
             "想加新语言：把 i18n_xx.json 翻译文件放进 gui/ 文件夹即可，"
-            "下拉框会自动多出这一项")
+            "下拉框会自动多出这一项"))
         theme_row.addWidget(QLabel("界面语言 / Language："))
         theme_row.addWidget(self._lang_combo)
         theme_row.addStretch(1)
@@ -387,9 +387,9 @@ class SettingsPage(QWidget):
         btn_row = QWidget()
         h = QHBoxLayout(btn_row)
         h.setContentsMargins(0, 6, 0, 0)
-        save = QPushButton("保存")
+        save = QPushButton(t("保存"))
         save.clicked.connect(self._save)
-        reset = QPushButton("恢复默认")
+        reset = QPushButton(t("恢复默认"))
         reset.clicked.connect(self._reset)
         h.addWidget(save)
         h.addWidget(reset)
@@ -401,9 +401,9 @@ class SettingsPage(QWidget):
         self._saved_label.setWordWrap(True)
         root.addWidget(self._saved_label)
 
-        note = QLabel(
+        note = QLabel(t(
             "说明：设置保存在 config/GlobalSettings.json，各功能在使用时读取；"
-            "若修改某项后未生效，重启程序即可。")
+            "若修改某项后未生效，重启程序即可。"))
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")
         root.addWidget(note)
@@ -413,30 +413,30 @@ class SettingsPage(QWidget):
         清账后的自动清理同一出处，事后可查）。"""
         cmd = str(self._settings.get("steamcmd_path") or "").strip()
         if not cmd:
-            self._saved_label.setText("尚未设置 steamcmd 程序路径：填好后再来清理")
+            self._saved_label.setText(t("尚未设置 steamcmd 程序路径：填好后再来清理"))
             self._saved_label.setStyleSheet("color: gray;")
-            self._log.warn("手动清理缓存：尚未设置 steamcmd 程序路径，未执行")
+            self._log.warn(t("手动清理缓存：尚未设置 steamcmd 程序路径，未执行"))
             return
         try:
             freed, cleared, skipped = clear_download_caches(cmd)
         except Exception as exc:  # 引擎契约：不抛错；这里是兜底
-            self._saved_label.setText(f"清理出错：{exc}")
+            self._saved_label.setText(t("清理出错：") + str(exc))
             self._saved_label.setStyleSheet("color: #e5484d;")
-            self._log.error(f"手动清理缓存出错：{exc}")
+            self._log.error(t("手动清理缓存出错：") + str(exc))
             return
         if cleared == 0 and not skipped:
-            self._saved_label.setText("缓存本来就是空的，无需清理")
+            self._saved_label.setText(t("缓存本来就是空的，无需清理"))
             self._saved_label.setStyleSheet("color: gray;")
-            self._log.info("手动清理缓存：缓存本来就是空的，无需清理")
+            self._log.info(t("手动清理缓存：缓存本来就是空的，无需清理"))
             return
-        line = f"已清理缓存：清掉 {cleared} 项，释放 {freed / 2 ** 20:.1f} MB"
+        line = t("已清理缓存：清掉") + f" {cleared} " + t("项，释放") + f" {freed / 2 ** 20:.1f} MB"
         if skipped:
-            line += f"；跳过 {len(skipped)} 项（被 steamcmd 占用，属正常）"
+            line += t("；跳过") + f" {len(skipped)} " + t("项（被 steamcmd 占用，属正常）")
         self._saved_label.setText(line)
         self._saved_label.setStyleSheet("color: #46a758;")
-        self._log.ok(f"手动清理缓存：清掉 {cleared} 项，"
-                     f"释放 {freed / 2 ** 20:.1f} MB"
-                     + (f"；跳过 {len(skipped)} 项（被占用）" if skipped else ""))
+        self._log.ok(t("手动清理缓存：清掉") + f" {cleared} " + t("项，释放")
+                     + f" {freed / 2 ** 20:.1f} MB"
+                     + ((t("；跳过") + f" {len(skipped)} " + t("项（被占用）")) if skipped else ""))
 
     # ---------- 数据 ----------
     def _load_to_ui(self) -> None:
@@ -498,28 +498,28 @@ class SettingsPage(QWidget):
                     found = next((n for n in names
                                   if (p / n).is_file()), None)
                     valid = found is not None
-                    ok_text = f"已识别文件夹：保存时自动补全为其中的 {found}"
-                    bad_text = ("文件夹里没有找到 steamcmd 可执行文件（"
+                    ok_text = t("已识别文件夹：保存时自动补全为其中的") + f" {found}"
+                    bad_text = (t("文件夹里没有找到 steamcmd 可执行文件（")
                                 + " / ".join(names) + "）"
-                                "（可先保存，使用相关功能前修正即可）")
+                                + t("（可先保存，使用相关功能前修正即可）"))
                 else:
                     valid = p.is_file()
-                    ok_text = "路径有效"
-                    bad_text = "路径不存在（可先保存，使用相关功能前修正即可）"
+                    ok_text = t("路径有效")
+                    bad_text = t("路径不存在（可先保存，使用相关功能前修正即可）")
             elif kind == "dir":
                 valid = Path(text).is_dir()
-                ok_text = "路径有效"
-                bad_text = "路径不存在（可先保存，使用相关功能前修正即可）"
+                ok_text = t("路径有效")
+                bad_text = t("路径不存在（可先保存，使用相关功能前修正即可）")
             elif kind in ("text", "text_multi"):
                 # 文本项没有"对错"概念，填了就算数——
                 # 内容对不对只有 steamcmd 用起来才知道
                 valid = True
-                ok_text = "已填写（使用时原样传递，不校验内容）"
+                ok_text = t("已填写（使用时原样传递，不校验内容）")
                 bad_text = ok_text
             else:   # number
                 valid = self._number_ok(text)
-                ok_text = "数值有效"
-                bad_text = "需要正整数，保存前请修正"
+                ok_text = t("数值有效")
+                bad_text = t("需要正整数，保存前请修正")
             status.setText(ok_text if valid else bad_text)
             status.setStyleSheet(
                 "color: #46a758;" if valid else "color: #e5484d;")
@@ -530,9 +530,9 @@ class SettingsPage(QWidget):
                     if kind == "number"
                     and not self._number_ok(self._edits[key].text().strip())]
         if bad_keys:
-            labels = "、".join(label for key, label, _h, _k in _FIELDS
+            labels = "、".join(t(label) for key, label, _h, _k in _FIELDS
                               if key in bad_keys)
-            self._saved_label.setText(f"以下设置需要正整数，未保存：{labels}")
+            self._saved_label.setText(t("以下设置需要正整数，未保存：") + labels)
             self._saved_label.setStyleSheet("color: #e5484d;")
             return
 
@@ -569,10 +569,10 @@ class SettingsPage(QWidget):
                    if cb.isChecked() != self._bools_at_load.get(k, True)]
         self._bools_at_load = {k: cb.isChecked()
                                for k, cb in self._checks.items()}
-        msg = (f"已保存 {time.strftime('%H:%M:%S')} → "
+        msg = (t("已保存") + f" {time.strftime('%H:%M:%S')} → "
                f"{self._settings.path}")
         if changed:
-            msg += "\n列显示有改动：回 mod 库页点【刷新】生效"
+            msg += "\n" + t("列显示有改动：回 mod 库页点【刷新】生效")
         self._saved_label.setText(msg)
         self._saved_label.setStyleSheet("color: #46a758;")
 
@@ -585,7 +585,7 @@ class SettingsPage(QWidget):
         self._settings.save()
         reapply_theme()
         self._saved_label.setText(
-            f"主题已切换为「{self._theme_combo.currentText()}」并保存")
+            t("主题已切换为「") + self._theme_combo.currentText() + t("」并保存"))
         self._saved_label.setStyleSheet("color: #46a758;")
 
     def _on_language_changed(self) -> None:
@@ -597,8 +597,8 @@ class SettingsPage(QWidget):
         self._settings.set("language", code)
         self._settings.save()
         self._saved_label.setText(
-            f"界面语言已保存为「{self._lang_combo.currentText()}」"
-            "——重启程序后生效")
+            t("界面语言已保存为「") + self._lang_combo.currentText()
+            + t("」——重启程序后生效"))
         self._saved_label.setStyleSheet("color: #46a758;")
 
     def _reset(self) -> None:
@@ -622,7 +622,7 @@ class SettingsPage(QWidget):
             # 开关默认值从 DEFAULTS 读（"0"=默认关），不再一刀切 True
             cb.setChecked(str(DEFAULTS.get(key, "1")) != "0")
 
-        self._saved_label.setText("已恢复默认值，点【保存】写入文件")
+        self._saved_label.setText(t("已恢复默认值，点【保存】写入文件"))
         self._saved_label.setStyleSheet("color: gray;")
     def _browse(self, edit: QLineEdit, is_file: bool) -> None:
         """路径字段的浏览按钮：文件项选 exe，目录项选文件夹。
@@ -638,12 +638,12 @@ class SettingsPage(QWidget):
         if is_file:
             # Windows 只认 .exe；Linux 的 steamcmd 无扩展名（steamcmd /
             # steamcmd.sh），过滤器按平台给，避免 Mint 上选不到程序
-            flt = ("可执行程序 (*.exe);;所有文件 (*.*)" if os.name == "nt"
-                   else "steamcmd 程序 (steamcmd steamcmd.sh);;所有文件 (*)")
+            flt = (t("可执行程序 (*.exe);;所有文件 (*.*)") if os.name == "nt"
+                   else t("steamcmd 程序 (steamcmd steamcmd.sh);;所有文件 (*)"))
             path, _flt = QFileDialog.getOpenFileName(
-                self, "选择程序", start, flt)
+                self, t("选择程序"), start, flt)
         else:
-            path = QFileDialog.getExistingDirectory(self, "选择文件夹", start)
+            path = QFileDialog.getExistingDirectory(self, t("选择文件夹"), start)
         if path:
             edit.setText(path)
 
