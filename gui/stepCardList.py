@@ -34,6 +34,8 @@ from PySide6.QtWidgets import (
     QMenu, QPushButton, QVBoxLayout, QWidget,
 )
 
+from core.i18n import t
+
 # 与 consolePanel 一致的配色，按用途命名
 _C_OK = "#46a758"    # 成功
 _C_FAIL = "#e5484d"  # 失败/出错
@@ -70,13 +72,13 @@ class StepCardList(QWidget):
         # 顶栏：状态 + 停止/继续
         top = QHBoxLayout()
         self._status = QLabel(
-            "未开始：在 mod 库勾选要下载的 mod，然后点【下载选中项】", self)
-        self._btn_stop = QPushButton("停止批次", self)
+            t("未开始：在 mod 库勾选要下载的 mod，然后点【下载选中项】"), self)
+        self._btn_stop = QPushButton(t("停止批次"), self)
         self._btn_stop.setToolTip(
-            "温和停止：不再发新命令，正在下载的那条让它跑完再收尾")
-        self._btn_resume = QPushButton("继续批次", self)
+            t("温和停止：不再发新命令，正在下载的那条让它跑完再收尾"))
+        self._btn_resume = QPushButton(t("继续批次"), self)
         self._btn_resume.setToolTip(
-            "在终端里完成手动登录后点这里，继续发剩下的下载命令")
+            t("在终端里完成手动登录后点这里，继续发剩下的下载命令"))
         self._btn_stop.setEnabled(False)
         self._btn_resume.setEnabled(False)
         self._btn_stop.clicked.connect(self.stop_requested.emit)
@@ -88,9 +90,9 @@ class StepCardList(QWidget):
 
         # 重试按钮（批次结束有失败/超时才亮出；平时隐藏不占地方）
         self._retry_btn = QPushButton(self)
-        self._retry_btn.setToolTip(
+        self._retry_btn.setToolTip(t(
             "把本批失败/超时的条目再开一批重新下载（同一游戏、同一顺序）。\n"
-            "超时常见原因是服务器侧暂时没同步齐——换个时段重试常能成功")
+            "超时常见原因是服务器侧暂时没同步齐——换个时段重试常能成功"))
         self._retry_btn.setVisible(False)
         self._retry_btn.clicked.connect(self._on_retry_clicked)
         root.addWidget(self._retry_btn)
@@ -138,13 +140,13 @@ class StepCardList(QWidget):
         self._cards.clear()
         self._items.clear()
         if has_login:
-            self._make_card("login", "① 登录")
-            download_title = "② 逐条下载"
+            self._make_card("login", t("① 登录"))
+            download_title = t("② 逐条下载")
         else:
-            download_title = "① 逐条下载"
+            download_title = t("① 逐条下载")
         self._make_card("download", download_title)
-        self._set_card("download", f"0/{total} 完成", _C_MUTED)
-        self._status.setText(f"批次进行中：共 {total} 条")
+        self._set_card("download", f"0/{total} " + t("完成"), _C_MUTED)
+        self._status.setText(t("批次进行中：共") + f" {total} " + t("条"))
         self._btn_stop.setEnabled(True)
         self._btn_resume.setEnabled(False)
 
@@ -153,49 +155,49 @@ class StepCardList(QWidget):
         t = ev.get("type")
         if t == "login_started":
             # 不回显命令原文（可能带密码，见文件头安全细节）
-            self._set_card("login", "登录命令已发送，等待 steamcmd 应答…", _C_INFO)
+            self._set_card("login", t("登录命令已发送，等待 steamcmd 应答…"), _C_INFO)
         elif t == "login_ok":
-            self._set_card("login", "登录成功", _C_OK)
+            self._set_card("login", t("登录成功"), _C_OK)
         elif t == "need_login":
-            self._set_card("login", "需要手动登录：去终端完成登录后点【继续批次】", _C_WARN)
+            self._set_card("login", t("需要手动登录：去终端完成登录后点【继续批次】"), _C_WARN)
             self._btn_resume.setEnabled(True)
         elif t == "item_started":
             self._done = ev.get("done", self._done)
             mod_id = ev.get("mod_id")
-            self._set_card("download", f"{self._done}/{self._total} 完成 · 当前 mod {mod_id}", _C_INFO)
-            self._status.setText(f"进行中 {self._done + 1}/{self._total}")
+            self._set_card("download", f"{self._done}/{self._total} " + t("完成 · 当前 mod") + f" {mod_id}", _C_INFO)
+            self._status.setText(t("进行中") + f" {self._done + 1}/{self._total}")
             # 行挂上 mod 编号（UserRole）——行右键动作靠它
             self._current_row = self._append_row(
-                f"mod {mod_id} · 下载中…", _C_MUTED, mod_id=mod_id)
+                f"mod {mod_id} · " + t("下载中…"), _C_MUTED, mod_id=mod_id)
         elif t == "item_done":
             self._done = ev.get("done", self._done + 1)
             mod_id = ev.get("mod_id")
             ok = ev.get("ok")
             reason = ev.get("reason") or ""
             if ok:
-                self._finish_current_row(f"mod {mod_id} · 成功", _C_OK)
+                self._finish_current_row(f"mod {mod_id} · " + t("成功"), _C_OK)
             elif reason == "Timeout":
                 self._timeout_ids.append(mod_id)  # 收集给重试按钮
                 # 超时行提醒"未必真失败"：大 mod 可能还在跑，
                 # 真相在终端原文里
                 self._finish_current_row(
-                    f"mod {mod_id} · 超时（大 mod 可能只是慢，看终端确认）",
+                    f"mod {mod_id} · " + t("超时（大 mod 可能只是慢，看终端确认）"),
                     _C_WARN)
             else:
                 self._failed_ids.append(mod_id)  # 收集给重试按钮
-                self._finish_current_row(f"mod {mod_id} · 失败：{reason}", _C_FAIL)
-            self._set_card("download", f"{self._done}/{self._total} 完成", _C_INFO)
-            self._status.setText(f"进行中 {self._done}/{self._total}")
+                self._finish_current_row(f"mod {mod_id} · " + t("失败") + f"：{reason}", _C_FAIL)
+            self._set_card("download", f"{self._done}/{self._total} " + t("完成"), _C_INFO)
+            self._status.setText(t("进行中") + f" {self._done}/{self._total}")
         elif t == "disconnected":
             code = ev.get("code")
             note = ev.get("note") or ""
-            self._append_row(f"⚠ 断线（code {code}）{note}：steamcmd 会自动重试", _C_WARN)
+            self._append_row(f"⚠ {t('断线')}（code {code}）{note}：{t('steamcmd 会自动重试')}", _C_WARN)
         elif t == "warn":
             self._append_row(f"⚠ {ev.get('note') or ''}", _C_WARN)
         elif t == "send_failed":
             self._append_row(f"✗ 命令发送失败：{ev.get('note') or ''}", _C_FAIL)
         elif t == "stop_requested":
-            self._status.setText("停止中：不再发新命令，等当前条跑完…")
+            self._status.setText(t("停止中：不再发新命令，等当前条跑完…"))
             self._btn_stop.setEnabled(False)
         elif t == "batch_done":
             self._on_batch_done(ev.get("summary") or {})
@@ -267,32 +269,33 @@ class StepCardList(QWidget):
         self._btn_resume.setEnabled(False)
         # 批次结束时还挂着"下载中"（如发送失败中途收尾）→ 落定为无结论
         if self._current_row is not None:
-            self._finish_current_row("（未收到结论，批次已结束）", _C_MUTED)
+            self._finish_current_row(t("（未收到结论，批次已结束）"), _C_MUTED)
         ok_n = len(s.get("ok") or [])
         fail_n = len(s.get("failed") or [])
         to_n = len(s.get("timeout") or [])
-        self._make_card("summary", "汇总")
+        self._make_card("summary", t("汇总"))
         error = s.get("error") or ""
         if error:
-            self._set_card("summary", f"批次出错：{error}", _C_FAIL)
-            self._status.setText("批次出错")
+            self._set_card("summary", t("批次出错") + f"：{error}", _C_FAIL)
+            self._status.setText(t("批次出错"))
             return
         total = s.get("total", self._total)
-        text = f"成功 {ok_n} · 失败 {fail_n} · 超时 {to_n}（共 {total}）"
+        text = (t("成功") + f" {ok_n} · " + t("失败") + f" {fail_n} · "
+                + t("超时") + f" {to_n} · " + t("共") + f" {total}")
         if s.get("stopped"):
-            self._set_card("summary", "已停止：" + text, _C_WARN)
-            self._status.setText("批次已停止")
+            self._set_card("summary", t("已停止：") + text, _C_WARN)
+            self._status.setText(t("批次已停止"))
         elif fail_n == 0 and to_n == 0:
             self._set_card("summary", text, _C_OK)
-            self._status.setText("批次完成")
+            self._status.setText(t("批次完成"))
         else:
             self._set_card("summary", text, _C_WARN)
-            self._status.setText("批次完成（有未成功的条目，可重跑）")
+            self._status.setText(t("批次完成（有未成功的条目，可重跑）"))
         # 有失败/超时条目 → 亮出重试按钮（一键开新批次只下这几条）
         retry_ids = list(self._failed_ids) + list(self._timeout_ids)
         if retry_ids:
             self._retry_ids = retry_ids
-            self._retry_btn.setText(f"重试失败与超时条目（{len(retry_ids)}）")
+            self._retry_btn.setText(t("重试失败与超时条目") + f" ({len(retry_ids)})")
             self._retry_btn.setVisible(True)
             self._retry_btn.setEnabled(True)
 
@@ -310,18 +313,18 @@ class StepCardList(QWidget):
             return
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        act_copy = QAction("复制编号", menu)
-        act_copy.setToolTip("把这个 mod 的工坊编号复制到剪贴板")
+        act_copy = QAction(t("复制编号"), menu)
+        act_copy.setToolTip(t("把这个 mod 的工坊编号复制到剪贴板"))
         act_copy.triggered.connect(
             lambda: self.ids_action.emit("copy", [mid]))
         menu.addAction(act_copy)
-        act_page = QAction("打开工坊页面", menu)
-        act_page.setToolTip("在浏览器打开该 mod 的创意工坊页面")
+        act_page = QAction(t("打开工坊页面"), menu)
+        act_page.setToolTip(t("在浏览器打开该 mod 的创意工坊页面"))
         act_page.triggered.connect(
             lambda: self.ids_action.emit("open_pages", [mid]))
         menu.addAction(act_page)
-        act_dir = QAction("打开 mod 文件夹", menu)
-        act_dir.setToolTip("在文件管理器打开该 mod 的下载内容文件夹")
+        act_dir = QAction(t("打开 mod 文件夹"), menu)
+        act_dir.setToolTip(t("在文件管理器打开该 mod 的下载内容文件夹"))
         act_dir.triggered.connect(
             lambda: self.ids_action.emit("open_folders", [mid]))
         menu.addAction(act_dir)

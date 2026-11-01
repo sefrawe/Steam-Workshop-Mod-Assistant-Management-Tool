@@ -29,6 +29,7 @@ from gui.logBus import LogBus  # noqa: F401
 from gui.terminalDock import TerminalDock
 from gui.stepCardList import StepCardList
 from gui.theme import log_colors  # 日志四级色 + 时间戳色（主题单源）
+from core.i18n import t
 
 # 运行日志按级别着色：色表单源在 gui/theme.log_colors()——深浅主题
 # 各一套，亮色档按白底对比度校准（旧硬编码 #d4d4d4 在亮色白底几乎
@@ -65,11 +66,11 @@ class ConsolePanel(QWidget):
         self._redock_row = QWidget(self)
         redock_layout = QHBoxLayout(self._redock_row)
         redock_layout.setContentsMargins(4, 2, 4, 0)
-        redock = QPushButton("⤵ 回主窗停靠", self._redock_row)
-        redock.setToolTip(
+        redock = QPushButton(t("⤵ 回主窗停靠"), self._redock_row)
+        redock.setToolTip(t(
             "控制台现在是独立浮动窗口，点这里停回主窗口底部。\n"
             "小知识：拖住停靠窗标题栏可拖动，双击标题栏可在"
-            "「停靠 ↔ 浮动」之间切换")
+            "「停靠 ↔ 浮动」之间切换"))
         redock.setFixedHeight(24)
         redock.clicked.connect(self.redock_requested.emit)
         redock_layout.addWidget(redock)
@@ -97,30 +98,30 @@ class ConsolePanel(QWidget):
         # 日志页底部一排：清空按钮靠左，弹簧占中间，右侧留白——
         # 与终端页顶栏同拍（按钮一律靠左，视觉才不散）
         bottom_row = QHBoxLayout()
-        clear = QPushButton("清空", log_page)
-        clear.setToolTip(
+        clear = QPushButton(t("清空"), log_page)
+        clear.setToolTip(t(
             "清空运行日志的显示内容；不影响 operations_log 表"
-            "（那是给程序读的操作史，两层分开）")
+            "（那是给程序读的操作史，两层分开）"))
         clear.setFixedWidth(80)
         clear.clicked.connect(self._log_view.clear)
         bottom_row.addWidget(clear)
         bottom_row.addStretch(1)
         log_layout.addLayout(bottom_row)
 
-        self._tabs.addTab(log_page, "运行日志")
+        self._tabs.addTab(log_page, t("运行日志"))
 
         # ---- Tab 2：steamcmd 终端 ----
         # settings 转发进去，终端靠它读 steamcmd 路径和登录命令；
         # 终端里出现的每个结论由 TerminalDock 自己送到本类监听的
         # LogBus，这里不需要任何额外接线
         self._terminal = TerminalDock(log_bus, settings, self._tabs)
-        self._tabs.addTab(self._terminal, "steamcmd 终端")
+        self._tabs.addTab(self._terminal, t("steamcmd 终端"))
 
         # ---- Tab 3：下载批次（批次轮回补，原预留注释照此落地）----
         # 卡片只画界面：停止/继续/行右键动作以信号发出，实现全在
         # batchDownloadController（接线在那边做，本文件不认识控制器）
         self._step_list = StepCardList(self._tabs)
-        self._tabs.addTab(self._step_list, "下载批次")
+        self._tabs.addTab(self._step_list, t("下载批次"))
 
         # 切换标签页时检查要不要摘红点。注意接线顺序：先接 UI 信号、
         # 最后接日志流——保证第一条日志到来时界面已经就绪

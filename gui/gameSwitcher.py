@@ -39,6 +39,8 @@ from gui.gameAddDialog import GameAddDialog
 from gui.gameDeleteDialog import GameDeleteDialog
 from gui.gameEditDialog import GameEditDialog
 
+from core.i18n import t
+
 
 class GameSwitcher(QWidget):
     """current_game_changed(Game | None)：选择变化（含清空为空库态）时发射。
@@ -68,9 +70,9 @@ class GameSwitcher(QWidget):
         self._combo.currentIndexChanged.connect(self._emit_current)
         layout.addWidget(self._combo)
 
-        self._btn_add = QPushButton("＋ 添加游戏档案", self)
-        self._btn_add.setToolTip(
-            "输入 AppID 一屏建档：自动查名、查重、下载目录推导预览")
+        self._btn_add = QPushButton(t("＋ 添加游戏档案"), self)
+        self._btn_add.setToolTip(t(
+            "输入 AppID 一屏建档：自动查名、查重、下载目录推导预览"))
         self._btn_add.clicked.connect(self.add_game_dialog)
         layout.addWidget(self._btn_add)
 
@@ -102,7 +104,7 @@ class GameSwitcher(QWidget):
             # 空库不崩：放一个占位项（data=None → current_game() 返回
             # None），下拉置灰；【添加档案】按钮保持可用——空库也能
             # 建第一个档案
-            self._combo.addItem("（暂无游戏档案）", None)
+            self._combo.addItem(t("（暂无游戏档案）"), None)
             self._combo.setEnabled(False)
         else:
             self._combo.setEnabled(True)
@@ -153,8 +155,9 @@ class GameSwitcher(QWidget):
         if dlg.created_app_id is None:
             return   # 用户取消，或建档未成（对话框内已报过原因）
         if self._log is not None:
-            self._log.ok(f"游戏档案已创建（AppID {dlg.created_app_id}），"
-                         "已设为当前档案")
+            self._log.ok(t("游戏档案已创建")
+                         + f"（AppID {dlg.created_app_id}） · "
+                         + t("已设为当前档案"))
         self.reload()
         idx = self._combo.findData(dlg.created_app_id)
         if idx >= 0:
@@ -193,7 +196,8 @@ class GameSwitcher(QWidget):
         档案时下拉自动落到剩余第一项，见 reload 注释）。"""
         game = self.current_game()
         if game is None:
-            QMessageBox.information(self, "删除档案", "当前未选择游戏档案。")
+            QMessageBox.information(self, t("删除档案"),
+                                    t("当前未选择游戏档案。"))
             return
 
         def db_backup() -> str:
@@ -210,8 +214,9 @@ class GameSwitcher(QWidget):
         dlg.exec()
         if dlg.deleted:
             if self._log is not None:
-                self._log.ok(f"档案「{game.name}（{game.app_id}）」已删除；"
-                             "名下账目已清，磁盘文件按勾选处理")
+                self._log.ok(f"「{game.name}（{game.app_id}）」"
+                             + t("已删除") + "；"
+                             + t("名下账目已清，磁盘文件按勾选处理"))
             self.reload()
 
     # ---------- 内部 ----------

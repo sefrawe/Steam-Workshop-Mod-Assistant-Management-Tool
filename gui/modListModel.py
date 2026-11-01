@@ -37,6 +37,8 @@ from core.constants import (
 from core.formatters import fmt_size, relative_time, status_zh
 from gui.theme import zebra_colors
 
+from core.i18n import t
+
 # ---- 列布局（单源：页面的列显隐、宽度记忆、详情联动都按这份编号）----
 # v2 初版 9 列是判决制瘦身的临时形态；本轮按拍板"全部恢复"补回 V1
 # 三列：更新（判定结果独立成列）、标签、关注。V2 保留"本地版本在前"
@@ -156,8 +158,9 @@ class ModListModel(QStandardItemModel):
         super().__init__(parent)
         self.setColumnCount(COLUMN_COUNT)
         self.setHorizontalHeaderLabels(
-            ["勾", "颜色", "编号", "标题", "状态", "本地版本", "远端版本",
-             "更新", "大小", "标签", "关注", "备注"])
+            [t("勾"), t("颜色"), t("编号"), t("标题"), t("状态"),
+             t("本地版本"), t("远端版本"), t("更新"), t("大小"),
+             t("标签"), t("关注"), t("备注")])
 
         self._checked: set[int] = set()       # 勾选的 mod 编号集合
         self._row_by_id: dict[int, int] = {}  # 编号 → 行号（原位刷新用）
@@ -285,17 +288,17 @@ class ModListModel(QStandardItemModel):
         it.setCheckState(Qt.CheckState.Checked
                          if mod.mod_id in self._checked
                          else Qt.CheckState.Unchecked)
-        it.setToolTip("勾选后供「下载命令生成」「批量下载」使用；"
-                      "筛选、排序后勾选保持不变")
+        it.setToolTip(t("勾选后供「下载命令生成」「批量下载」使用；"
+                      "筛选、排序后勾选保持不变"))
         return it
     def _mk_color_item(self, mod, bg: QBrush | None) -> QStandardItem:
         """颜色列：格内只显示颜色代码（预设=色名，自定义=hex），
         整行同色淡染照旧；无标记留空。表头有名字了，这格不用猜。"""
         code = _color_name(mod)
         if code:
-            it = self._plain(code, bg)
-            it.setToolTip(f"颜色标记：{code}（整行同色淡染；"
-                          "右键「颜色标记…」可改/可自定义/可清除）")
+            it = self._plain(t(code), bg)
+            it.setToolTip(f"{t('颜色标记')}：{t(code)}"
+                          f"（{t('整行同色淡染；右键「颜色标记…」可改/可自定义/可清除')}）")
         else:
             it = self._plain("", bg)
         return it
@@ -308,20 +311,20 @@ class ModListModel(QStandardItemModel):
         return it
 
     def _mk_title_item(self, mod, bg: QBrush | None) -> QStandardItem:
-        title = mod.title or "（无标题）"
+        title = mod.title or t("（无标题）")
         special = bool(getattr(mod, "special",getattr(mod, "is_special", False)))
 
         text = ("★ " + title) if special else title
-        tip = ("特别关注：" if special else "") + (mod.title or "")
+        tip = (t("特别关注：") if special else "") + (mod.title or "")
         return self._plain(text, bg, tooltip=tip)
 
     def _mk_status_item(self, mod, bg: QBrush | None) -> QStandardItem:
         return self._plain(
-            status_zh(mod.status), bg,
+            t(status_zh(mod.status)), bg,
             fg=QColor(_STATUS_FG[mod.status])
             if mod.status in _STATUS_FG else None,
-            tooltip="状态只随账本变：确认入账、软删除、恢复都改账本；"
-                    "磁盘文件的增删归「清理与删除」页管")
+            tooltip=t("状态只随账本变：确认入账、软删除、恢复都改账本；"
+                    "磁盘文件的增删归「清理与删除」页管"))
 
     def _mk_local_item(self, mod, bg: QBrush | None) -> QStandardItem:
         """本地版本格："3 天前 · 已验证" 一格读完（D21 修订版）。
@@ -329,15 +332,15 @@ class ModListModel(QStandardItemModel):
         cv = getattr(mod, "confirmed_version", None)
         if not cv:
             return self._plain(
-                "未知", bg, fg=QColor(_DIM_FG),
-                tooltip="还没有确认过本地版本：下载成功的批次收尾清单里"
-                        "勾选确认，或右键「设定本地版本…」手工认定")
+                t("未知"), bg, fg=QColor(_DIM_FG),
+                tooltip=t("还没有确认过本地版本：下载成功的批次收尾清单里"
+                        "勾选确认，或右键「设定本地版本…」手工认定"))
         source = getattr(mod, "confirmed_source", "") or ""
-        word = CONFIRMED_SOURCE_ZH.get(source, source)
+        word = t(CONFIRMED_SOURCE_ZH.get(source, source))
         dim = source in ("unverified", "inherited_acf")
         it = self._plain(f"{relative_time(cv)} · {word}", bg,
                          fg=QColor(_DIM_FG) if dim else None)
-        it.setToolTip(_SOURCE_TIPS.get(source, "本地版本的确认来源"))
+        it.setToolTip(t(_SOURCE_TIPS.get(source, "本地版本的确认来源")))
         return it
     def _mk_remote_item(self, mod, bg: QBrush | None) -> QStandardItem:
         """远端版本格：只报时间。"要不要更新"的判定结果归「更新」列，
@@ -346,12 +349,12 @@ class ModListModel(QStandardItemModel):
         if not rt:
             return self._plain(
                 "—", bg,
-                tooltip="还没做过更新检测：远端版本要点【更新检测】"
-                        "才写进账本")
+                tooltip=t("还没做过更新检测：远端版本要点【更新检测】"
+                        "才写进账本"))
         return self._plain(
             relative_time(rt), bg,
-            tooltip=f"远端最近更新：{relative_time(rt)}"
-                    f"（工坊更新时间，Unix {rt}）")
+            tooltip=f"{t('远端最近更新')}：{relative_time(rt)}"
+                    f"（{t('工坊更新时间')}，Unix {rt}）")
     @staticmethod
     def _update_state(m) -> str:
         """「更新」列六态文字（V1 口径、判定字段换判决制）。
@@ -371,37 +374,38 @@ class ModListModel(QStandardItemModel):
 
     def _mk_update_item(self, mod, bg: QBrush | None) -> QStandardItem:
         state = self._update_state(mod)
+        display = t(state)
         if state == "需更新":
-            it = self._plain(state, bg, fg=QColor(_NEED_UPDATE_FG))
+            it = self._plain(display, bg, fg=QColor(_NEED_UPDATE_FG))
             f = QFont()
             f.setBold(True)
             it.setFont(f)
-            it.setToolTip("远端有更新：工坊更新时间比你确认过的"
-                          "本地版本新")
+            it.setToolTip(t("远端有更新：工坊更新时间比你确认过的"
+                          "本地版本新"))
         else:
             dim = state in ("版本未知", "远端未知", "已删除")
-            it = self._plain(state, bg, fg=QColor(_DIM_FG) if dim else None)
+            it = self._plain(display, bg, fg=QColor(_DIM_FG) if dim else None)
             if state == "远端未知":
-                it.setToolTip("已下载但还没检测过远端：点【更新检测】")
+                it.setToolTip(t("已下载但还没检测过远端：点【更新检测】"))
         return it
 
     def _mk_tags_item(self, mod, bg: QBrush | None) -> QStandardItem:
         tags = getattr(mod, "tags", None) or []
         text = " ".join(tags)
-        return self._plain(text, bg, tooltip=text or "无标签"
-                                                     "（更新检测会从 Steam API 补全）")
+        return self._plain(text, bg, tooltip=text or t("无标签"
+                                                     "（更新检测会从 Steam API 补全）"))
 
     def _mk_special_item(self, mod, bg: QBrush | None) -> QStandardItem:
         on = bool(getattr(mod, "is_special", False))
         it = self._plain("★" if on else "", bg)
-        it.setToolTip("特别关注：" + ("是（更新检测会记提醒）" if on
-                                     else "否（右键可切换）"))
+        it.setToolTip(t("特别关注：") + (t("是（更新检测会记提醒）") if on
+                                     else t("否（右键可切换）")))
         return it
 
     def _mk_size_item(self, mod, bg: QBrush | None) -> QStandardItem:
         it = self._plain(fmt_size(getattr(mod, "local_size", None)), bg)
-        it.setToolTip("本地内容大小——确认入账时随确认回填；未知不阻塞"
-                      "使用，只影响备份前的磁盘空间预检")
+        it.setToolTip(t("本地内容大小——确认入账时随确认回填；未知不阻塞"
+                      "使用，只影响备份前的磁盘空间预检"))
         return it
 
     def _mk_note_item(self, mod, bg: QBrush | None) -> QStandardItem:

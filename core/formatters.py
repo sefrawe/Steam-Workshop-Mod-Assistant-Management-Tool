@@ -18,6 +18,8 @@ from datetime import datetime
 
 from core.constants import STATUS_ZH
 
+from core.i18n import t
+
 
 def relative_time(ts: int | None, now: int | None = None) -> str:
     """Unix 秒 → "3 天前"；None/0 → "从未"。
@@ -26,19 +28,19 @@ def relative_time(ts: int | None, now: int | None = None) -> str:
     不显示负数也不会崩。
     """
     if not ts:
-        return "从未"
+        return t("从未")
     now = int(time.time()) if now is None else now
     diff = max(now - ts, 0)
     if diff < 60:
-        return "刚刚"
+        return t("刚刚")
     if diff < 3600:
-        return f"{diff // 60} 分钟前"
+        return f"{diff // 60} " + t("分钟前")
     if diff < 86400:
-        return f"{diff // 3600} 小时前"
+        return f"{diff // 3600} " + t("小时前")
     days = diff // 86400
     if days < 365:
-        return f"{days} 天前"
-    return f"{days // 365} 年前"
+        return f"{days} " + t("天前")
+    return f"{days // 365} " + t("年前")
 
 
 def abs_time(ts: int | None) -> str:
@@ -71,4 +73,4 @@ def status_zh(status: str | None) -> str:
     """
     if not status:
         return "—"
-    return STATUS_ZH.get(status, status)
+    return t(STATUS_ZH.get(status, status))
