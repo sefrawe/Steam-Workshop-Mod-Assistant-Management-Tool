@@ -79,9 +79,9 @@ from gui.theme import font_px  # 字号单源（D25）
 # 条目：未下载的正常排队 + 已下载但版本未知（重下无害，正好补版本）
 
 _GROUP_ORDER = [
-    ("needs_update", "需要更新"),
-    ("not_downloaded", "待下载"),
-    ("up_to_date", "已最新"),
+    ("needs_update", t('需要更新')),
+    ("not_downloaded", t('待下载')),
+    ("up_to_date", t('已最新')),
 ]
 
 # 登录命令在设置页里的键名（appSettings.DEFAULTS / settingsPage._FIELDS 同名）
@@ -101,9 +101,7 @@ _SEC_MAX_H = 400
 _TIP_ALLOWANCE = 40      # "已收录"说明行的固定高度预算
 
 _USAGE_TEXT = (
-    "使用方法：① 自己打开 steamcmd 并登录（账号必须拥有该游戏）→ "
-    "② 在下面勾选 mod，点右下角“复制命令”→ "
-    "③ 粘贴到 steamcmd 窗口回车，命令会一行一行依次执行。"
+    t('使用方法：① 自己打开 steamcmd 并登录（账号必须拥有该游戏）→ ② 在下面勾选 mod，点右下角“复制命令”→ ③ 粘贴到 steamcmd 窗口回车，命令会一行一行依次执行。')
 )
 
 
@@ -190,7 +188,7 @@ class CommandGenPage(QWidget):
         usage_scroll.setWidgetResizable(True)
         usage_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         usage_scroll.setWidget(lbl_usage)
-        self._usage_sec = CollapsibleSection("使用方法（点击收起 / 展开）", self)
+        self._usage_sec = CollapsibleSection(t('使用方法（点击收起 / 展开）'), self)
         self._usage_sec.set_content(usage_scroll, 48)  # ≈三行 12px 文本
         hint = QHBoxLayout()
         hint.addWidget(self._usage_sec, 1)
@@ -505,9 +503,9 @@ class CommandGenPage(QWidget):
             rows = self._rows.get(key, [])
             n = sum(1 for r in rows if r["checkbox"].isChecked())
             total += n
-            label = f"{title}（勾 {n} / 共 {len(rows)}"
+            label = (f"{title}" + t('（勾 ') + f"{n}" + t(' / 共 ') + f"{len(rows)}")
             if q:
-                label += f" · 筛出 {sum(1 for r in rows if r['visible'])}"
+                label += (t(' · 筛出 ') + f"{sum((1 for r in rows if r['visible']))}")
             label += "）"
             sec = self._sections.get(key)
             if sec is not None:
@@ -585,7 +583,7 @@ class CommandGenPage(QWidget):
         if not ids:
             QMessageBox.information(self, t("提示"), t("还没勾选任何 mod。"))
             return
-        default_name = f"下载命令_{date.today():%Y%m%d}.txt"
+        default_name = (t('下载命令_') + f"{date.today():'%Y%m%d'}" + '.txt')
         # 默认存到系统"文档"目录，而不是游戏的下载目录（download_dir）。
         # 原因（两条，本质都是"别把命令文件混进 mod 内容"）：
         # 1) download_dir 指向 steamcmd 的 content\<appid>\，这棵目录树
@@ -597,9 +595,9 @@ class CommandGenPage(QWidget):
         docs = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
         start_dir = docs if docs else str(Path.home())
         path, _ = QFileDialog.getSaveFileName(
-            self, "另存为下载命令",
+            self, t('另存为下载命令'),
             str(Path(start_dir) / default_name),
-            "文本文件 (*.txt)",
+            t('文本文件 (*.txt)'),
         )
         if not path:
             return

@@ -362,14 +362,14 @@ class ModListModel(QStandardItemModel):
         unknown 按状态落「版本未知/未下载」；有确认版本后先看有没
         有远端观测（无 = 远端未知），有则按码给需更新/最新。"""
         if m.status == "deleted":
-            return "已删除"
+            return t('已删除')
         code = update_status_code(m)
         if code == "unknown":
-            return "版本未知" if m.status == STATUS_DOWNLOADED else "未下载"
+            return t('版本未知') if m.status == STATUS_DOWNLOADED else t('未下载')
         rt = getattr(m, "time_updated", None)
         if rt is None:
-            return "远端未知"
-        return "需更新" if code == "need_update" else "最新"
+            return t('远端未知')
+        return t('需更新') if code == "need_update" else t('最新')
 
 
     def _mk_update_item(self, mod, bg: QBrush | None) -> QStandardItem:
@@ -435,14 +435,9 @@ class ModListModel(QStandardItemModel):
 
 # 来源悬浮说明（一次性文案，留本模块——D37 准入规则：单文件使用）
 _SOURCE_TIPS = {
-    "verified": "本地版本来自终端「下载成功」的判决，可放心参与"
-                "更新判定与备份。",
-    "claim": "本地版本来自「认领」：盘点发现盘上已有这个 mod，"
-             "你确认收录。",
-    "manual": "本地版本由你右键手工设定（最重的人工背书）。",
-    "unverified": "这一版没有终端「下载成功」判决背书（批查失败但"
-                  "照常确认）——建议右键「设定本地版本…」重新认定，"
-                  "或等下一次成功判决。",
-    "inherited_acf": "旧账：一次性迁移继承的记录——右键「设定本地"
-                     "版本…」可重新认定。",
+    "verified": t('本地版本来自终端「下载成功」的判决，可放心参与更新判定与备份。'),
+    "claim": t('本地版本来自「认领」：盘点发现盘上已有这个 mod，你确认收录。'),
+    "manual": t('本地版本由你右键手工设定（最重的人工背书）。'),
+    "unverified": t('这一版没有终端「下载成功」判决背书（批查失败但照常确认）——建议右键「设定本地版本…」重新认定，或等下一次成功判决。'),
+    "inherited_acf": t('旧账：一次性迁移继承的记录——右键「设定本地版本…」可重新认定。'),
 }

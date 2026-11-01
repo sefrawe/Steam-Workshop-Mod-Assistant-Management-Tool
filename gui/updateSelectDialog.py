@@ -47,7 +47,7 @@ from core.models import Mod
 from core.i18n import t
 from PySide6.QtGui import QColor, QDesktopServices
 
-_COLUMNS = ["选", "", "编号", "标题", "远端版本", "本地版本", "大小", "上次执行"]
+_COLUMNS = [t('选'), "", t('编号'), t('标题'), t('远端版本'), t('本地版本'), t('大小'), t('上次执行')]
 
 
 class UpdateSelectDialog(QDialog):
@@ -135,11 +135,11 @@ class UpdateSelectDialog(QDialog):
         fh.setContentsMargins(0, 0, 0, 0)
         fh.addWidget(QLabel(t("只看："), filter_row))
         self._filter = QComboBox(filter_row)
-        for text, key in (("全部", None),
-                          ("★ 特别关注", "special"),
-                          ("长时间未更新", "stale"),
-                          ("两者兼有（红）", "both"),
-                          ("其他（无底色）", "plain")):
+        for text, key in ((t('全部'), None),
+                          (t('★ 特别关注'), "special"),
+                          (t('长时间未更新'), "stale"),
+                          (t('两者兼有（红）'), "both"),
+                          (t('其他（无底色）'), "plain")):
             self._filter.addItem(text, key)
         self._filter.setToolTip(
             t("按行底色类别筛条目（纯显隐，不动勾选）：\n"
@@ -231,18 +231,18 @@ class UpdateSelectDialog(QDialog):
                 lambda _=False, u=m.url: QDesktopServices.openUrl(QUrl(u)))
             self._table.setCellWidget(r, 1, btn)
             self._table.setItem(r, 2, QTableWidgetItem(str(m.mod_id)))
-            title = ("★ " if m.is_special else "") + (m.title or "（无标题）")
+            title = ("★ " if m.is_special else "") + (m.title or t('（无标题）'))
             item_title = QTableWidgetItem(title)
             item_title.setToolTip(
-                f"{m.title or '（无标题）'}\n编号 {m.mod_id}"
-                + ("\n★ 特别关注：出新版本时检测会记提醒"
+                (f"{m.title or t('（无标题）')}" + t('\n编号 ') + f"{m.mod_id}")
+                + (t('\n★ 特别关注：出新版本时检测会记提醒')
                    if m.is_special else ""))
             self._table.setItem(r, 3, item_title)
             self._table.setItem(r, 4, QTableWidgetItem(abs_time(m.time_updated)))
             if m.status != "downloaded":
-                local = "未下载"
+                local = t('未下载')
             elif m.version_unknown:
-                local = "版本未知"
+                local = t('版本未知')
             else:
                 local = abs_time(m.confirmed_version)
             item_local = QTableWidgetItem(local)
@@ -384,7 +384,7 @@ class UpdateSelectDialog(QDialog):
 # 动作 → 显示文案（下拉框条目与留痕列共用）：值引用类常量单源，
 # 别在别处再写一份字面量
 _ACTION_LABELS = (
-    (UpdateSelectDialog.ACT_BACKUP, "备份+更新"),
-    (UpdateSelectDialog.ACT_UPDATE, "仅更新"),
+    (UpdateSelectDialog.ACT_BACKUP, t('备份+更新')),
+    (UpdateSelectDialog.ACT_UPDATE, t('仅更新')),
 )
 _ACTION_NAME = dict(_ACTION_LABELS)  # 动作值 → 中文（留痕列用）

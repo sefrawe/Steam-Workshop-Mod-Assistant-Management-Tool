@@ -291,7 +291,7 @@ class DeletePage(QWidget):
 
         self._tbl_missing = self._make_table(5, M_TITLE)
         self._tbl_missing.setHorizontalHeaderLabels(
-            ["↗", t('编号'), "标题", t('备份登记'), t('动作')])
+            ["↗", t('编号'), t('标题'), t('备份登记'), t('动作')])
         for col, w in ((M_URL, 36), (M_ID, 110), (M_BACKUPS, 190), (M_ACT, 260)):
             self._tbl_missing.setColumnWidth(col, w)
         self._sec_missing = _Section(t('问题明细（0 行）'), body)
@@ -344,8 +344,8 @@ class DeletePage(QWidget):
         h2.setContentsMargins(0, 0, 0, 0)
         h2.addWidget(QLabel(t("状态"), self._bar_clean))
         self._status_filter = QComboBox(self._bar_clean)
-        for label, val in (("全部", None), ("已下载", "downloaded"),
-                           ("已删除", "deleted"), (t('已失败'), "failed")):
+        for label, val in ((t('全部'), None), (t('已下载'), "downloaded"),
+                           (t('已删除'), "deleted"), (t('已失败'), "failed")):
             self._status_filter.addItem(label, val)
         self._status_filter.setToolTip(
             t("按账本状态过滤显示（与 mod 库页状态下拉同款：显示中文、"
@@ -377,7 +377,7 @@ class DeletePage(QWidget):
 
         self._tbl_clean = self._make_table(6, C_TITLE)
         self._tbl_clean.setHorizontalHeaderLabels(
-            ["↗", t('编号'), "标题", t('状态'), t('盘上大小'), t('动作')])
+            ["↗", t('编号'), t('标题'), t('状态'), t('盘上大小'), t('动作')])
         for col, w in ((C_URL, 36), (C_ID, 110), (C_STATUS, 90),
                        (C_SIZE, 110), (C_ACT, 280)):
             self._tbl_clean.setColumnWidth(col, w)

@@ -199,10 +199,10 @@ class ConsolePanel(QWidget):
         if self._tabs.currentIndex() == 0:
             return  # 人就在运行日志页，无事可做
         self._log_dirty = True
-        self._tabs.setTabText(0, "● 运行日志")
+        self._tabs.setTabText(0, t('● 运行日志'))
 
     def _on_tab_changed(self, index: int) -> None:
         """切到"运行日志"即视为已读：摘掉红点。"""
         if index == 0 and self._log_dirty:
             self._log_dirty = False
-            self._tabs.setTabText(0, "运行日志")
+            self._tabs.setTabText(0, t('运行日志'))

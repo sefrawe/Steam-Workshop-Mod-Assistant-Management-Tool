@@ -145,8 +145,8 @@ class AdvancedFilter:
         if self.tags_all:
             parts.append(t('标签同时含 ') + "、".join(self.tags_all))
         if self.update_status:
-            parts.append({"need_update": "需更新", "up_to_date": t('最新'),
-                          "unknown": "版本未知"}[self.update_status])
+            parts.append({"need_update": t('需更新'), "up_to_date": t('最新'),
+                          "unknown": t('版本未知')}[self.update_status])
         if self.confirmed_source is not None:
             word = {"": t('未确认'), "verified": t('已验证'),
                     "unverified": t('未验证'), "manual": t('手动设定'),
@@ -319,9 +319,9 @@ class AdvancedSearchDialog(QDialog):
         # 更新状态（⑨b）：计算值不进 SQL——mod 库页取数后内存过滤
         # （颜色筛选同一哲学）；口径与列表「更新」列同一条公式
         self._update_combo = QComboBox(self)
-        for label, data in ((t('不限'), None), ("需更新", "need_update"),
+        for label, data in ((t('不限'), None), (t('需更新'), "need_update"),
                             (t('最新'), "up_to_date"),
-                            ("版本未知", "unknown")):
+                            (t('版本未知'), "unknown")):
             self._update_combo.addItem(label, data)
         self._update_combo.setToolTip(
             t("需更新 = 远端版本比本地确认版本新；\n"

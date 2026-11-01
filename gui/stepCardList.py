@@ -195,7 +195,7 @@ class StepCardList(QWidget):
         elif tbl == "warn":
             self._append_row(f"⚠ {ev.get('note') or ''}", _C_WARN)
         elif tbl == "send_failed":
-            self._append_row(f"✗ 命令发送失败：{ev.get('note') or ''}", _C_FAIL)
+            self._append_row((t('✗ 命令发送失败：') + f"{ev.get('note') or ''}"), _C_FAIL)
         elif tbl == "stop_requested":
             self._status.setText(t("停止中：不再发新命令，等当前条跑完…"))
             self._btn_stop.setEnabled(False)

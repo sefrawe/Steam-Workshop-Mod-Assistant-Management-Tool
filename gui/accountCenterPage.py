@@ -278,7 +278,7 @@ class AccountCenterPage(QWidget):
 
         self._pending_table = QTableWidget(0, 8, zone)
         self._pending_table.setHorizontalHeaderLabels(
-            [t('勾选'), t('编号'), "标题", t('触发值'), t('查询值'), t('将写入'), t('大小'), t('来源')])
+            [t('勾选'), t('编号'), t('标题'), t('触发值'), t('查询值'), t('将写入'), t('大小'), t('来源')])
         self._style_table(self._pending_table)
         self._pending_table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.Stretch)
@@ -363,7 +363,7 @@ class AccountCenterPage(QWidget):
         lay.addWidget(hint)
         self._history_table = QTableWidget(0, 8, zone)
         self._history_table.setHorizontalHeaderLabels(
-            [t('时间'), t('编号'), "标题", t('种类'), t('触发值'), t('写入值'), t('来源'), t('状态')])
+            [t('时间'), t('编号'), t('标题'), t('种类'), t('触发值'), t('写入值'), t('来源'), t('状态')])
         self._style_table(self._history_table)
         self._history_table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.Stretch)

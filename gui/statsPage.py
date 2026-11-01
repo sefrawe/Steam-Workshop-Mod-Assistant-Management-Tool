@@ -111,24 +111,24 @@ class StatsPage(QWidget):
     def _refresh(self) -> None:
         self._clear(self._body)
         if self._game is None:
-            self._add_hint("请先在左上角选择游戏档案。")
+            self._add_hint(t('请先在左上角选择游戏档案。'))
             return
         rows = self._repo.list_mods(self._game.app_id)
         alive = [m for m in rows if m.status != "deleted"]
-        self._add_section("概览", self._overview_lines(rows))
+        self._add_section(t('概览'), self._overview_lines(rows))
         # 状态分布图（D30：tracked 显示词 =「待下载」，库内值不变）
         per = Counter(m.status for m in rows)
         self._add_chart(self._make_hbar(
-            ["已下载", "待下载", "已删除", "已失败"],
+            [t('已下载'), t('待下载'), t('已删除'), t('已失败')],
             [per["downloaded"], per["tracked"],
              per["deleted"], per["failed"]]))
-        self._add_section("容量", self._capacity_lines(rows))
+        self._add_section(t('容量'), self._capacity_lines(rows))
         tag_counter = Counter(t for m in alive if m.tags for t in m.tags)
-        self._add_section("标签 Top 10", self._tag_lines(tag_counter))
+        self._add_section(t('标签 Top 10'), self._tag_lines(tag_counter))
         self._add_chart(self._make_hbar(
             [name for name, _ in tag_counter.most_common(10)],
             [n for _, n in tag_counter.most_common(10)]))
-        self._add_section("失效归档", self._failed_lines())
+        self._add_section(t('失效归档'), self._failed_lines())
         foot = QLabel(t("以上为 ") + f"{time.strftime('%H:%M:%S')}"
                       + t(" 时刻的快照。"),
                       self)
@@ -262,46 +262,41 @@ class StatsPage(QWidget):
         per = Counter(m.status for m in rows)
         n_update = sum(1 for m in rows if _needs_update(m))
         return [
-            f"mod 总数：{len(rows)}（含已删除）",
+            (t('mod 总数：') + f"{len(rows)}" + t('（含已删除）')),
             # D30：tracked 显示词「待下载」
-            f"已下载 {per['downloaded']}｜待下载 {per['tracked']}"
-            f"｜已删除 {per['deleted']}｜已失败 {per['failed']}",
-            f"需更新：{n_update}（与列表「更新」列同一判定）",
-            f"特别关注：{sum(1 for m in rows if m.is_special)}",
+            (t('已下载 ') + f"{per['downloaded']}" + t('｜待下载 ') + f"{per['tracked']}" + t('｜已删除 ') + f"{per['deleted']}" + t('｜已失败 ') + f"{per['failed']}"),
+            (t('需更新：') + f"{n_update}" + t('（与列表「更新」列同一判定）')),
+            (t('特别关注：') + f"{sum((1 for m in rows if m.is_special))}"),
         ]
 
     def _capacity_lines(self, rows) -> list[str]:
         local_total = sum(m.local_size or 0 for m in rows)
         remote_total = sum(m.file_size or 0 for m in rows)
         lines = [
-            f"本地内容合计：{fmt_size(local_total)}"
-            "（含已删除——软删除不删文件，磁盘占用是真实的）",
-            f"远端登记合计：{fmt_size(remote_total)}"
-            "（API 登记值，未下载的也计入）",
-            f"备份总占用：{fmt_size(self._repo.sum_backup_bytes())}"
-            "（全部档案合计）",
+            (t('本地内容合计：') + f"{fmt_size(local_total)}" + t('（含已删除——软删除不删文件，磁盘占用是真实的）')),
+            (t('远端登记合计：') + f"{fmt_size(remote_total)}" + t('（API 登记值，未下载的也计入）')),
+            (t('备份总占用：') + f"{fmt_size(self._repo.sum_backup_bytes())}" + t('（全部档案合计）')),
         ]
         top = sorted((m for m in rows if m.status != "deleted" and m.local_size),
                      key=lambda m: m.local_size, reverse=True)[:10]
         if top:
-            lines.append("最大的 10 个：")
+            lines.append(t('最大的 10 个：'))
             lines += [f"  {m.title or m.mod_id}（{m.mod_id}）— "
                       f"{fmt_size(m.local_size)}" for m in top]
         else:
-            lines.append("最大的 10 个：（暂无带本地大小的条目）")
+            lines.append(t('最大的 10 个：（暂无带本地大小的条目）'))
         return lines
 
     def _tag_lines(self, tags: Counter) -> list[str]:
         if not tags:
-            return ["（还没有标签数据——跑一次更新检测补齐）"]
+            return [t('（还没有标签数据——跑一次更新检测补齐）')]
         return [f"{name} ×{n}" for name, n in tags.most_common(10)]
 
     def _failed_lines(self) -> list[str]:
         failed = self._repo.list_failed(self._game.app_id)
         if not failed:
-            return ["归档 0 条。"]
+            return [t('归档 0 条。')]
         latest = time.strftime("%Y-%m-%d",
                                time.localtime(failed[0].detected_at))
         # 页名随 D24 拆分后的导航口径（异常处置页）
-        return [f"归档 {len(failed)} 条，最近一条 {latest}；"
-                "处理与关联替换入口在「异常处置」页。"]
+        return [(t('归档 ') + f"{len(failed)}" + t(' 条，最近一条 ') + f"{latest}" + t('；处理与关联替换入口在「异常处置」页。'))]

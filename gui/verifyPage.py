@@ -60,7 +60,7 @@ from gui.collapsibleSection import CollapsibleSection as _Section
 from gui.theme import font_px  # 字号单源（D25）
 
 # 表格 6 列：勾选列（"选"）已随收录/确认退役
-_COLUMNS = [t('编号'), "标题", t('账本状态'), t('盘上情况'), t('建议'), t('操作')]
+_COLUMNS = [t('编号'), t('标题'), t('账本状态'), t('盘上情况'), t('建议'), t('操作')]
 
 # 行类别（kind）：筛选下拉/右键菜单/双击都按它分流。
 # missing/empty = 修复类；claim = 账本外（本页只指路）；confirm =
@@ -366,12 +366,12 @@ class VerifyPage(QWidget):
         specs: list[dict] = []
         for mid in result.missing:
             specs.append(dict(
-                mid=mid, kind="missing", status="已下载",
+                mid=mid, kind="missing", status=t('已下载'),
                 disk=t('目录不存在'),
                 advice=t('双击本行重下；或点【修复…】选修复方式')))
         for mid in result.empty:
             specs.append(dict(
-                mid=mid, kind="empty", status="已下载",
+                mid=mid, kind="empty", status=t('已下载'),
                 disk=t('目录存在但为空'),
                 advice=t('疑似中断残留：双击重下；或点【修复…】；也可手动删除空目录')))
         for mid, st in result.untracked_content:

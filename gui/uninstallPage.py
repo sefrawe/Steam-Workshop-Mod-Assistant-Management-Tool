@@ -99,18 +99,9 @@ class UninstallPage(QWidget):
         nb.setContentsMargins(8, 6, 8, 6)
         nb.setSpacing(2)
         for text in (
-            "流程：本页只盘点与指路，不删任何东西。真要卸载——① 在"
-            "资源管理器里删掉整个软件文件夹（账本、设置、日志都在"
-            "里面，删了就是彻底卸载）→ ② 看第③卡的注册表残留，想清"
-            "就手动删那个键。steamcmd、工坊内容、备份区是你的资产，"
-            "本软件的卸载不碰它们。",
-            "为什么这么做：绿色软件的卸载就该这么简单——数据不散落、"
-            "注册表不留尸。本页把\"会留下什么\"提前列给你看，删之前"
-            "心里有数。",
-            "术语与关系：data\\ = 账本与日志的家；config\\ = 设置与"
-            "界面记忆的家；会话记忆 = 窗口大小、面板显隐这类\"软件\""
-            "记得住\"的状态；注册表键 = 旧版本留下的界面记忆（新版\""
-            "已搬进 data\\，旧键只是残留）。",
+            t('流程：本页只盘点与指路，不删任何东西。真要卸载——① 在资源管理器里删掉整个软件文件夹（账本、设置、日志都在里面，删了就是彻底卸载）→ ② 看第③卡的注册表残留，想清就手动删那个键。steamcmd、工坊内容、备份区是你的资产，本软件的卸载不碰它们。'),
+            t('为什么这么做：绿色软件的卸载就该这么简单——数据不散落、注册表不留尸。本页把"会留下什么"提前列给你看，删之前心里有数。'),
+            t('术语与关系：data\\ = 账本与日志的家；config\\ = 设置与界面记忆的家；会话记忆 = 窗口大小、面板显隐这类"软件"记得住"的状态；注册表键 = 旧版本留下的界面记忆（新版"已搬进 data\\，旧键只是残留）。'),
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)  # 可能变长的标签一律开换行
@@ -132,7 +123,7 @@ class UninstallPage(QWidget):
 
         # 盘点结果表：文件 / 大小 / 它是什么（三列，说明列拉伸）
         self._table = QTableWidget(0, 3, self)
-        self._table.setHorizontalHeaderLabels(["文件", "大小", "它是什么"])
+        self._table.setHorizontalHeaderLabels([t('文件'), t('大小'), t('它是什么')])
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
@@ -159,8 +150,8 @@ class UninstallPage(QWidget):
         box2.addLayout(row2)
 
         # ---- 卡③：注册表指路（Windows 专属概念；Linux 显示说明）----
-        _d3_title = ("③ 注册表残留（仅旧版本用户）" if os.name == "nt"
-                     else "③ 界面记忆残留（仅旧 Windows 版本用户）")
+        _d3_title = (t('③ 注册表残留（仅旧版本用户）') if os.name == "nt"
+                     else t('③ 界面记忆残留（仅旧 Windows 版本用户）'))
         self._d3, _ = self._make_card("step3", _d3_title)
 
         root.addStretch(1)
@@ -174,9 +165,9 @@ class UninstallPage(QWidget):
         exists = session_file_exists()
         self._set_card(
             self._d2,
-            f"界面记忆存在：{path}\n"
-            + ("（文件已生成）" if exists
-               else "（还没有这个文件——首次改动面板布局/窗口大小后才创建）"),
+            (t('界面记忆存在：') + f"{path}" + '\n')
+            + (t('（文件已生成）') if exists
+               else t('（还没有这个文件——首次改动面板布局/窗口大小后才创建）')),
             _C_MUTED)
         # 卡③：注册表键路径 + 有无残留。注册表是 Windows 专属概念：
         # Linux 的界面记忆走配置文件（卡② 已指路），本卡直接说明

@@ -95,7 +95,7 @@ class ModDetailPanel(QWidget):
     # 分区与字段清单（单源：构建与赋值都按它走；键 = _vals 索引）
     _SECTIONS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
         (t('基本档案'), (
-            ("title", "标题", "title"),
+            ("title", t('标题'), "title"),
             ("mod_id", t('Mod 编号'), "mod_id"),
             ("status", t('状态'), "status"),
             ("game_id", t('所属游戏'), "game_id"),
@@ -636,11 +636,11 @@ class ModDetailPanel(QWidget):
         counts: dict[str, int] = {}
         for x in self._build_dep_rows(deps):
             counts[x[2]] = counts.get(x[2], 0) + 1
-        parts = [(t('本地 ') + f"{counts.get('已下载', 0)}"),
-                 (t('缺 ') + f"{counts.get('未下载', 0)}"),
-                 (t('已删 ') + f"{counts.get('已删除', 0)}")]
-        n_live = counts.get('远端在架', 0)
-        n_dead = counts.get('远端查无', 0)
+        parts = [(t('本地 ') + f"{counts.get(t('已下载'), 0)}"),
+                 (t('缺 ') + f"{counts.get(t('未下载'), 0)}"),
+                 (t('已删 ') + f"{counts.get(t('已删除'), 0)}")]
+        n_live = counts.get(t('远端在架'), 0)
+        n_dead = counts.get(t('远端查无'), 0)
         n_unk = counts.get(t('账外·未查'), 0)
         if n_live or n_dead or n_unk:
             parts.append(t('账外 在架') + f"{n_live}" + t('/查无') + f"{n_dead}" + t('/未查') + f"{n_unk}")
@@ -871,8 +871,8 @@ class ModDetailPanel(QWidget):
         names: list[str] = []
         for d in sorted(deps)[:6]:
             dm = self._repo.get_mod(d)
-            t = dm.title if dm is not None and dm.title else str(d)
-            names.append(f'<a href="{d}">{t}（{d}）</a>')
+            tbl = dm.title if dm is not None and dm.title else str(d)
+            names.append(f'<a href="{d}">{tbl}（{d}）</a>')
         tail = (t(' …共 ') + f"{len(deps)}" + t(' 个')) if len(deps) > 6 else ""
         return ("、".join(names) + tail) if names else "—"
 
@@ -992,14 +992,14 @@ class ModDetailPanel(QWidget):
         if getattr(self, "_mini_mid", None):
             self.send_to_register_requested.emit([self._mini_mid])
 
-    def _render_dep_table(self, t: QTableWidget, deps: list[int]) -> None:
+    def _render_dep_table(self, tbl: QTableWidget, deps: list[int]) -> None:
         """依赖表渲染单源：卡片表与子页表共用（勾选记编号不记行号
         ——重建表格后勾选不掉，站规）。行数据来自 _build_dep_rows。"""
-        t.setRowCount(0)
+        tbl.setRowCount(0)
         if not deps:
             return
         rows = self._build_dep_rows(deps)
-        t.setRowCount(len(rows))
+        tbl.setRowCount(len(rows))
         for r, (mid, name, st, color, size, upd, in_ledger, tip) \
                 in enumerate(rows):
             chk = QTableWidgetItem()
@@ -1014,9 +1014,9 @@ class ModDetailPanel(QWidget):
                      QTableWidgetItem(upd))
             cells[3].setForeground(color)
             for c, cell in enumerate(cells):
-                t.setItem(r, c, cell)
-            t.item(r, 0).setToolTip(tip)
-            t.item(r, 1).setToolTip(
+                tbl.setItem(r, c, cell)
+            tbl.item(r, 0).setToolTip(tip)
+            tbl.item(r, 1).setToolTip(
                 (t('双击跳到该 mod 的详情') if in_ledger
                  else t('账外条目：双击打开工坊网页')) + "\n" + tip)
 

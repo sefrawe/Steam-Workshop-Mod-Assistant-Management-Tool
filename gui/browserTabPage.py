@@ -196,7 +196,7 @@ class BrowserTabPage(QWidget):
 
                 def progress(n: int) -> None:
                     if n % 5 == 0:
-                        self._log.info(f"已采集 {n} 个标签页……")
+                        self._log.info((t('已采集 ') + f"{n}" + t(' 个标签页……')))
 
                 driver = tabCollector.EdgeDriver()
 
@@ -208,13 +208,13 @@ class BrowserTabPage(QWidget):
                     # 同时记下是哪一路刹车触发的，收工后好打日志。
                     QApplication.processEvents()
                     if self._stop:
-                        self._stop_reason = self._stop_reason or "停止按钮"
+                        self._stop_reason = self._stop_reason or t('停止按钮')
                         return True
                     if driver.esc_pressed():
                         self._stop_reason = self._stop_reason or "Esc"
                         return True
                     if driver.mouse_moved():
-                        self._stop_reason = self._stop_reason or "鼠标移动"
+                        self._stop_reason = self._stop_reason or t('鼠标移动')
                         return True
                     return False
 
@@ -231,7 +231,7 @@ class BrowserTabPage(QWidget):
             self._log.warn(str(exc))
             return
         except Exception as exc:  # 含 pyautogui FAILSAFE（鼠标甩左上角）
-            self._log.error(f"采集中断：{exc}")
+            self._log.error((t('采集中断：') + f"{exc}"))
             return
         finally:
             self._btn_collect.setEnabled(True)

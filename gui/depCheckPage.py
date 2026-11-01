@@ -165,7 +165,7 @@ class DepCheckPage(QWidget):
         self.root_layout.addWidget(self._miss_head)
         self._miss_table = QTableWidget(0, 5, self)
         self._miss_table.setHorizontalHeaderLabels(
-            [t('选'), t('编号'), "标题", t('缺数'), t('缺失依赖（必需物品）')])
+            [t('选'), t('编号'), t('标题'), t('缺数'), t('缺失依赖（必需物品）')])
         self._miss_table.verticalHeader().setVisible(False)
         self._miss_table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -200,7 +200,7 @@ class DepCheckPage(QWidget):
         self.root_layout.addWidget(self._dep_detail_head)
         self._dep_detail = QTableWidget(0, 7, self)
         self._dep_detail.setHorizontalHeaderLabels(
-            [t('选'), t('编号'), "标题", t('大小'), t('远端更新'), t('状态'), t('被谁依赖')])
+            [t('选'), t('编号'), t('标题'), t('大小'), t('远端更新'), t('状态'), t('被谁依赖')])
         self._dep_detail.verticalHeader().setVisible(False)
         self._dep_detail.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -629,9 +629,9 @@ class DepCheckPage(QWidget):
             for rid in lack:
                 req.setdefault(rid, []).append(mid)
         meta = getattr(self, "_dep_meta", {})
-        t = self._dep_detail
-        t.setSortingEnabled(False)  # 带排序灌数据=边灌边排、行错位
-        t.setRowCount(len(ids))
+        tbl = self._dep_detail
+        tbl.setSortingEnabled(False)  # 带排序灌数据=边灌边排、行错位
+        tbl.setRowCount(len(ids))
         for r, rid in enumerate(ids):
             it = meta.get(rid)
             if it is not None and it.get("result") == 1:
@@ -641,7 +641,7 @@ class DepCheckPage(QWidget):
                 upd = (relative_time(it["time_updated"])
                        if it.get("time_updated") else "—")
                 upd_key = it.get("time_updated") or 0
-                state, color, state_rank = "远端在架", QColor("#5aa9ff"), 0
+                state, color, state_rank = t('远端在架'), QColor("#5aa9ff"), 0
             elif it is not None:
                 title, size, upd = "—", "—", "—"
                 size_key = upd_key = 0
@@ -671,10 +671,10 @@ class DepCheckPage(QWidget):
             for c, cell in enumerate(cells):
                 if c == 5:
                     cell.setForeground(color)
-                t.setItem(r, c, cell)
-        t.setSortingEnabled(True)  # 灌完再开；点过的排法自动重放
+                tbl.setItem(r, c, cell)
+        tbl.setSortingEnabled(True)  # 灌完再开；点过的排法自动重放
         self._dep_detail_head.setVisible(bool(ids))
-        t.setVisible(bool(ids))
+        tbl.setVisible(bool(ids))
         self._apply_filter()  # 排序搬条目、隐藏挂行号——重灌后重滤对齐
 
     def _on_detail_dclicked(self, item) -> None:

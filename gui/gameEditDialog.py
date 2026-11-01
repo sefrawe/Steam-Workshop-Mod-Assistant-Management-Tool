@@ -111,7 +111,7 @@ class GameEditDialog(QDialog):
         created = getattr(self._game, "created_at", None)
         if created:
             info_lines.append(
-                "创建时间："
+                t('创建时间：')
                 + time.strftime("%Y-%m-%d %H:%M", time.localtime(created)))
         info = QLabel("\n".join(info_lines), self)
         info.setTextInteractionFlags(
@@ -128,7 +128,7 @@ class GameEditDialog(QDialog):
         # ---- 名称：自由编辑，直接保存（纯记录字段） ----
         self._name_edit = QLineEdit(self._orig_name)
         self._name_edit.setPlaceholderText(t("显示在下拉框和各页标题里的名字"))
-        form.addRow("名称", self._name_edit)
+        form.addRow(t('名称'), self._name_edit)
 
         # ---- 游戏 mod 目录：自由编辑，直接保存（纯记录字段） ----
         # 这就是连接指引里要填的那个路径——游戏从这里读 mod
@@ -136,7 +136,7 @@ class GameEditDialog(QDialog):
         self._gm_edit.setPlaceholderText(
             t(r"游戏自己的 mod 文件夹，Windows 如 C:\Users\<用户名>\Documents\...；"
             r"Linux 如 ~/.local/share/Paradox Interactive/…/mod（可留空）"))
-        form.addRow("游戏 mod 目录", self._wrap_with_browse(self._gm_edit))
+        form.addRow(t('游戏 mod 目录'), self._wrap_with_browse(self._gm_edit))
 
         # ---- 备份目录：自由编辑，保存前弹影响确认 ----
         self._bk_edit = QLineEdit(self._orig_bk)
@@ -145,7 +145,7 @@ class GameEditDialog(QDialog):
         default_root = steamPaths.backup_root_default(
             self._steamcmd_exe, self._game.app_id)
         if default_root:
-            bk_hint = f"（当前推导：{default_root}）"
+            bk_hint = (t('（当前推导：') + f"{default_root}" + '）')
             # 「改为推导值」：一键把输入框填成推导值。与下载目录那颗的
             # 区别：备份目录本来就是自由编辑字段，这里只是替用户把字
             # 打进输入框，没有"待保存"状态机——填完仍要点下方【保存】
@@ -159,19 +159,19 @@ class GameEditDialog(QDialog):
                 lambda _=False: self._bk_edit.setText(default_root))
             bk_field.layout().addWidget(bk_btn)
         else:
-            bk_hint = "（设置页没填 steamcmd，暂推导不出）"
-        bk_desc = QLabel("留空 = 每次按 steamcmd 位置自动推导" + bk_hint, bk_field)
+            bk_hint = t('（设置页没填 steamcmd，暂推导不出）')
+        bk_desc = QLabel(t('留空 = 每次按 steamcmd 位置自动推导') + bk_hint, bk_field)
         bk_desc.setWordWrap(True)
         bk_desc.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
         bk_field.layout().addWidget(bk_desc)
-        form.addRow("备份目录", bk_field)
+        form.addRow(t('备份目录'), bk_field)
 
         # ---- 下载目录：不开放编辑，只显示记录值与推导值的对比 ----
         dd_field = QWidget(self)
         dd_v = QVBoxLayout(dd_field)
         dd_v.setContentsMargins(0, 0, 0, 0)
         dd_v.setSpacing(2)
-        self._dd_current = QLabel(self._game.download_dir or "（空）", dd_field)
+        self._dd_current = QLabel(self._game.download_dir or t('（空）'), dd_field)
         self._dd_current.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         dd_v.addWidget(self._dd_current)
@@ -199,7 +199,7 @@ class GameEditDialog(QDialog):
         dd_desc.setWordWrap(True)
         dd_desc.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
         dd_v.addWidget(dd_desc)
-        form.addRow("下载目录", dd_field)
+        form.addRow(t('下载目录'), dd_field)
 
         v.addLayout(form)
         v.addStretch(1)
@@ -248,7 +248,7 @@ class GameEditDialog(QDialog):
 
     def _browse(self, edit: QLineEdit) -> None:
         d = QFileDialog.getExistingDirectory(
-            self, "选择目录", edit.text().strip())
+            self, t('选择目录'), edit.text().strip())
         if d:
             edit.setText(d)
 
@@ -265,7 +265,7 @@ class GameEditDialog(QDialog):
             # 待保存：主行直接亮出将要写入的推导值
             self._dd_current.setText(self._derived or "")
             old = str(self._game.download_dir or "").strip()
-            origin = f"原记录：{old}" if old else "原记录：（空）"
+            origin = (t('原记录：') + f"{old}") if old else t('原记录：（空）')
             self._dd_state.setText(
                 t("上面这个推导值还没写进账本——点【保存】后生效（")
                 + f"{origin}" + t("）；不点保存则维持原状。"))
@@ -273,18 +273,18 @@ class GameEditDialog(QDialog):
             self._dd_btn.setText(t("不改了，保留原记录"))
             self._dd_btn.setVisible(True)
         elif self._derived is None:
-            self._dd_current.setText(self._game.download_dir or "（空）")
+            self._dd_current.setText(self._game.download_dir or t('（空）'))
             self._dd_state.setText(
                 t("推导不出：设置页还没填 steamcmd 程序路径。保留档案现值。"))
             self._dd_state.setStyleSheet(f"color: {_C_MUTED};")
             self._dd_btn.setVisible(False)
         elif _norm(self._derived) == _norm(self._game.download_dir):
-            self._dd_current.setText(self._game.download_dir or "（空）")
+            self._dd_current.setText(self._game.download_dir or t('（空）'))
             self._dd_state.setText(t("✓ 与按当前 steamcmd 位置推导的值一致"))
             self._dd_state.setStyleSheet(f"color: {_C_OK};")
             self._dd_btn.setVisible(False)
         else:
-            self._dd_current.setText(self._game.download_dir or "（空）")
+            self._dd_current.setText(self._game.download_dir or t('（空）'))
             self._dd_state.setText(
                 t("与推导值不一致。按当前 steamcmd 位置推导应为：") + "\n"
                 + f"{self._derived}" + "\n"
@@ -339,7 +339,7 @@ class GameEditDialog(QDialog):
                     "【重定位备份目录】指认，或用【备份搬家】把文件搬过去。"))
             ret = QMessageBox.question(
                 self, t("确认保存"),
-                "以下修改会影响相关功能，确认保存？\n\n" + "\n\n".join(impact),
+                t('以下修改会影响相关功能，确认保存？\n\n') + "\n\n".join(impact),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if ret != QMessageBox.StandardButton.Yes:
                 return
@@ -353,6 +353,6 @@ class GameEditDialog(QDialog):
             return
 
         self._log.ok(
-            f"档案「{name}」（{self._game.app_id}）已更新："
+            (t('档案「') + f"{name}" + '」（' + f"{self._game.app_id}" + t('）已更新：'))
             + "、".join(sorted(changes)))
         self.accept()

@@ -66,38 +66,18 @@ _ID_LIMIT = 20  # 编号最多原样列出多少个，超出折成"…"
 # 顺序 = 先 steamcmd（本工具一切功能的地基），后 Watt Toolkit（浏览器
 # 访问工坊页的前置）。本页不检测装没装——第三方软件检测不了，也不该
 # 装作能检测；两张卡是纯说明，永远显示
-_GUIDE_STEAMCMD_TITLE = "准备 · 安装 steamcmd"
+_GUIDE_STEAMCMD_TITLE = t('准备 · 安装 steamcmd')
 if os.name == "nt":
     _GUIDE_STEAMCMD = (
-        "安装 steamcmd（Steam 命令行工具）是本工具的前置条件："
-        "官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\n"
-        "下载后解压得到steamcmd.exe，先别急着点进去，首次运行会自动安装到当前目录下，应当把它移到一个固定目录（如 D:\\steamcmd）再运行，\n"
-        "请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦；不能装在带中文的路径，会闪退。\n"
-        "调整好位置后运行 steamcmd.exe 让它安装完成，务必关闭watt Toolkit等加速器，否则无法安装，提示无法下载；"
-        "装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；"
-        "额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。千万不能输入中文，否则会一直输出“？？？？？？”只能关闭软件\n"
-        "装好后回下方第①步填路径。"
+        t('安装 steamcmd（Steam 命令行工具）是本工具的前置条件：官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\n下载后解压得到steamcmd.exe，先别急着点进去，首次运行会自动安装到当前目录下，应当把它移到一个固定目录（如 D:\\steamcmd）再运行，\n请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦；不能装在带中文的路径，会闪退。\n调整好位置后运行 steamcmd.exe 让它安装完成，务必关闭watt Toolkit等加速器，否则无法安装，提示无法下载；装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。千万不能输入中文，否则会一直输出“？？？？？？”只能关闭软件\n装好后回下方第①步填路径。')
     )
 else:
     _GUIDE_STEAMCMD = (
-        "安装 steamcmd（Steam 命令行工具）是本工具的前置条件："
-        "官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\n"
-        "Linux 版：解压官方 tar 包到固定目录（如 ~/steamcmd），首次使用先补 32 位架构：\n"
-        "  sudo dpkg --add-architecture i386 && sudo apt update\n"
-        "（Debian/Ubuntu/Mint 也可直接 sudo apt install steamcmd，装到 /usr/games/steamcmd）\n"
-        "请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦。\n"
-        "调整好位置后运行一次 ./steamcmd.sh 让它安装完成；\n"
-        "装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；\n"
-        "额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。\n"
-        "装好后回下方第①步填路径（如 ~/steamcmd/steamcmd.sh 或 /usr/games/steamcmd）。"
+        t('安装 steamcmd（Steam 命令行工具）是本工具的前置条件：官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\nLinux 版：解压官方 tar 包到固定目录（如 ~/steamcmd），首次使用先补 32 位架构：\n  sudo dpkg --add-architecture i386 && sudo apt update\n（Debian/Ubuntu/Mint 也可直接 sudo apt install steamcmd，装到 /usr/games/steamcmd）\n请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦。\n调整好位置后运行一次 ./steamcmd.sh 让它安装完成；\n装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；\n额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。\n装好后回下方第①步填路径（如 ~/steamcmd/steamcmd.sh 或 /usr/games/steamcmd）。')
     )
-_GUIDE_WATT_TITLE = "推荐 · Watt Toolkit（原 Steam++）"
+_GUIDE_WATT_TITLE = t('推荐 · Watt Toolkit（原 Steam++）')
 _GUIDE_WATT = (
-    "Watt Toolkit 是一个网络加速工具，可以加速Steam、github等相关平台。"
-    "官网：https://steampp.net/ \n"
-    "安装后启动点击网络加速，勾选并启动 Steam 相关加速，这样浏览器才能正常打开工坊页和提高访问相关api（比如日常更新模块的获取更新信息）成功率。而有些api访问在watt Toolkit启动时会失败，比如异常处理模块深度联网检测时访问的api。"
-    "网络加速页，头像下面的“网络加速”的傍边有个“脚本配置”，点进去后点“脚本工坊”，登录后，推荐安装“steam创意工坊大图修复”\n"
-    "注意：Watt Toolkit 不是本工具的前置条件，没装也能用，但装了就能访问创意工坊和提高访问相关api的成功率。"
+    t('Watt Toolkit 是一个网络加速工具，可以加速Steam、github等相关平台。官网：https://steampp.net/ \n安装后启动点击网络加速，勾选并启动 Steam 相关加速，这样浏览器才能正常打开工坊页和提高访问相关api（比如日常更新模块的获取更新信息）成功率。而有些api访问在watt Toolkit启动时会失败，比如异常处理模块深度联网检测时访问的api。网络加速页，头像下面的“网络加速”的傍边有个“脚本配置”，点进去后点“脚本工坊”，登录后，推荐安装“steam创意工坊大图修复”\n注意：Watt Toolkit 不是本工具的前置条件，没装也能用，但装了就能访问创意工坊和提高访问相关api的成功率。')
 )
 
 
@@ -155,22 +135,10 @@ class FirstUsePage(QWidget):
         nb.setContentsMargins(8, 6, 8, 6)
         nb.setSpacing(2)
         for text in (
-                "流程：① 定位 steamcmd → ② 建立游戏档案 → ③ 接通游戏读取"
-                "目录 → ④ 纳入客户端已有的 mod（Steam 订阅迁移）或 ⑤ 录入"
-                "已有的 mod 文件（其余来源，一路指引到跑通第一轮日常更新）。"
-                "各步可跳步、可重入，缺哪步走哪步。",
-                "为什么这么做：纳入走「先预览再写入」，只补缺不覆盖、已删除/"
-            "已失效的不复活；纳入后是「待下载」，下载完在批次收尾的确认"
-            "清单里勾选背书才算「已下载」——客户端那份拷贝不算数（账实"
-            "口径以 steamcmd 目录为准）。",
-            "术语与关系：客户端订阅记录 = 客户端库里的 appworkshop_"
-            "<appid>.acf，与 steamcmd 的同名文件是两棵树、互不知情；"
-            "纳入后的下载与入账走「加入新 mod」同一条链（命令同源、"
-            "批次收尾确认清单同一扇门）。",
-            "多前端共存：与这台 steamcmd 共用的其他前端下载的 mod，"
-            "到【入账中心】点【扫描游戏目录】会把它们摆成待认领候选，"
-            "核对后认领入账即可，不需要重复登记；本工具永远只读 "
-            "steamcmd 的账实文件。",
+                t('流程：① 定位 steamcmd → ② 建立游戏档案 → ③ 接通游戏读取目录 → ④ 纳入客户端已有的 mod（Steam 订阅迁移）或 ⑤ 录入已有的 mod 文件（其余来源，一路指引到跑通第一轮日常更新）。各步可跳步、可重入，缺哪步走哪步。'),
+                t('为什么这么做：纳入走「先预览再写入」，只补缺不覆盖、已删除/已失效的不复活；纳入后是「待下载」，下载完在批次收尾的确认清单里勾选背书才算「已下载」——客户端那份拷贝不算数（账实口径以 steamcmd 目录为准）。'),
+            t('术语与关系：客户端订阅记录 = 客户端库里的 appworkshop_<appid>.acf，与 steamcmd 的同名文件是两棵树、互不知情；纳入后的下载与入账走「加入新 mod」同一条链（命令同源、批次收尾确认清单同一扇门）。'),
+            t('多前端共存：与这台 steamcmd 共用的其他前端下载的 mod，到【入账中心】点【扫描游戏目录】会把它们摆成待认领候选，核对后认领入账即可，不需要重复登记；本工具永远只读 steamcmd 的账实文件。'),
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)  # 可能变长的标签一律开换行
@@ -264,11 +232,9 @@ class FirstUsePage(QWidget):
                 seen.add(cand.casefold())
                 self._dir_edit.addItem(cand)
         self._dir_edit.lineEdit().setPlaceholderText(
-            ("Steam 客户端库目录，如 D:\\SteamLibrary——"
-             "选库根、steamapps 或 workshop 层都行（可手动输入）")
+            (t('Steam 客户端库目录，如 D:\\SteamLibrary——选库根、steamapps 或 workshop 层都行（可手动输入）'))
             if os.name == "nt" else
-            "Steam 客户端库目录，如 ~/.local/share/Steam——"
-            "选库根、steamapps 或 workshop 层都行（可手动输入）")
+            t('Steam 客户端库目录，如 ~/.local/share/Steam——选库根、steamapps 或 workshop 层都行（可手动输入）'))
         row_dir.addWidget(self._dir_edit, 1)
         self._btn_browse = QPushButton(t("浏览…"), self)
         self._btn_browse.setToolTip(t("打开系统目录选择窗口，选 Steam 客户端库目录"))
@@ -400,11 +366,11 @@ class FirstUsePage(QWidget):
         if not Path(exe).is_file():
             self._set_card(self._d1, t('配置的 steamcmd 路径暂不存在：') + f"{exe}" + t('（可先继续后面的步骤，用到前修正即可）'), _C_WARN)
             return
-        text = f"已定位：{exe}"
+        text = (t('已定位：') + f"{exe}")
         if self._game is not None:
             d = workshop_content_dir(exe, self._game.app_id)
             if d:
-                text += f"\n当前档案的下载目录：{d}"
+                text += (t('\n当前档案的下载目录：') + f"{d}")
         self._set_card(self._d1, text, _C_OK)
 
     def _refresh_step2(self) -> None:
@@ -442,7 +408,7 @@ class FirstUsePage(QWidget):
     # ---------- 第④步：预览与纳入 ----------
     def _on_browse(self) -> None:
         path = QFileDialog.getExistingDirectory(
-            self, "选择 Steam 客户端库目录",
+            self, t('选择 Steam 客户端库目录'),
             self._dir_edit.currentText().strip() or "")
         if path:
             self._dir_edit.setCurrentText(str(path))
@@ -483,12 +449,8 @@ class FirstUsePage(QWidget):
     def _render_preview(self, plan: ClientIntakePlan, result) -> None:
         assert self._game is not None
         n_work = len(plan.to_register)
-        lines = [f"客户端账本：{result.acf_path}",
-                 f"已安装 {len(result.items)} 条："
-                 f"待纳入 {len(plan.to_register)} · "
-                 f"已在册跳过 {len(plan.already_tracked)} · "
-                 f"已下载跳过 {len(plan.already_downloaded)} · "
-                 f"已删除/失效不复活 {len(plan.inactive)}"]
+        lines = [(t('客户端账本：') + f"{result.acf_path}"),
+                 (t('已安装 ') + f"{len(result.items)}" + t(' 条：待纳入 ') + f"{len(plan.to_register)}" + t(' · 已在册跳过 ') + f"{len(plan.already_tracked)}" + t(' · 已下载跳过 ') + f"{len(plan.already_downloaded)}" + t(' · 已删除/失效不复活 ') + f"{len(plan.inactive)}")]
         # 跳过明细：疑似下载中断（要重下）与格式类（要排查）分开报数
         inter = len(result.interrupted)
         other = len(result.skipped) - inter
@@ -498,7 +460,7 @@ class FirstUsePage(QWidget):
         if not result.items:
             lines.append(t('客户端账本里没有已安装条目：只订阅了、客户端还没下载完成的不会出现在这里——本来也没有文件。'))
         elif plan.to_register:
-            lines.append("待纳入编号：" + _ids_text(
+            lines.append(t('待纳入编号：') + _ids_text(
                 [i.mod_id for i in plan.to_register]))
         if n_work:
             self._set_card(self._d4, t('解析完成，') + f"{n_work}" + t(' 条可写入（只补缺不覆盖）——核对下方明细后点【纳入账本】。'),
@@ -546,8 +508,8 @@ class FirstUsePage(QWidget):
             self._d4,
             t('纳入完成：新入库 ') + f"{rep.registered}" + t(' 条（状态「待下载」）。接下来：\n① 【复制下载命令】粘贴到程序底部的 steamcmd 终端执行——走本工具的批次链，下载完自动弹确认清单，勾选 = 入账；\n（也可以复制到自己开的终端里跑：跑完到【入账中心】点【扫描游戏目录】把它们认领入账）\n② 确认入账后，到 Steam 客户端把这批 mod 退订——不要两边同时订阅：不退订的话，客户端会按它自己的订阅清单继续维护那份拷贝（有更新就自动下载到客户端自己的目录），与本工具这份并存，版本各走各的还白占空间。'),
             _C_OK)
-        self._log.ok(f"纳入已有 mod 完成：新入库 {rep.registered} 条（待下载）"
-                     + (f"；下载命令已生成（{len(cmd_ids)} 个编号）"
+        self._log.ok((t('纳入已有 mod 完成：新入库 ') + f"{rep.registered}" + t(' 条（待下载）'))
+                     + ((t('；下载命令已生成（') + f"{len(cmd_ids)}" + t(' 个编号）'))
                         if self._cmd_text else ""))
 
     def _on_copy(self) -> None:
@@ -589,5 +551,5 @@ def _ids_text(ids: list[int], limit: int = _ID_LIMIT) -> str:
     """编号清单 → 展示文本：最多列 limit 个，超出折成"…"。"""
     head = "、".join(str(i) for i in ids[:limit])
     if len(ids) > limit:
-        head += f" …（共 {len(ids)} 个）"
+        head += (t(' …（共 ') + f"{len(ids)}" + t(' 个）'))
     return head

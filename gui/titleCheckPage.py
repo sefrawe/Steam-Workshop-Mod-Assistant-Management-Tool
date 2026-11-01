@@ -116,7 +116,7 @@ class TitleCheckPage(QWidget):
         # 式误报当场可辨）。双击行 = 开工坊页面
         self._table = QTableWidget(0, 3, self)
         self._table.setHorizontalHeaderLabels(
-            ["编号", "标题（双击行 = 打开工坊页面）", "命中词"])
+            [t('编号'), t('标题（双击行 = 打开工坊页面）'), t('命中词')])
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -221,7 +221,7 @@ class TitleCheckPage(QWidget):
             # 再存一份显示文字 = 同一格画两遍（截图里的重影）
             c1 = SortItem("", title)
             c1.setData(_TITLE_ROLE, title)
-            c1.setToolTip("双击行打开工坊页面；右键更多动作\n命中："
+            c1.setToolTip(t('双击行打开工坊页面；右键更多动作\n命中：')
                           + "、".join(kws))
             c2 = SortItem("、".join(kws), "、".join(kws))
             c2.setForeground(QColor(_C_WARN))
@@ -304,7 +304,7 @@ class TitleCheckPage(QWidget):
 
     def _title_of(self, mid: int) -> str:
         m = self._mods_by_id.get(mid)
-        return (m.title if m is not None and m.title else None) or "（无标题）"
+        return (m.title if m is not None and m.title else None) or t('（无标题）')
 
     # ---------- 行菜单（查看类，与 V1 桶C 行同款）----------
     def _on_row_menu(self, pos) -> None:

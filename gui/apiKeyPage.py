@@ -88,28 +88,24 @@ class _ProbeWorker(QThread):
                 # 引擎对 403 不重试（非 429/503 的既定行为），
                 # 转译成人话在这里
                 self.done.emit({"ok": False, "children": [],
-                                "msg": "服务器拒绝（403）：key 无效或已被"
-                                       "重置。请回 steamcommunity.com/dev"
-                                       "/apikey 核对或重新注册一个"})
+                                "msg": t('服务器拒绝（403）：key 无效或已被重置。请回 steamcommunity.com/dev/apikey 核对或重新注册一个')})
                 return
             self.done.emit({"ok": False, "children": [],
-                            "msg": f"请求失败：{text}"})
+                            "msg": (t('请求失败：') + f"{text}")})
             return
         except Exception as exc:  # noqa: BLE001 —— 线程边界兜底
             self.done.emit({"ok": False, "children": [],
-                            "msg": f"请求失败：{exc}"})
+                            "msg": (t('请求失败：') + f"{exc}")})
             return
         if not items:
             self.done.emit({"ok": False, "children": [],
-                            "msg": "响应里没有条目数据（验证编号对吗？）"})
+                            "msg": t('响应里没有条目数据（验证编号对吗？）')})
             return
         item = items[0]
         if item.result is not None and item.result != 1:
             # 引擎逐条判定口径：result 非 1 = 该条目有问题（被删/私有）
             self.done.emit({"ok": False, "children": [],
-                            "msg": f"Steam 回报该条目查询失败"
-                                   f"（result={item.result}）——"
-                                   "验证编号对吗？"})
+                            "msg": (t('Steam 回报该条目查询失败（result=') + f"{item.result}" + t('）——验证编号对吗？'))})
             return
         # children 三态是引擎契约（KeyedItem 文档）：None = 响应条目里
         # 没有 children 键（includechildren 未生效/接口行为变了），
@@ -117,17 +113,13 @@ class _ProbeWorker(QThread):
         # 绝不静默当 0 项
         if item.children is None:
             self.done.emit({"ok": False, "children": [],
-                            "msg": "响应条目里没有 children 键："
-                                   "includechildren 参数未生效或接口行为"
-                                   "变了——把此结果告诉开发者"})
+                            "msg": t('响应条目里没有 children 键：includechildren 参数未生效或接口行为变了——把此结果告诉开发者')})
             return
         ids = [str(i) for i in item.children]
         title = item.title or "?"
-        msg = (f"接口通了：《{title}》，children（必需物品）共 "
-               f"{len(ids)} 项"
-               + (f"，前几项：{'、'.join(ids[:5])}" if ids
-                  else "。——这个编号工坊页写了必需物品却没有 children？"
-                       "请把此结果告诉开发者"))
+        msg = ((t('接口通了：《') + f"{title}" + t('》，children（必需物品）共 ') + f"{len(ids)}" + t(' 项'))
+               + ((t('，前几项：') + f"{'、'.join(ids[:5])}") if ids
+                  else t('。——这个编号工坊页写了必需物品却没有 children？请把此结果告诉开发者')))
         self.done.emit({"ok": True, "children": ids, "msg": msg})
 
 
@@ -285,7 +277,7 @@ class ApiKeyPage(QWidget):
         # key 不在界面上残留；失败要重试，重新粘贴即可
         self._input.clear()
         msg = payload.get("msg") or ""
-        self._result.setText(msg + "\n（输入框已清空——本软件不保存 key）")
+        self._result.setText(msg + t('\n（输入框已清空——本软件不保存 key）'))
         if self._log is not None:
             if payload.get("ok"):
                 n = len(payload.get("children") or [])

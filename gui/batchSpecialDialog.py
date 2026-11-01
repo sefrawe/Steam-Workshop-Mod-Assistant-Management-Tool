@@ -133,9 +133,7 @@ class BatchSpecialDialog(QDialog):
 
         self._edit = QPlainTextEdit(self)
         self._edit.setPlaceholderText(
-            "例：\n"
-            "https://steamcommunity.com/sharedfiles/filedetails/?id=3173817085\n"
-            "3219589892")
+            t('例：\nhttps://steamcommunity.com/sharedfiles/filedetails/?id=3173817085\n3219589892'))
         root.addWidget(self._edit, 1)
 
         self._report_label = QLabel("", self)

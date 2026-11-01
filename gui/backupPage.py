@@ -193,7 +193,7 @@ class _BatchWorker(QThread):
                     t('删除备份 ') + f"{rec.id}" + f'（mod ' + f"{rec.mod_id}" + t('）时出现预期外错误：') + f"{exc}")
                 return
             line = ((t('备份 ') + f"{rec.id}" + '（mod ' + f"{rec.mod_id}" + '）：')
-                    + (msg if msg else ("已删除" if ok else "失败")))
+                    + (msg if msg else (t('已删除') if ok else t('失败'))))
             results.append((rec.id, ok, line))
             self.one_done.emit(i, total, ok, line)
         self.all_done.emit(False, results)
@@ -875,7 +875,7 @@ class BackupPage(QWidget):
             elif (bdir / b.backup_path).is_dir():
                 disk_map[b.id] = "✓"
             else:
-                disk_map[b.id] = "失联"
+                disk_map[b.id] = t('失联')
                 lost += 1
 
         if self._view_mode == "flat":

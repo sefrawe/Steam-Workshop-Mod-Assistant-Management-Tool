@@ -213,7 +213,7 @@ class UpdateComparePage(QWidget):
         h.addWidget(self._sort_combo)
 
         self._status_combo = QComboBox(bar)
-        for label, data in ((t('全部状态'), None), ("已下载", "downloaded"),
+        for label, data in ((t('全部状态'), None), (t('已下载'), "downloaded"),
                             (t('待下载'), "tracked"), (t('已失败'), "failed")):
             self._status_combo.addItem(label, data)
         self._status_combo.setToolTip(t("只看某个状态的 mod（两个视图都生效）"))
@@ -425,7 +425,7 @@ class UpdateComparePage(QWidget):
         （按钮家族不吃富文本）。"""
         days = self._lag_days(m)
         if days is None:
-            sev, lag_txt = _C_MUTED, "版本未知"
+            sev, lag_txt = _C_MUTED, t('版本未知')
         elif days == 0:
             sev, lag_txt = _C_OK, t('最新')
         elif days <= 30:
@@ -513,34 +513,34 @@ class UpdateComparePage(QWidget):
         self._stack.setCurrentIndex(1)
 
         self._stale_check.setEnabled(True)
-        t = self._table
-        t.setSortingEnabled(False)
-        t.clearSpans()
-        t.setColumnCount(len(_COLS_FLAT))
-        t.setHorizontalHeaderLabels(_COLS_FLAT)
-        header = t.horizontalHeader()
+        tbl = self._table
+        tbl.setSortingEnabled(False)
+        tbl.clearSpans()
+        tbl.setColumnCount(len(_COLS_FLAT))
+        tbl.setHorizontalHeaderLabels(_COLS_FLAT)
+        header = tbl.horizontalHeader()
         header.setSectionResizeMode(C_TITLE, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(C_NOTE, QHeaderView.ResizeMode.Stretch)
         for col, width in ((C_URL, 36), (C_MID, 110), (C_STATUS, 80),
                            (C_NOTE, 160), (C_LOCAL, 150),
                            (C_REMOTE, 150), (C_LAG, 90)):
-            t.setColumnWidth(col, width)
+            tbl.setColumnWidth(col, width)
 
         rows = [(m, self._lag_days(m)) for m in self._visible_mods()]
         if self._stale_check.isChecked():
             rows = [r for r in rows if r[1] is not None and r[1] > 0]
         self._flat_rows = rows
 
-        t.setRowCount(len(rows))
+        tbl.setRowCount(len(rows))
         for i, (m, days) in enumerate(rows):
             self._fill_flat_row(i, m, days)
         # 灌完再开排序（重建时序纪律：先关后开），默认落后大→小
         header.setSortIndicatorShown(True)
-        t.setSortingEnabled(True)
+        tbl.setSortingEnabled(True)
         col, order = self._sort_state
         if col >= len(_COLS_FLAT):
             col, order = C_LAG, Qt.SortOrder.DescendingOrder
-        t.sortItems(col, order)
+        tbl.sortItems(col, order)
 
         n_stale = sum(1 for _, d in rows if d is not None and d > 0)
         n_old = sum(1 for _, d in rows if d is not None and d > 30)

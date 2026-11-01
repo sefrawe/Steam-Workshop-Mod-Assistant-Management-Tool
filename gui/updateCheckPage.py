@@ -58,7 +58,7 @@ _KEY_AUTO_DOWNLOAD = "auto_download_after_check"
 # Steam 官方接口单批上限 100（D13 沿用）
 _BATCH = 100
 
-_RESULT_COLUMNS = [t('编号'), "标题", t('结果'), t('远端更新'), t('更新间隔'), t('大小'), t('操作')]
+_RESULT_COLUMNS = [t('编号'), t('标题'), t('结果'), t('远端更新'), t('更新间隔'), t('大小'), t('操作')]
 
 # 决策 46：网络类失败固定附带的提示（失败原文照展在前，提示附后——
 # 连接超时是到 Steam 的链路波动，不是软件坏了，也不是 Steam 限流）
@@ -434,10 +434,10 @@ class UpdateCheckPage(QWidget):
         if m.status != "downloaded":
             return t('未下载')
         if m.confirmed_version is None:
-            return "版本未知"
+            return t('版本未知')
         if (m.time_updated is not None
                 and m.time_updated > m.confirmed_version):
-            return "需更新"
+            return t('需更新')
         return t('已最新')
     def _apply_results(self, ok_items: list[WorkshopItem],
                        suspected_ids: set[int],
@@ -592,9 +592,9 @@ class UpdateCheckPage(QWidget):
             title = (fresh.title if fresh is not None else None) \
                     or m.title or t('（无标题）')
             if m.mod_id in failed:
-                kind = "查询失败"
+                kind = t('查询失败')
             elif m.mod_id in suspected_ids:
-                kind = "疑似合集/异常"
+                kind = t('疑似合集/异常')
             else:
                 kind = self._kind_of(fresh)
             if kind in ("需更新", "版本未知", "查询失败", "疑似合集/异常"):

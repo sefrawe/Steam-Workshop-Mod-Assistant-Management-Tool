@@ -164,7 +164,7 @@ class QuickCommandPage(QWidget):
         v.addLayout(row)
         self._table = QTableWidget(0, 4, page_body)
         self._table.setHorizontalHeaderLabels(
-            ["编号", "标题", "所属游戏 AppID", "说明"])
+            [t('编号'), t('标题'), t('所属游戏 AppID'), t('说明')])
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)
         self._table.setWordWrap(False)
@@ -204,9 +204,9 @@ class QuickCommandPage(QWidget):
             return
         report = urlParser.parse_lines(text.splitlines())
         if not report.mod_ids:
-            msg = "没认出任何编号。"
+            msg = t('没认出任何编号。')
             if report.invalid:
-                msg += "认不出的片段：" + "、".join(report.invalid[:5])
+                msg += t('认不出的片段：') + "、".join(report.invalid[:5])
             self._set_status(msg, "color: #e5484d;")
             return
         busy = netGate.try_acquire(constants.NET_GATE_QUICK_QUERY)
@@ -253,7 +253,7 @@ class QuickCommandPage(QWidget):
         n_dup = sum(1 for n in self._dup_counts.values() if n > 1)
         cur_app = self._game.app_id if self._game is not None else None
         for it in items:
-            mid, title = it.mod_id, it.title or "（无标题）"
+            mid, title = it.mod_id, it.title or t('（无标题）')
             notes: list[str] = []
             row_app = it.consumer_app_id if it.result == 1 else None
             if it.result == 1 and it.consumer_app_id:
@@ -303,14 +303,14 @@ class QuickCommandPage(QWidget):
             extras.append(t('跨档案 ') + f"{n_cross}")
         if n_dup:
             extras.append(t('输入重复 ') + f"{n_dup}")
-        tail = ("；另有：" + "、".join(extras)) if extras else ""
+        tail = (t('；另有：') + "、".join(extras)) if extras else ""
         self._set_status(
             t('查询完成：生成 ') + f"{len(self._commands)}" + t(' 条命令，涉及 ') + f"{len(apps)}" + t(' 个游戏') + f"{tail}", "")
         self._log.ok(t('快速命令查询：生成 ') + f"{len(self._commands)}" + t(' 条命令（涉及 ') + f"{len(apps)}" + t(' 个游戏）') + f"{tail}")
         if n_mismatch:
             self._log.warn(f"{n_mismatch}" + t(' 条命令行里的 AppID 与条目实际所属不符，已按重查结果纠正（明细见表格说明列）'))
         if self._invalid:
-            self._log.warn("认不出的片段（原样保留未处理）："
+            self._log.warn(t('认不出的片段（原样保留未处理）：')
                            + "、".join(self._invalid[:8]))
 
     def _on_fail(self, message: str) -> None:
@@ -333,9 +333,9 @@ class QuickCommandPage(QWidget):
             return
         report = urlParser.parse_lines(text.splitlines())
         if not report.mod_ids:
-            msg = "没认出任何编号。"
+            msg = t('没认出任何编号。')
             if report.invalid:
-                msg += "认不出的片段：" + "、".join(report.invalid[:5])
+                msg += t('认不出的片段：') + "、".join(report.invalid[:5])
             self._set_status(msg, "color: #e5484d;")
             return
         app_id = self._game.app_id
@@ -350,11 +350,11 @@ class QuickCommandPage(QWidget):
         self._commands = build_plain_commands(app_id, ids)
         rows = []
         for mid in ids:
-            note = f"离线生成——假定属于当前档案 {self._game.name}"
+            note = (t('离线生成——假定属于当前档案 ') + f"{self._game.name}")
             n_seen = self._dup_counts.get(mid, 0)
             if n_seen > 1:
-                note += f"；输入中重复出现 {n_seen} 次（已合并）"
-            rows.append({"mid": mid, "title": "（离线·未查标题）",
+                note += (t('；输入中重复出现 ') + f"{n_seen}" + t(' 次（已合并）'))
+            rows.append({"mid": mid, "title": t('（离线·未查标题）'),
                          "app": app_id, "note": note})
         self._fill_table(rows)
         self._output.setPlainText("\n".join(self._commands) + "\n")

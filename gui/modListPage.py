@@ -114,7 +114,7 @@ _COL_SETTING = {
 # 排序下拉的人话（T19⑰ 沿用）：列号 → 中文名 / 方向说法。
 # 排序串一律 _SORT_MAP 白名单 + " DESC" 后缀，本页不发明新排序串
 _SORT_COL_NAME = {
-    COL_ID: t('编号'), COL_TITLE: "标题", COL_STATUS: t('状态'),
+    COL_ID: t('编号'), COL_TITLE: t('标题'), COL_STATUS: t('状态'),
     COL_LOCAL: t('本地版本'), COL_REMOTE: t('远端版本'), COL_SIZE: t('大小'),
 }
 _SORT_ASC = {
@@ -334,7 +334,7 @@ class ModListPage(QWidget):
         # 挪给"标题+备注"项（data 仍 "all"，_reload 分支原样兼容）
         self._search_field_combo = QComboBox(row)
         for label, val in ((t('不筛选（搜索）'), None), (t('标题+备注'), "all"),
-                           ("标题", "title"), (t('备注'), "note"),
+                           (t('标题'), "title"), (t('备注'), "note"),
                            (t('编号'), "id")):
             self._search_field_combo.addItem(label, val)
         self._search_field_combo.setToolTip(
@@ -360,8 +360,8 @@ class ModListPage(QWidget):
         for label, val in (
                 (t('不筛选（状态）'), None),
                 (t('待下载'), STATUS_TRACKED),
-                ("已下载", STATUS_DOWNLOADED),
-                ("已删除", "deleted"),
+                (t('已下载'), STATUS_DOWNLOADED),
+                (t('已删除'), "deleted"),
                 (t('已失败'), "failed"),
         ):
             self._status_combo.addItem(label, val)
@@ -1225,7 +1225,7 @@ class ModListPage(QWidget):
             self._log.error(f'mod ' + f"{mod_id}" + t(' 译文落库失败：') + f"{exc}")
 
     def _pick_color(self, m) -> None:
-        names = [*COLOR_CHOICES.keys(), "（自定义颜色…）", t('（清除标记）')]
+        names = [*COLOR_CHOICES.keys(), t('（自定义颜色…）'), t('（清除标记）')]
         name, ok = QInputDialog.getItem(
             self, t("颜色标记"), f"mod {m.mod_id}：",
             names, current=0, editable=False)
@@ -1802,7 +1802,7 @@ class ModListPage(QWidget):
             QMessageBox.information(
                 self, t("批量颜色标记"), t("先在表格第一列勾选要标记的 mod。"))
             return
-        names = [*COLOR_CHOICES.keys(), "（自定义颜色…）", t('（清除标记）')]
+        names = [*COLOR_CHOICES.keys(), t('（自定义颜色…）'), t('（清除标记）')]
 
         name, ok = QInputDialog.getItem(
             self, t("批量颜色标记"),

@@ -71,7 +71,7 @@ _C_MUTED = "#8a8a8f"   # 说明文字/未检测
 # "待下载·未下载过" = 账本记「待下载」（从未下载过）而远端已确认失效
 # （V1 分类名"已收录·未下载"按 D30 改词）；
 # "已清账" = 彻底清账后的历史归档：默认视图不显示、状态筛可查
-_CAT_ORDER = ("归档失效", "待下载·未下载过", "已替换", "已删除", "已清账")
+_CAT_ORDER = (t('归档失效'), t('待下载·未下载过'), t('已替换'), t('已删除'), t('已清账'))
 _CAT_COLORS = {
     "归档失效": _C_FAIL,
     "待下载·未下载过": _C_WARN,
@@ -186,7 +186,7 @@ class ExceptionPage(QWidget):
         # 桶④管理台状态（页面级：卡片重建不重置，"筛着修、修完复检"
         # 的节奏不断——V1 口径）
         self._b4_rows: list[dict] = []
-        self._b4_filter = "全部"
+        self._b4_filter = t('全部')
         self._b4_sort = t('编号')
         self._b4_group = False
         self._b4_table: QTableWidget | None = None
@@ -745,18 +745,18 @@ class ExceptionPage(QWidget):
                 st = m.status if m is not None else None
                 replaced = rec.replaced_by if rec else None
                 if st == "deleted":
-                    cat, can_repl, can_del = "已删除", False, False
+                    cat, can_repl, can_del = t('已删除'), False, False
                 elif replaced:
-                    cat, can_repl, can_del = "已替换", False, False
+                    cat, can_repl, can_del = t('已替换'), False, False
                 elif st == "tracked":
-                    cat, can_repl, can_del = "待下载·未下载过", False, True
+                    cat, can_repl, can_del = t('待下载·未下载过'), False, True
                 elif m is None:
                     # 账本条目已不存在（彻底清账后 mods 行物理删除，
                     # failed_mods 证据行按决策刻意存活）——终结历史，
                     # 不再给任何处置入口
-                    cat, can_repl, can_del = "已清账", False, False
+                    cat, can_repl, can_del = t('已清账'), False, False
                 else:
-                    cat = "归档失效"
+                    cat = t('归档失效')
                     can_repl, can_del = rec is not None, True
                 if st == "deleted":
                     note = t('已软删除——恢复到【mod 库】页右键「恢复」')
@@ -849,7 +849,7 @@ class ExceptionPage(QWidget):
                         "真失效的会归入桶④。"))
                     self._add_id_list(
                         card,
-                        [(mid, self._title_of(mid), "查询失败")
+                        [(mid, self._title_of(mid), t('查询失败'))
                          for mid in remote.query_failed],
                         allow_cmd=False, allow_dispose=True)
                 if remote.suspected_collection:
@@ -980,7 +980,7 @@ class ExceptionPage(QWidget):
         lbl_f.setStyleSheet("color: gray;")
         bh.addWidget(lbl_f)
         combo_filter = QComboBox(bar)
-        combo_filter.addItems(["全部", *_CAT_ORDER])
+        combo_filter.addItems([t('全部'), *_CAT_ORDER])
         combo_filter.setCurrentText(self._b4_filter)
         combo_filter.setToolTip(
             t("只显示所选分类的失效条目。「待下载·未下载过」= 从未下载过"
@@ -1003,7 +1003,7 @@ class ExceptionPage(QWidget):
         lbl_s.setStyleSheet("color: gray;")
         bh.addWidget(lbl_s)
         self._b4_combo_sort = QComboBox(bar)
-        self._b4_combo_sort.addItems([t('编号'), "标题", "分类"])
+        self._b4_combo_sort.addItems([t('编号'), t('标题'), t('分类')])
         self._b4_combo_sort.setCurrentText(self._b4_sort)
         self._b4_combo_sort.setEnabled(not self._b4_group)
         self._b4_combo_sort.setToolTip(
@@ -1046,7 +1046,7 @@ class ExceptionPage(QWidget):
 
         tbl = QTableWidget(0, 6, card)
         tbl.setHorizontalHeaderLabels(
-            ["✓", "↗", t('mod 标题'), t('mod 编号'), "分类", t('说明 / 原因')])
+            ["✓", "↗", t('mod 标题'), t('mod 编号'), t('分类'), t('说明 / 原因')])
         tbl.verticalHeader().setVisible(False)
         tbl.setAlternatingRowColors(True)
         tbl.setWordWrap(False)   # 踩坑④：表格关换行，全文进 tooltip

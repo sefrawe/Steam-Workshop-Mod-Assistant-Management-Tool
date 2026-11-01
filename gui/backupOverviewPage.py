@@ -68,8 +68,8 @@ COL_DISK = 7
 COL_PIN = 8
 COL_CREATED = 9
 COL_STATUS = 10
-_COL_HEADERS = ["选", "游戏", "Mod 编号", "标题", "↗", "备份版本",
-                "大小", "盘上", "钉", "登记时间", "mod 状态"]
+_COL_HEADERS = [t('选'), t('游戏'), t('Mod 编号'), t('标题'), "↗", t('备份版本'),
+                t('大小'), t('盘上'), t('钉'), t('登记时间'), t('mod 状态')]
 
 # 盘上列的排序次序：正常的在前、失联居中、没档案垫底
 _DISK_RANK = {"✓": 0, "失联": 1, "—": 2}
@@ -120,9 +120,8 @@ class _BatchWorker(QThread):
                     + t("（mod ") + f"{rec.mod_id}"
                     + t("）时出现预期外错误：") + str(exc))
                 return
-            line = (f"[{rec.game_name}] 备份 {rec.backup_id}"
-                    f"（mod {rec.mod_id}）："
-                    + (msg if msg else ("已删除" if ok else "失败")))
+            line = (('[' + f"{rec.game_name}" + t('] 备份 ') + f"{rec.backup_id}" + '（mod ' + f"{rec.mod_id}" + '）：')
+                    + (msg if msg else (t('已删除') if ok else t('失败'))))
             results.append((rec.backup_id, ok, line))
             self.one_done.emit(i, total, ok, line)
         self.all_done.emit(results)
@@ -350,7 +349,7 @@ class BackupOverviewPage(QWidget):
         bdir = (g.backup_dir or "").strip() if g else ""
         if not bdir:
             return "—"
-        return "✓" if (Path(bdir) / r.backup_path).is_dir() else "失联"
+        return "✓" if (Path(bdir) / r.backup_path).is_dir() else t('失联')
 
     def _fill_table(self) -> None:
         """重建表格。时序纪律与备份页相同：先关排序 → 灌数据 → 再开。"""
@@ -380,11 +379,11 @@ class BackupOverviewPage(QWidget):
         # 统计行
         total = sum(r.size_bytes or 0 for r in self._rows)
         lost = sum(1 for d in self._disk if d == "失联")
-        text = f"共 {len(self._rows)} 份备份登记，合计 {fmt_size(total)}"
+        text = (t('共 ') + f"{len(self._rows)}" + t(' 份备份登记，合计 ') + f"{fmt_size(total)}")
         if lost:
-            text += f"，其中失联 {lost} 份"
+            text += (t('，其中失联 ') + f"{lost}" + t(' 份'))
         if not self._rows:
-            text += "（还没有任何备份登记）"
+            text += t('（还没有任何备份登记）')
         self._count_label.setText(text)
         self._building = False
         self._refresh_op_buttons()
@@ -403,7 +402,7 @@ class BackupOverviewPage(QWidget):
 
         self._table.setItem(row, COL_GAME, _SortItem(r.game_name, r.game_name))
         self._table.setItem(row, COL_MOD_ID, _SortItem(str(r.mod_id), r.mod_id))
-        title_item = _SortItem(r.mod_title or "（无标题）", r.mod_title or "")
+        title_item = _SortItem(r.mod_title or t('（无标题）'), r.mod_title or "")
         title_item.setToolTip(t('备份目录名：') + f"{r.backup_path}")
         self._table.setItem(row, COL_TITLE, title_item)
 
@@ -430,7 +429,7 @@ class BackupOverviewPage(QWidget):
             disk_item.setForeground(QBrush(QColor(_C_OK)))
         self._table.setItem(row, COL_DISK, disk_item)
         self._table.setItem(
-            row, COL_PIN, _SortItem("是" if r.pinned else "", 1 if r.pinned else 0))
+            row, COL_PIN, _SortItem(t('是') if r.pinned else "", 1 if r.pinned else 0))
         self._table.setItem(
             row, COL_CREATED, _SortItem(abs_time(r.created_at), r.created_at or 0))
         self._table.setItem(row, COL_STATUS,
@@ -469,7 +468,7 @@ class BackupOverviewPage(QWidget):
         self._act_del_rec.setEnabled(has)
         self._act_del_file.setEnabled(has)
         self._act_open_folder.setEnabled(single)
-        self._btn_sel_menu.setText(f"对选中({n})" if n else "对选中")
+        self._btn_sel_menu.setText((t('对选中(') + f"{n}" + ')') if n else t('对选中'))
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -581,7 +580,7 @@ class BackupOverviewPage(QWidget):
         """
         total = sum(r.size_bytes or 0 for r in recs)
         pin_n = sum(1 for r in recs if r.pinned)
-        lines = [f"对 {len(recs)} 份备份执行：{title}（合计 {fmt_size(total)}）"]
+        lines = [(t('对 ') + f"{len(recs)}" + t(' 份备份执行：') + f"{title}" + t('（合计 ') + f"{fmt_size(total)}" + '）')]
         if pin_n:
             lines.append(t('其中部分已钉住——钉住只豁免自动清理，不挡手动删除。'))
         lines.append(what)
@@ -616,7 +615,7 @@ class BackupOverviewPage(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, t("钉住"), t('失败（账未改动）：') + f"{exc}")
             return
-        word = "已钉住" if pinned else "已取消钉住"
+        word = t('已钉住') if pinned else t('已取消钉住')
         self._log.ok(f"{word}" + f' ' + f"{len(recs)}" + t(' 份备份登记'))
         self._reload()
 
@@ -630,9 +629,8 @@ class BackupOverviewPage(QWidget):
         if self._busy or not recs:
             return
         if not self._confirm_batch(
-                recs, "删登记",
-                "只删除备份登记（数据库记录），磁盘上的备份目录原样保留；\n"
-                "之后本工具不再跟踪这些文件，清理请自行到资源管理器操作。"):
+                recs, t('删登记'),
+                t('只删除备份登记（数据库记录），磁盘上的备份目录原样保留；\n之后本工具不再跟踪这些文件，清理请自行到资源管理器操作。')):
             return
         try:
             with self._repo.transaction():
@@ -655,10 +653,8 @@ class BackupOverviewPage(QWidget):
         if self._busy or not recs:
             return
         if not self._confirm_batch(
-                recs, "删除登记并删除文件",
-                "将逐份删除磁盘目录和数据库记录，不可撤销；逐份独立执行，"
-                "某份失败不影响其余。\n"
-                "盘上已不在的失联记录：没有东西可删，将只删除登记。"):
+                recs, t('删除登记并删除文件'),
+                t('将逐份删除磁盘目录和数据库记录，不可撤销；逐份独立执行，某份失败不影响其余。\n盘上已不在的失联记录：没有东西可删，将只删除登记。')):
             return
         self._progress.setRange(0, len(recs))
         self._progress.setValue(0)
@@ -687,7 +683,7 @@ class BackupOverviewPage(QWidget):
         if bads:
             QMessageBox.warning(
                 self, t("删除登记并删除文件"),
-                f"成功 {len(oks)}，失败 {len(bads)}\n"
+                (t('成功 ') + f"{len(oks)}" + t('，失败 ') + f"{len(bads)}" + '\n')
                 + "\n".join(r[2] for r in bads[:10]))
         self._reload()
 

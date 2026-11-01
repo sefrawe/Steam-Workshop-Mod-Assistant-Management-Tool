@@ -121,17 +121,16 @@ class RemoteHealthPage(QWidget):
         self._summary.setWordWrap(True)
         root.addWidget(self._summary)
         self._sec_mismatch = self._make_section(
-            "标题不符（本地 → 远端）",
-            "作者改名或上传内容被顶替的信号：打开工坊页面对照一眼，"
-            "内容确实换了再决定去留。版本号差异已自动忽略。",
+            t('标题不符（本地 → 远端）'),
+            t('作者改名或上传内容被顶替的信号：打开工坊页面对照一眼，内容确实换了再决定去留。版本号差异已自动忽略。'),
             _C_WARN)
         self._sec_abandoned = self._make_section(
-            "标题含弃坑关键词",
-            "作者明示不再维护：还能用就继续用，出问题再找替代。",
+            t('标题含弃坑关键词'),
+            t('作者明示不再维护：还能用就继续用，出问题再找替代。'),
             _C_FAIL)
         self._sec_banned = self._make_section(
-            "banned=1（被 Steam 封禁）",
-            "通常不可再下载，处置参考【异常处置】页桶④三步。",
+            t('banned=1（被 Steam 封禁）'),
+            t('通常不可再下载，处置参考【异常处置】页桶④三步。'),
             _C_FAIL)
 
         self._note = QLabel("", self)
@@ -148,27 +147,27 @@ class RemoteHealthPage(QWidget):
         lbl.setWordWrap(True)
         lbl.setStyleSheet("color: gray;")
         self.root_layout.addWidget(lbl)
-        t = QTableWidget(0, 4, self)
-        t.setHorizontalHeaderLabels(["选", "编号", "标题", "说明"])
-        t.verticalHeader().setVisible(False)
-        t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        t.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        t.setWordWrap(False)
-        th = t.horizontalHeader()
+        tbl = QTableWidget(0, 4, self)
+        tbl.setHorizontalHeaderLabels([t('选'), t('编号'), t('标题'), t('说明')])
+        tbl.verticalHeader().setVisible(False)
+        tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        tbl.setWordWrap(False)
+        th = tbl.horizontalHeader()
         th.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         th.setSectionsClickable(True)  # 表头可点排序（SortItem）
         for col, width in ((0, 34), (1, 110), (2, 240)):
-            t.setColumnWidth(col, width)
-        t.setMinimumHeight(150)
-        t.setProperty("note_color", color)  # 说明列上色（_fill_list 读）
-        t.itemDoubleClicked.connect(self._on_row_dclicked)
-        t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        t.customContextMenuRequested.connect(
+            tbl.setColumnWidth(col, width)
+        tbl.setMinimumHeight(150)
+        tbl.setProperty("note_color", color)  # 说明列上色（_fill_list 读）
+        tbl.itemDoubleClicked.connect(self._on_row_dclicked)
+        tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tbl.customContextMenuRequested.connect(
             lambda pos, w=t: self._on_row_menu(w, pos))
         th.sortIndicatorChanged.connect(lambda *_a: self._apply_filter())
-        t.setVisible(False)
-        self.root_layout.addWidget(t)
-        return lbl, t
+        tbl.setVisible(False)
+        self.root_layout.addWidget(tbl)
+        return lbl, tbl
 
     # ---------- 对外 ----------
     def set_game(self, game: Game | None) -> None:
@@ -178,8 +177,8 @@ class RemoteHealthPage(QWidget):
             # 拿旧档案当新档案跑（修24，与依赖检测/异常处置页同族）。
             self._game = game
             self._game_label.setText(
-                f"当前游戏：{game.name}（{game.app_id}）"
-                if game is not None else "当前游戏：（未选择）")
+                (t('当前游戏：') + f"{game.name}" + '（' + f"{game.app_id}" + '）')
+                if game is not None else t('当前游戏：（未选择）'))
             return
         self._game = game
         self._clear_results()
@@ -265,13 +264,13 @@ class RemoteHealthPage(QWidget):
         skipped = exceptionFlow.classify_entries(entries)   # 失效/查询失败计数（纯函数复用）
         cross = len(skipped.invalid) + len(skipped.query_failed)
         shown = self._fill_list(self._sec_mismatch[1], [
-            (mid, self._title_of(mid), f"远端标题：{rt}")
+            (mid, self._title_of(mid), (t('远端标题：') + f"{rt}"))
             for mid, local, rt in health.title_mismatch])
         self._fill_list(self._sec_abandoned[1], [
-            (mid, self._title_of(mid), "标题含弃坑关键词")
+            (mid, self._title_of(mid), t('标题含弃坑关键词'))
             for mid in health.abandoned])
         self._fill_list(self._sec_banned[1], [
-            (mid, self._title_of(mid), "banned=1（被 Steam 封禁）")
+            (mid, self._title_of(mid), t('banned=1（被 Steam 封禁）'))
             for mid in health.banned])
         n = health.total
         if n == 0:
@@ -279,9 +278,7 @@ class RemoteHealthPage(QWidget):
                                   "banned 信号）。"))
             self._summary.setStyleSheet(f"color: {_C_OK};")
         else:
-            parts = (f"标题不符 {len(health.title_mismatch)}"
-                     f" · 弃坑 {len(health.abandoned)}"
-                     f" · banned {len(health.banned)}")
+            parts = ((t('标题不符 ') + f"{len(health.title_mismatch)}" + t(' · 弃坑 ') + f"{len(health.abandoned)}" + ' · banned ' + f"{len(health.banned)}"))
             self._summary.setText(parts)
             self._summary.setStyleSheet(f"color: {_C_WARN};")
         extra = []
@@ -290,8 +287,8 @@ class RemoteHealthPage(QWidget):
         if health.missing_banned_field:
             extra.append(t('本次响应未携带 banned 字段：banned 检测不可用（Steam 原始响应里有它）——把日志发给开发者'))
         self._note.setText("。\n".join(extra) + ("。" if extra else ""))
-        self._log.ok(f"远端健康检测完成：{n} 处信号"
-                     + (f"；另有 {cross} 条失效/查询失败（见异常处置页）"
+        self._log.ok((t('远端健康检测完成：') + f"{n}" + t(' 处信号'))
+                     + ((t('；另有 ') + f"{cross}" + t(' 条失效/查询失败（见异常处置页）'))
                         if cross else ""))
 
     def _on_failed(self, message: str) -> None:
@@ -357,7 +354,7 @@ class RemoteHealthPage(QWidget):
 
     def _title_of(self, mid: int) -> str:
         m = self._mods_by_id.get(mid)
-        return (m.title if m is not None and m.title else None) or "（无标题）"
+        return (m.title if m is not None and m.title else None) or t('（无标题）')
     def _on_row_menu(self, tbl, pos) -> None:
         """结果表右键：勾选总控 + 单行动作（光标下有行才有）+ 勾选
         批动作。三张表共用（一个动作一个定义）。"""

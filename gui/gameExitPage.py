@@ -115,18 +115,9 @@ class GameExitPage(QWidget):
         nb.setContentsMargins(8, 6, 8, 6)
         nb.setSpacing(2)
         for text in (
-            "流程：①（可选）导出分享包或完整账本留后路 → ② 备份处置 →"
-            " ③ 删除下载内容（content 下载目录）→ ④ 游戏侧处置（指引"
-            "不代劳）→ ⑤ 删除档案清账。顺序从软到硬：先留后路、再动"
-            "磁盘、最后清账；左上角切到哪个档案，退的就是哪个游戏。",
-            "为什么这么做：一个游戏退场要动的东西散在四处（备份区、"
-            "content 下载目录、游戏自己的 mod 目录、账本档案），本页"
-            "把它们串成一条线；每一步都是既有功能的入口，唯一的新删除"
-            "动作（第③步）带四道红线保护（见下）。",
-            "红线：content 下载目录本身是联接（反向拓扑）时绝不递归"
-            "删除——真实内容在游戏侧，只给 rmdir 摘链命令；目录树里"
-            "发现任何联接一律拒绝整删；steamcmd 正在跑只警告不拦"
-            "（被误删的内容重新下载即可回来）。",
+            t('流程：①（可选）导出分享包或完整账本留后路 → ② 备份处置 → ③ 删除下载内容（content 下载目录）→ ④ 游戏侧处置（指引不代劳）→ ⑤ 删除档案清账。顺序从软到硬：先留后路、再动磁盘、最后清账；左上角切到哪个档案，退的就是哪个游戏。'),
+            t('为什么这么做：一个游戏退场要动的东西散在四处（备份区、content 下载目录、游戏自己的 mod 目录、账本档案），本页把它们串成一条线；每一步都是既有功能的入口，唯一的新删除动作（第③步）带四道红线保护（见下）。'),
+            t('红线：content 下载目录本身是联接（反向拓扑）时绝不递归删除——真实内容在游戏侧，只给 rmdir 摘链命令；目录树里发现任何联接一律拒绝整删；steamcmd 正在跑只警告不拦（被误删的内容重新下载即可回来）。'),
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)  # 可能变长的标签一律开换行
@@ -144,23 +135,19 @@ class GameExitPage(QWidget):
         # ① 留后路（可选）
         self._d1, box1 = self._make_card("step1", t("① 留后路（可选）"))
         self._btn_share = self._add_button(
-            box1, "导出分享包（当前游戏）…",
-            "把当前游戏的收录清单（含备注、标签、特别关注）导出为 "
-            "JSON；纯读操作。与「文件」菜单同名动作是同一份")
+            box1, t('导出分享包（当前游戏）…'),
+            t('把当前游戏的收录清单（含备注、标签、特别关注）导出为 JSON；纯读操作。与「文件」菜单同名动作是同一份'))
         self._btn_share.clicked.connect(self.share_out_requested.emit)
         self._btn_ledger = self._add_button(
-            box1, "导出完整账本…",
-            "全部档案与全部 mod 记录（含快照、备份登记、操作日志）"
-            "导出为一个 JSON；纯读操作。与「文件」菜单同名动作是同一份")
+            box1, t('导出完整账本…'),
+            t('全部档案与全部 mod 记录（含快照、备份登记、操作日志）导出为一个 JSON；纯读操作。与「文件」菜单同名动作是同一份'))
         self._btn_ledger.clicked.connect(self.ledger_export_requested.emit)
 
         # ② 备份处置
         self._d2, box2 = self._make_card("step2", t("② 备份处置"))
         self._btn_overview = self._add_button(
-            box2, "打开备份总览（按本游戏过滤）…",
-            "备份总览页里可以逐份钉住、删登记、删文件（勾选操作）；"
-            "第⑤步的删除档案对话框里也有「同时删除磁盘备份」勾选，"
-            "想一步到位可以留在那一步")
+            box2, t('打开备份总览（按本游戏过滤）…'),
+            t('备份总览页里可以逐份钉住、删登记、删文件（勾选操作）；第⑤步的删除档案对话框里也有「同时删除磁盘备份」勾选，想一步到位可以留在那一步'))
         self._btn_overview.clicked.connect(self._on_overview)
 
         # ③ 下载内容处置（反向拓扑时的摘链命令标签常驻卡内，按需显隐）
@@ -173,9 +160,8 @@ class GameExitPage(QWidget):
         self._lbl_cmd3.hide()
         box3.addWidget(self._lbl_cmd3)
         self._btn_wipe = self._add_button(
-            box3, "删除下载内容…",
-            "整目录删除本游戏的 content 下载目录（确认弹窗会展示完整"
-            "路径）；删除后重新下载即可找回")
+            box3, t('删除下载内容…'),
+            t('整目录删除本游戏的 content 下载目录（确认弹窗会展示完整路径）；删除后重新下载即可找回'))
         self._btn_wipe.clicked.connect(self._on_wipe_content)
 
         # ④ 游戏侧处置（纯指引，无破坏性按钮——决策 69⒊ 纪律）
@@ -192,9 +178,8 @@ class GameExitPage(QWidget):
         # ⑤ 删除档案（清账收尾）
         self._d5, box5 = self._make_card("step5", t("⑤ 删除档案（清账收尾）"))
         self._btn_delete = self._add_button(
-            box5, "删除当前游戏档案…",
-            "打开删除档案对话框（「游戏」菜单同一份）：先盘点再删、"
-            "自动生成数据库快照兜底、可勾选同时删除磁盘备份文件")
+            box5, t('删除当前游戏档案…'),
+            t('打开删除档案对话框（「游戏」菜单同一份）：先盘点再删、自动生成数据库快照兜底、可勾选同时删除磁盘备份文件'))
         self._btn_delete.clicked.connect(self.delete_archive_requested.emit)
 
         root.addStretch(1)
@@ -227,9 +212,8 @@ class GameExitPage(QWidget):
         if not s.content_exists or s.content_is_link:
             return  # 按钮本应置灰；双保险
         lines = [
-            f"将整目录删除下载内容目录：\n{s.download_dir}\n",
-            "里面是该游戏经 steamcmd 下载的全部 mod 内容；删除后重新"
-            "下载即可找回。",
+            (t('将整目录删除下载内容目录：\n') + f"{s.download_dir}" + '\n'),
+            t('里面是该游戏经 steamcmd 下载的全部 mod 内容；删除后重新下载即可找回。'),
         ]
         if s.steamcmd_running:
             lines.append(t('注意：steamcmd 正在运行——此刻删除可能与下载争用；被误删的条目重跑下载命令即可回来。'))
@@ -332,8 +316,7 @@ class GameExitPage(QWidget):
         else:
             tip = ""
             if s.backup_found < s.backup_count:
-                tip = (f"（盘上只找到 {s.backup_found} 份，"
-                       "其余多半已被手动删除）")
+                tip = ((t('（盘上只找到 ') + f"{s.backup_found}" + t(' 份，其余多半已被手动删除）')))
             self._set_card(
                 self._d2,
                 t('本游戏有备份登记 ') + f"{s.backup_count}" + t(' 份，登记合计约 ') + f"{fmt_size(s.backup_bytes)}" + f"{tip}" + t('。到总览页逐份决定去留；或留到第⑤步勾选一并带走。'),
@@ -363,7 +346,7 @@ class GameExitPage(QWidget):
                 "——本步无需处理。"),
                 _C_OK)
         else:
-            extra = ("注意：steamcmd 正在运行，确认时会有提示。"
+            extra = (t('注意：steamcmd 正在运行，确认时会有提示。')
                      if s.steamcmd_running else "")
             self._set_card(
                 self._d3,

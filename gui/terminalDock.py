@@ -461,7 +461,7 @@ class TerminalDock(QWidget):
                 pass
 
     def _set_running_ui(self, running: bool) -> None:
-        self._lbl_state.setText("运行中" if running else "未启动")
+        self._lbl_state.setText(t('运行中') if running else t('未启动'))
         self._btn_start.setEnabled(not running)
         self._btn_stop.setEnabled(running)
         self._login_combo.setEnabled(running)
@@ -582,16 +582,14 @@ class TerminalDock(QWidget):
         count = self._pending_count
         self._pending_invalid = []
         self._pending_count = 0
-        head = f"已把 {count} 条下载命令转给「下载批次」逐条执行"
+        head = (t('已把 ') + f"{count}" + t(' 条下载命令转给「下载批次」逐条执行'))
         if leftover:
             self._input.setPlainText("\n".join(leftover))
             self._log.warn(
-                head + f"；输入框还留着 {len(leftover)} 行不是下载命令"
-                       "的内容，没有自动发送——需要先登录就现在发送它，等批次"
-                       "提示需要登录后再点「继续批次」；其余行请核对后再发")
+                head + (t('；输入框还留着 ') + f"{len(leftover)}" + t(' 行不是下载命令的内容，没有自动发送——需要先登录就现在发送它，等批次提示需要登录后再点「继续批次」；其余行请核对后再发')))
         else:
             self._input.clear()
-        self._log.info(head + "；批次结束后请在【入账中心】确认入账")
+        self._log.info(head + t('；批次结束后请在【入账中心】确认入账'))
 
     # ---------------- 登录命令下拉框 ----------------
 

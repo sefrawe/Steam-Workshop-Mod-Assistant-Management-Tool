@@ -126,18 +126,9 @@ class AddModPage(QWidget):
         nb.setContentsMargins(8, 6, 8, 6)
         nb.setSpacing(2)
         for text in (
-            "流程：① 确认档案 → ② 粘贴网址或读入文本、解析预览 → "
-            "③ 入库 + 生成命令 →【开批下载】（批次结束后自动弹确认"
-            "清单，勾选 = 入账）或复制命令到终端手动执行，跑完回来点"
-            "【盘点本批状态】看看这批编号在账本里的现状。",
-            "为什么这么做：解析只读不写——先看清新增/已在库/认不出再"
-            "入库，防重复、防错档；命令与入库同源生成，账和命令永远"
-            "一致；下载交给批次控制器执行，入账由收尾确认清单背书——"
-            "本地版本只认你的勾选，机器不替人确认。",
-            "术语与关系：待下载 = 账上有号、还没下载；已下载 = 文件在"
-            "盘且你在确认清单里背过书。解析与【入账中心 · 登记】同一份；"
-            "命令与【下载命令生成】同一份；下载与【mod 库 · 下载选中"
-            "项】同一条链。",
+            t('流程：① 确认档案 → ② 粘贴网址或读入文本、解析预览 → ③ 入库 + 生成命令 →【开批下载】（批次结束后自动弹确认清单，勾选 = 入账）或复制命令到终端手动执行，跑完回来点【盘点本批状态】看看这批编号在账本里的现状。'),
+            t('为什么这么做：解析只读不写——先看清新增/已在库/认不出再入库，防重复、防错档；命令与入库同源生成，账和命令永远一致；下载交给批次控制器执行，入账由收尾确认清单背书——本地版本只认你的勾选，机器不替人确认。'),
+            t('术语与关系：待下载 = 账上有号、还没下载；已下载 = 文件在盘且你在确认清单里背过书。解析与【入账中心 · 登记】同一份；命令与【下载命令生成】同一份；下载与【mod 库 · 下载选中项】同一条链。'),
         ):
             lbl = QLabel(text, note)
             lbl.setWordWrap(True)  # 可能变长的标签一律开换行
@@ -358,7 +349,7 @@ class AddModPage(QWidget):
 
     def _on_load_file_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "选择文本文件", "", "文本文件 (*.txt);;所有文件 (*)")
+            self, t('选择文本文件'), "", t('文本文件 (*.txt);;所有文件 (*)'))
         if not path:
             return
         try:
@@ -419,24 +410,24 @@ class AddModPage(QWidget):
                 self._log.info(t('命令所属游戏（AppID ') + f"{apps}" + t('）与当前档案一致'))
         # 入库按钮带计数（与【网址批量导入】页"导入（N 个）"同款）
         if p.has_new:
-            suffix = (f"（{len(p.new_ids)} 个，已被拦）"
-                      if p.app_id_mismatch else f"（{len(p.new_ids)} 个）")
-            self._btn_register.setText("入库并生成命令" + suffix)
+            suffix = (('（' + f"{len(p.new_ids)}" + t(' 个，已被拦）'))
+                      if p.app_id_mismatch else ('（' + f"{len(p.new_ids)}" + t(' 个）')))
+            self._btn_register.setText(t('入库并生成命令') + suffix)
         else:
             self._btn_register.setText(t("入库并生成命令"))
         # 明细区：三堆各一行（超长截断，认不出的原样展示）
         parts: list[str] = []
         if p.new_ids:
-            label = ("新增（已被拦，未入库）："
-                     if p.app_id_mismatch else "新增（将入库）：")
+            label = (t('新增（已被拦，未入库）：')
+                     if p.app_id_mismatch else t('新增（将入库）：'))
             parts.append(label + _ids_text(p.new_ids))
         if p.dup_ids:
-            parts.append("已在库（自动跳过）：" + _ids_text(p.dup_ids))
+            parts.append(t('已在库（自动跳过）：') + _ids_text(p.dup_ids))
         if p.invalid:
             head = "、".join(p.invalid[:_ID_LIMIT])
             if len(p.invalid) > _ID_LIMIT:
-                head += f" …（共 {len(p.invalid)} 段）"
-            parts.append("认不出的片段（请自行核对）：" + head)
+                head += (t(' …（共 ') + f"{len(p.invalid)}" + t(' 段）'))
+            parts.append(t('认不出的片段（请自行核对）：') + head)
         self._preview_detail.setText("\n".join(parts))
         if p.has_new and not quiet:
             self._log.info(
@@ -536,7 +527,7 @@ class AddModPage(QWidget):
                 _C_OK)
             self._log.ok(t('加入新 mod 批次盘点：') + f"{total}" + f'/' + f"{total}" + t(' 已下载'))
             return
-        seg = [f"已下载 {done_n}/{total}"]
+        seg = [(t('已下载 ') + f"{done_n}" + '/' + f"{total}")]
         color = _C_WARN
         if wait_n:
             seg.append(f"{wait_n}" + t(' 个仍「') + f"{status_zh('tracked')}" + t('」（命令可能没跑完，或跑完还没在收尾确认清单里勾选入账）'))
@@ -545,8 +536,8 @@ class AddModPage(QWidget):
             color = _C_FAIL
         self._set_card(self._d4, "；".join(seg) + "。", color)
         self._log.info(
-            f"加入新 mod 批次盘点：已下载 {done_n} · 待下载 {wait_n}"
-            + (f" · 异常 {len(odd)}" if odd else ""))
+            (t('加入新 mod 批次盘点：已下载 ') + f"{done_n}" + t(' · 待下载 ') + f"{wait_n}")
+            + ((t(' · 异常 ') + f"{len(odd)}") if odd else ""))
 
     # ---------- 卡片基建（样式与批量下载步骤卡片同款） ----------
     def _make_card(self, name: str, title: str) -> tuple[QLabel, QVBoxLayout]:
@@ -580,5 +571,5 @@ def _ids_text(ids: list[int], limit: int = _ID_LIMIT) -> str:
     """编号清单 → 展示文本：最多列 limit 个，超出折成"…"。"""
     head = "、".join(str(i) for i in ids[:limit])
     if len(ids) > limit:
-        head += f" …（共 {len(ids)} 个）"
+        head += (t(' …（共 ') + f"{len(ids)}" + t(' 个）'))
     return head
