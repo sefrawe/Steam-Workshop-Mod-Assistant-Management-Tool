@@ -15,6 +15,8 @@ terminate / exitstatus），不直接碰任何一家的 API；换引擎只改这
 
 import sys
 
+from core.i18n import t
+
 _WIN = sys.platform == "win32"
 
 # pexpect 每次 read 的等待上限（秒）：无数据时返回空串，面板读线程
@@ -127,25 +129,25 @@ def spawn_pty(argv: list[str], *, cwd: str, rows: int, cols: int) -> Pty:
             from winpty import PtyProcess
         except ImportError as exc:
             raise PtyError(
-                f"缺少终端依赖 pywinpty：{exc}\n"
-                f"请执行 {pty_install_hint()} 后重启本软件。") from exc
+                t("缺少终端依赖 pywinpty：") + f"{exc}" + "\n"
+                + t("请执行 ") + f"{pty_install_hint()}" + t(" 后重启本软件。")) from exc
         try:
             proc = PtyProcess.spawn(argv, cwd=cwd, dimensions=(rows, cols))
         except Exception as exc:
-            raise PtyError(f"伪终端启动失败：{exc}") from exc
+            raise PtyError(t("伪终端启动失败：") + f"{exc}") from exc
         return _WinptyPty(proc)
 
     try:
         import pexpect
     except ImportError as exc:
         raise PtyError(
-            f"缺少终端依赖 pexpect：{exc}\n"
-            f"请执行 {pty_install_hint()} 后重启本软件。") from exc
+            t("缺少终端依赖 pexpect：") + f"{exc}" + "\n"
+            + t("请执行 ") + f"{pty_install_hint()}" + t(" 后重启本软件。")) from exc
     try:
         proc = pexpect.spawn(
             argv, cwd=cwd, dimensions=(rows, cols),
             timeout=_PEXPECT_READ_TIMEOUT,
             encoding="utf-8", codec_errors="replace")
     except Exception as exc:
-        raise PtyError(f"伪终端启动失败：{exc}") from exc
+        raise PtyError(t("伪终端启动失败：") + f"{exc}") from exc
     return _PexpectPty(proc)

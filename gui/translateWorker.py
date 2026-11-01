@@ -16,6 +16,7 @@ import threading
 from PySide6.QtCore import QThread, Signal
 
 from core.translateProvider import TranslateProviderError, make_provider
+from core.i18n import t
 
 
 class TranslateWorker(QThread):
@@ -97,12 +98,12 @@ class TranslateWorker(QThread):
                         self.stopped.emit()
                         return
         except Exception as exc:  # 兜底：任何意外按失败收场，不炸主线程
-            self.failed.emit(f"翻译线程异常：{exc}")
+            self.failed.emit(t("翻译线程异常：") + f"{exc}")
             return
         if self._stop_requested:
             self.stopped.emit()
             return
         if out and all(s is None for s in out):
-            self.failed.emit(f"{total} 段全部翻译失败：{last_err}")
+            self.failed.emit(f"{total} " + t("段全部翻译失败：") + f"{last_err}")
             return
         self.succeeded.emit(out)

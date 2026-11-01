@@ -2155,5 +2155,13 @@
   "管理 Steam 创意工坊 mod 的本地工具：登记、检测更新、生成下载命令、确认入账、备份与恢复——全程不需要打开 Steam 客户端。": "A local tool for managing Steam Workshop mods: register, check for updates, generate download commands, confirm into the ledger, back up and restore — no need to open the Steam client at all.",
   "</a>&nbsp;&nbsp;（点击直接用浏览器打开；也可以选中复制）": "</a>&nbsp;&nbsp;(click to open in the browser; you can also select and copy it)",
   "版本 ": "Version ",
-  "__batch11__": "depCheckPage/accountCenterPage/updateCheckPage/welcomePage"
+  "__batch11__": "depCheckPage/accountCenterPage/updateCheckPage/welcomePage",
+  " 后重启本软件。": " and restart this app.",
+  "伪终端启动失败：": "Pseudo-terminal failed to start: ",
+  "请执行 ": "Please run ",
+  "缺少终端依赖 pexpect：": "Missing terminal dependency pexpect: ",
+  "缺少终端依赖 pywinpty：": "Missing terminal dependency pywinpty: ",
+  "翻译线程异常：": "Translation thread error: ",
+  "段全部翻译失败：": " segments all failed to translate: ",
+  "__batch12__": "ptyBackend/translateWorker"
 }
