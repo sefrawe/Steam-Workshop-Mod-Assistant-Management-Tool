@@ -29,6 +29,7 @@ import sys
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 from core import appPaths
+from core.i18n import t
 from PySide6.QtCore import QDir, QLockFile, QTimer, qInstallMessageHandler
 
 # R12：锁文件名带项目特征 + 代际特征，避免与 V1（或别的软件）撞名
@@ -127,6 +128,11 @@ def main() -> int:
     from gui.theme import apply_theme, apply_font_scale
     apply_theme(app)
     apply_font_scale(app)  # D25 界面字号缩放：必须在主窗口构造之前
+
+    # ---- i18n：必须在 MainWindow 构造之前调用（菜单/按钮等 UI 文字
+    # 在构造期就已经定了）。语言从 settings.json 读，缺省中文 ----
+    from core.i18n import init_language
+    init_language()
 
     from gui.MainWindow import MainWindow
     win = MainWindow()

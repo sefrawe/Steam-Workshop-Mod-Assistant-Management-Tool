@@ -55,6 +55,12 @@ DEFAULTS: dict[str, str] = {
 
     "theme_mode": "auto",  # 界面主题三态：auto=跟随系统 / dark / light（决策 66）
 
+    # 界面语言（2026-11）：zh=中文原文；其他代码查 gui/i18n_<代码>.json
+    # 翻译表（core/i18n 启动时读本文件一次）。就地开关住在这里、不进
+    # 设置页 _FIELDS（同 theme_mode 惯例：决策 12 只要求 _FIELDS 的键
+    # 都在 DEFAULTS，反向不要求）。改后重启生效
+    "language": "zh",
+
     # ↓ 一个"日常更新一条龙"开关（决策 26）：界面就地开关，不进设置页
 
     "auto_download_after_check": "0",  # 检测到新版本后跳过询问直接下载（默认关=每次弹窗确认；勾选框在更新检测页）

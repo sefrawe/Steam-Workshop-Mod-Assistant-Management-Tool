@@ -3,7 +3,8 @@
 """
 实时采集路线（V1 tabCollector 原样复用）：点按钮后程序自己逐个切换
 Edge 的标签页、读地址栏与标题——期间占用鼠标键盘，请勿操作；中断
-方式 = Esc / 【停止采集】/ 鼠标甩到屏幕左上角（pyautogui FAILSAFE）。
+方式 = Esc（轻点即可，粘住位不必按住）/ 随便动一下鼠标 /
+【停止采集】/ 鼠标甩到屏幕左上角（pyautogui FAILSAFE）。
 首次使用缺依赖时弹窗给 pip 安装指引，装完无需重启，再点一次即可。
 
 （路线拍板记录：会话文件直读方案经 V1 多轮真机实测不可靠——Edge
@@ -41,6 +42,7 @@ from PySide6.QtWidgets import (
 import sys
 
 from core import tabCollector
+from core.i18n import t
 from core.urlParser import extract_mod_id
 from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
@@ -63,6 +65,7 @@ class BrowserTabPage(QWidget):
         super().__init__(parent)
         self._log = log or LogBus()
         self._stop = False
+        self._stop_reason: str | None = None  # 中断原因（Esc/鼠标/停止按钮），None=跑完
         self._build_ui()
 
     # ---------- UI ----------
@@ -81,33 +84,37 @@ class BrowserTabPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(6)
 
-        title = QLabel("从浏览器取网址", self)
+        title = QLabel(t("从浏览器取网址"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         root.addWidget(title)
 
         if _IS_WIN:
-            guide_title = "先读我：怎么采 · 怎么中断 · 出口两条"
-            guide_text = ("实时采集 Edge 当前打开的标签页：点下方按钮后，程序自己"
-                          "逐个切换标签读取网址（期间占用鼠标键盘，请勿操作；要中断"
-                          "按 Esc）。工坊条目自动预勾选——勾好后【送到「加入新 "
-                          "mod」】继续入库，或【复制选中网址】粘贴到【入账中心 · "
-                          "登记】。")
+            guide_title = t("先读我：怎么采 · 怎么中断 · 出口两条")
+            guide_text = t("实时采集 Edge 当前打开的标签页：点下方按钮后，程序自己"
+                          "逐个切换标签读取网址（期间占用鼠标键盘，请勿操作；要"
+                          "中断按 Esc 轻点即可，或随便动一下鼠标）。尽量只保留"
+                          "不重复、要下载的标签页（空白页会自动跳过）。工坊条目"
+                          "自动预勾选——勾好后【送到「加入新 mod」】继续入库，"
+                          "或【复制选中网址】粘贴到【入账中心 · 登记】。")
         else:
-            guide_title = "先读我：怎么取 · 出口两条"
-            guide_text = ("读取 Firefox 当前打开的标签页：点下方按钮后，程序"
+            guide_title = t("先读我：怎么取 · 出口两条")
+            guide_text = t("读取 Firefox 当前打开的标签页：点下方按钮后，程序"
                           "直读 Firefox 的会话存档——不占鼠标键盘、不用动 "
                           "Firefox。工坊条目自动预勾选——勾好后【送到「加入新 "
                           "mod」】继续入库，或【复制选中网址】粘贴到【入账中心 · "
                           "登记】。")
-        root.addWidget(make_guide(guide_title, guide_text, self, 110))
+        # make_guide 第二参是「段落元组」，单段也要套元组——直接传
+        # 字符串会被逐字拆成一个字一行（2026-10-31 踩坑：for text
+        # in paras 把字符串当字符序列迭代了）
+        root.addWidget(make_guide(guide_title, (guide_text,), self, 110))
 
         # 空态引导（决策 22④）：有结果就藏起来
         if _IS_WIN:
-            empty_text = ("还没采集。点【实时采集 Edge 标签页…】开始：程序会自动"
+            empty_text = t("还没采集。点【实时采集 Edge 标签页…】开始：程序会自动"
                           "切换 Edge 的标签页逐个读取，完成后清单显示在这里"
                           "（工坊条目已预勾选）。")
         else:
-            empty_text = ("还没读取。点【读取 Firefox 标签页…】开始：程序直读 "
+            empty_text = t("还没读取。点【读取 Firefox 标签页…】开始：程序直读 "
                           "Firefox 的会话存档，完成后清单显示在这里"
                           "（工坊条目已预勾选）。")
         self._empty = QLabel(empty_text, self)
@@ -116,7 +123,7 @@ class BrowserTabPage(QWidget):
         root.addWidget(self._empty)
 
         self._tree = QTreeWidget(self)
-        self._tree.setHeaderLabels(["勾选", "标题", "网址"])
+        self._tree.setHeaderLabels([t("勾选"), t("标题"), t("网址")])
         self._tree.setRootIsDecorated(False)
         self._tree.header().setSectionResizeMode(
             2, QHeaderView.ResizeMode.Stretch)  # 网址列吃剩余宽度
@@ -126,14 +133,14 @@ class BrowserTabPage(QWidget):
 
         btns = QHBoxLayout()
         for text, tip_, slot in (
-                ("全选", "勾选清单里全部标签页",
+                (t("全选"), t("勾选清单里全部标签页"),
                  lambda: self._set_all_checked(True)),
-                ("全不选", "取消全部勾选",
+                (t("全不选"), t("取消全部勾选"),
                  lambda: self._set_all_checked(False)),
-                ("复制选中网址", "把勾选的网址逐行复制到剪贴板"
-                                 "（可粘贴进【入账中心 · 登记】）", self._on_copy_clicked),
-                ("送到「加入新 mod」", "把勾选的网址填入「加入新 mod」"
-                                     "第②步并自动解析预览；入库仍需在那边亲手点第③步按钮",
+                (t("复制选中网址"), t("把勾选的网址逐行复制到剪贴板"
+                                 "（可粘贴进【入账中心 · 登记】）"), self._on_copy_clicked),
+                (t("送到「加入新 mod」"), t("把勾选的网址填入「加入新 mod」"
+                                     "第②步并自动解析预览；入库仍需在那边亲手点第③步按钮"),
                  self._on_handoff_clicked),
         ):
             btn = QPushButton(text, self)
@@ -142,14 +149,15 @@ class BrowserTabPage(QWidget):
             btns.addWidget(btn)
         # 采集主按钮与停止键：V1 同款位置与语义
         if _IS_WIN:
-            btn_text = "实时采集 Edge 标签页…"
-            btn_tip = ("用键盘自动化逐个读取 Edge 当前打开的标签页（程序自己切"
-                       "窗口，期间占用鼠标键盘：别动）。中断方式：按 Esc、"
-                       "Alt+Tab 回本工具点【停止采集】、或鼠标甩到屏幕左上角。"
-                       "首次使用会弹窗引导安装依赖，装完无需重启，再点一次即可")
+            btn_text = t("实时采集 Edge 标签页…")
+            btn_tip = t("用键盘自动化逐个读取 Edge 当前打开的标签页（程序自己切"
+                       "窗口，期间占用鼠标键盘：别动）。中断方式：按 Esc"
+                       "（轻点即可）、随便动一下鼠标、Alt+Tab 回本工具点"
+                       "【停止采集】、或鼠标甩到屏幕左上角。首次使用会弹窗引导"
+                       "安装依赖，装完无需重启，再点一次即可")
         else:
-            btn_text = "读取 Firefox 标签页…"
-            btn_tip = ("直读 Firefox 的会话存档拿当前打开的标签页：不占鼠标"
+            btn_text = t("读取 Firefox 标签页…")
+            btn_tip = t("直读 Firefox 的会话存档拿当前打开的标签页：不占鼠标"
                        "键盘、不动 Firefox 窗口，以 Firefox 最近一次自动保存"
                        "的会话为准（正在运行约 15 秒内；已关闭则是最后退出"
                        "时的状态）")
@@ -157,8 +165,8 @@ class BrowserTabPage(QWidget):
         self._btn_collect.setToolTip(btn_tip)
         self._btn_collect.clicked.connect(self._on_collect_clicked)
         btns.addWidget(self._btn_collect)
-        self._btn_stop = QPushButton("停止采集", self)
-        self._btn_stop.setToolTip("中断实时采集，返回已采到的部分")
+        self._btn_stop = QPushButton(t("停止采集"), self)
+        self._btn_stop.setToolTip(t("中断实时采集，返回已采到的部分"))
         self._btn_stop.setEnabled(False)
         self._btn_stop.clicked.connect(self._stop_collection)
         btns.addWidget(self._btn_stop)
@@ -167,36 +175,57 @@ class BrowserTabPage(QWidget):
 
     # ---------- 采集（Win=V1 走查原路线；其余=Firefox 会话直读） ----------
     def _on_collect_clicked(self) -> None:
-        """实时采集：同步执行，进度走日志，期间 processEvents 保界面
-        呼吸 + 停止按钮可点。留在主线程是刻意的——pywinauto/pyautogui
-        直接操纵系统级窗口键盘，与工作线程混用会互相打架；Esc /
-        FAILSAFE / 停止按钮三路中断都靠事件循环活着。其他平台走
-        FirefoxSessionDriver（只读会话文件，瞬时完成）。"""
+        """实时采集：同步执行，进度走日志。留在主线程是刻意的——
+        pywinauto/pyautogui 直接操纵系统级窗口键盘，与工作线程混用
+        会互相打架；四路中断（Esc 轻点 / 动鼠标 / 停止按钮 /
+        FAILSAFE）全靠 probe() 里高频询问 + processEvents 泵事件。
+        其他平台走 FirefoxSessionDriver（只读会话文件，瞬时完成）。"""
         msg = tabCollector.missing_packages_message()
         if msg:
-            QMessageBox.warning(self, "需要先安装采集依赖", msg)
+            QMessageBox.warning(self, t("需要先安装采集依赖"), msg)
             return
         self._stop = False
+        self._stop_reason = None  # 每轮清零：中断原因随本轮记录
         self._btn_collect.setEnabled(False)
         try:
             if _IS_WIN:
                 self._btn_stop.setEnabled(True)
-                self._log.warn("实时采集中：会占用鼠标键盘，请勿操作；"
-                               "中断就按 Esc，或 Alt+Tab 回本工具点【停止采集】")
+                self._log.warn(t("实时采集中：会占用鼠标键盘，请勿操作；"
+                               "中断 = Esc 轻点一下 / 随便动一下鼠标 / "
+                               "Alt+Tab 回本工具点【停止采集】"))
 
                 def progress(n: int) -> None:
-                    QApplication.processEvents()
                     if n % 5 == 0:
                         self._log.info(f"已采集 {n} 个标签页……")
 
                 driver = tabCollector.EdgeDriver()
+
+                def probe() -> bool:
+                    # 每步、连同偷网址的 0.05 秒轮询都会进来。这里是
+                    # 采集中唯一稳定的事件泵：processEvents 挪进来后
+                    # 空转绕圈时 UI 照样呼吸、【停止采集】照点得动
+                    # （原先只在新标签采到时泵一次，卡住就假死）。
+                    # 同时记下是哪一路刹车触发的，收工后好打日志。
+                    QApplication.processEvents()
+                    if self._stop:
+                        self._stop_reason = self._stop_reason or "停止按钮"
+                        return True
+                    if driver.esc_pressed():
+                        self._stop_reason = self._stop_reason or "Esc"
+                        return True
+                    if driver.mouse_moved():
+                        self._stop_reason = self._stop_reason or "鼠标移动"
+                        return True
+                    return False
+
                 tabs = tabCollector.collect_tabs(
                     driver,
-                    should_stop=lambda: self._stop or driver.esc_pressed(),
-                    on_progress=progress)
+                    should_stop=probe,
+                    on_progress=progress,
+                    on_note=lambda note: self._log.warn(note))
             else:
                 QApplication.processEvents()
-                self._log.info("正在读取 Firefox 会话存档……")
+                self._log.info(t("正在读取 Firefox 会话存档……"))
                 tabs = tabCollector.FirefoxSessionDriver().collect()
         except tabCollector.CollectError as exc:
             self._log.warn(str(exc))
@@ -211,9 +240,16 @@ class BrowserTabPage(QWidget):
         self._fill_tree([(t.url, t.title) for t in tabs])
         n_ws = sum(1 for t in tabs
                    if extract_mod_id(t.url) is not None)
-        done = "实时采集完成" if _IS_WIN else "Firefox 标签读取完成"
-        self._log.ok(f"{done}：{len(tabs)} 个标签页"
-                     f"（工坊条目 {n_ws} 个，已预勾选）")
+        if self._stop_reason:
+            # 被刹车中断：单独一行点名是哪一路，方便用户判定到底
+            # 停没停、靠什么停的（用户点名要的判定日志）
+            self._log.warn(t("已中断采集") + f"（{self._stop_reason}）——"
+                           + t("已采集") + f" {len(tabs)} " + t("个标签页")
+                           + f"（{t("工坊条目")} {n_ws} " + t("个，已预勾选") + "）")
+        else:
+            done = t("实时采集完成") if _IS_WIN else t("Firefox 标签读取完成")
+            self._log.ok(f"{done}：{len(tabs)} " + t("个标签页")
+                         + f"（{t("工坊条目")} {n_ws} " + t("个，已预勾选") + "）")
         # 采集期间焦点被浏览器拿走：把本工具拉回前台——下一步就是
         # 在这里核对勾选，回工具比回桌面少一步（故不回桌面）
         self.window().activateWindow()
@@ -221,14 +257,14 @@ class BrowserTabPage(QWidget):
 
     def _stop_collection(self) -> None:
         self._stop = True
-        self._log.info("已请求停止采集……（当前标签处理完后收工）")
+        self._log.info(t("已请求停止采集……马上收工"))
 
     # ---------- 勾选与出口 ----------
     def _fill_tree(self, items: list[tuple[str, str]]) -> None:
         """(网址, 标题) 清单 → 勾选树；工坊条目预勾选（urlParser 单源）。"""
         self._tree.clear()
         for url, t_title in items:
-            item = QTreeWidgetItem(["", t_title or "（无标题）", url])
+            item = QTreeWidgetItem(["", t_title or t("（无标题）"), url])
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(
                 0, Qt.CheckState.Checked
@@ -254,15 +290,15 @@ class BrowserTabPage(QWidget):
     def _on_copy_clicked(self) -> None:
         urls = self._checked_urls()
         if not urls:
-            self._log.warn("没有勾选任何标签页")
+            self._log.warn(t("没有勾选任何标签页"))
             return
         QApplication.clipboard().setText("\n".join(urls))
-        self._log.info(f"已复制 {len(urls)} 条网址到剪贴板——可粘贴到"
-                       "【入账中心 · 登记】")
+        self._log.info(t("已复制") + f" {len(urls)} " + t("条网址到剪贴板——可粘贴到"
+                       "【入账中心 · 登记】"))
 
     def _on_handoff_clicked(self) -> None:
         urls = self._checked_urls()
         if not urls:
-            self._log.warn("没有勾选任何标签页")
+            self._log.warn(t("没有勾选任何标签页"))
             return
         self.handoff_to_addmod.emit(urls)

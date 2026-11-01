@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
 
 from gui.theme import reapply_theme, font_px
 from core.appSettings import DEFAULTS, AppSettings
+from core.i18n import available_languages  # 语言下拉选项：扫 gui/i18n_*.json 自动发现
 from core.steamPaths import (clear_download_caches, ensure_steamcmd_exe,
                               steamcmd_exe_names)
 from gui.logBus import LogBus
@@ -243,6 +244,8 @@ class SettingsPage(QWidget):
         # 切换信号在初始值就位后再接：_load 里 setCurrentIndex 不会
         # 触发落盘与重应用（构造期不空跑一次主题）
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
+        # 语言下拉同规矩：初值就位后再接信号，构造期不空跑落盘
+        self._lang_combo.currentIndexChanged.connect(self._on_language_changed)
 
     # ---------- UI ----------
     def _build_ui(self) -> None:
@@ -360,6 +363,23 @@ class SettingsPage(QWidget):
             "跟随系统：系统深浅色切换时软件跟着变（推荐）；\n"
             "深色 / 亮色：固定配色，切换即时生效并记住")
         theme_row.addWidget(self._theme_combo)
+
+        # 界面语言（2026-11）：与主题同排同惯例——DEFAULTS 键 + 就地
+        # 下拉，不进 _FIELDS 校验体系（无需校验）。与主题的唯一差异：
+        # 语言不能即时重应用（t() 启动时读一次表，运行中切换要重建
+        # 全部 widget 才算得清，框架拍板不做热切换），所以只落盘 +
+        # 提醒重启。下拉选项由 available_languages() 扫 gui/i18n_*.json
+        # 自动生成——加一门新语言 = 丢一个翻译文件进 gui/，这里零改动
+        self._lang_combo = QComboBox()
+        for code, name in available_languages():
+            self._lang_combo.addItem(name, code)
+        self._lang_combo.setToolTip(
+            "切换界面语言。改后需重启程序生效；当前翻译覆盖菜单/工具栏/"
+            "采集页等操作面，其余页面仍显示中文。\n"
+            "想加新语言：把 i18n_xx.json 翻译文件放进 gui/ 文件夹即可，"
+            "下拉框会自动多出这一项")
+        theme_row.addWidget(QLabel("界面语言 / Language："))
+        theme_row.addWidget(self._lang_combo)
         theme_row.addStretch(1)
         root.addLayout(theme_row)
 
@@ -436,6 +456,11 @@ class SettingsPage(QWidget):
         mode = str(self._settings.get("theme_mode") or "auto").strip()
         i = self._theme_combo.findData(mode)
         self._theme_combo.setCurrentIndex(max(i, 0))
+        # 语言初始值（缺键/非法值回落 zh——不在选项里的代码 findData
+        # 给 -1，max(i, 0) 落回第一项「中文」）
+        lang = str(self._settings.get("language") or "zh").strip()
+        i = self._lang_combo.findData(lang)
+        self._lang_combo.setCurrentIndex(max(i, 0))
 
     def _field_text(self, key: str) -> str:
         """读字段现值：单行走 QLineEdit.text()，多行走 toPlainText()。
@@ -561,6 +586,19 @@ class SettingsPage(QWidget):
         reapply_theme()
         self._saved_label.setText(
             f"主题已切换为「{self._theme_combo.currentText()}」并保存")
+        self._saved_label.setStyleSheet("color: #46a758;")
+
+    def _on_language_changed(self) -> None:
+        """界面语言（2026-11）：只落盘+提醒重启，不即时重应用——
+        框架拍板不做热切换（理由见 _build_ui 里语言下拉的注释）。
+        存 appSettings 的 "language" 键（DEFAULTS 默认 zh），下次启动
+        core/i18n.init_language 从同一份 GlobalSettings.json 读走。"""
+        code = self._lang_combo.currentData()
+        self._settings.set("language", code)
+        self._settings.save()
+        self._saved_label.setText(
+            f"界面语言已保存为「{self._lang_combo.currentText()}」"
+            "——重启程序后生效")
         self._saved_label.setStyleSheet("color: #46a758;")
 
     def _reset(self) -> None:

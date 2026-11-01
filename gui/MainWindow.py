@@ -53,6 +53,7 @@ from core import dataExporter
 from core import steamPaths
 from core.appSettings import AppSettings
 from core.backupManager import steamcmd_running
+from core.i18n import t
 from core.models import Game
 from core.sqliteRepository import SQLiteRepository
 from gui.accountCenterPage import AccountCenterPage
@@ -423,6 +424,11 @@ class MainWindow(QMainWindow):
         # "有新消息时弹出"的请求由面板发、本窗口执行——停靠窗是
         # 这里建的，怎么弹归这里管（谁建谁管）
         self._console.show_requested.connect(self._show_console)
+        # 浮动/停靠状态出口（2026-10-31）：拖出/双击标题栏会让停靠窗
+        # 变浮动且被 saveState 永久记住。面板据此亮出「回主窗停靠」
+        # 按钮；请求由面板发、本窗口执行（谁建谁管，同 show_requested）
+        self._console.redock_requested.connect(self._redock_console)
+        self._dock_console.topLevelChanged.connect(self._console.set_floating)
         self._dock_console.setWidget(self._console)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
                            self._dock_console)
@@ -751,57 +757,57 @@ class MainWindow(QMainWindow):
 
     def _build_menus(self) -> None:
 
-        m_file = self.menuBar().addMenu("文件(&F)")
+        m_file = self.menuBar().addMenu(t("文件(&F)"))
         # —— 账本导出/导入 + 分享包两项（dataExporter 消费轮回填）。
         # 导出纯读不需确认；导入完整账本 = 清库重灌，破坏性确认 + 默认
         # 按钮"否"双保险 + 批次进行中直接拒绝；分享包导入纯增量
         # （已有 mod 跳过、现有数据一字不改），无需确认 ——
-        act_exp_ledger = QAction("导出完整账本…", self)
+        act_exp_ledger = QAction(t("导出完整账本…"), self)
         act_exp_ledger.setToolTip(
-            "把全部档案与全部 mod 记录（含快照、备份登记、操作日志、"
-            "判决史等 8 张表）导出为一个 JSON 文件，用于换机迁移 / "
-            "整机备份")
+            t("把全部档案与全部 mod 记录（含快照、备份登记、操作日志、"
+              "判决史等 8 张表）导出为一个 JSON 文件，用于换机迁移 / "
+              "整机备份"))
         act_exp_ledger.triggered.connect(self._export_ledger)
         m_file.addAction(act_exp_ledger)
-        act_imp_ledger = QAction("导入完整账本…", self)
+        act_imp_ledger = QAction(t("导入完整账本…"), self)
         act_imp_ledger.setToolTip(
-            "从导出的 JSON 文件恢复账本。注意：导入会整体替换当前账本"
-            "（清库重灌），操作前会再次确认")
+            t("从导出的 JSON 文件恢复账本。注意：导入会整体替换当前账本"
+              "（清库重灌），操作前会再次确认"))
         act_imp_ledger.triggered.connect(self._import_ledger)
         m_file.addAction(act_imp_ledger)
         m_file.addSeparator()
-        self._act_share_out = QAction("导出分享包（当前游戏）…", self)
+        self._act_share_out = QAction(t("导出分享包（当前游戏）…"), self)
         self._act_share_out.setToolTip(
-            "把当前游戏的收录清单（含备注、标签、特别关注等整理成果）"
-            "导出为 JSON 发给别人；不含下载状态等本机信息")
+            t("把当前游戏的收录清单（含备注、标签、特别关注等整理成果）"
+              "导出为 JSON 发给别人；不含下载状态等本机信息"))
         self._act_share_out.triggered.connect(self._export_sharepack)
         m_file.addAction(self._act_share_out)
-        act_imp_share = QAction("导入分享包…", self)
+        act_imp_share = QAction(t("导入分享包…"), self)
         act_imp_share.setToolTip(
-            "把别人发来的分享包并入当前账本：已有的 mod 自动跳过，"
-            "绝不改动现有数据")
+            t("把别人发来的分享包并入当前账本：已有的 mod 自动跳过，"
+              "绝不改动现有数据"))
         act_imp_share.triggered.connect(self._import_sharepack)
         m_file.addAction(act_imp_share)
         m_file.addSeparator()
 
-        act_open_dl = QAction("打开 steamcmd 下载目录", self)
+        act_open_dl = QAction(t("打开 steamcmd 下载目录"), self)
         act_open_dl.setToolTip(
-            "在文件管理器打开当前档案的 mod 下载目录（steamcmd 工坊"
-            "内容目录，里面是按编号命名的 mod 文件夹）。需要先在左上角"
-            "选中游戏档案")
+            t("在文件管理器打开当前档案的 mod 下载目录（steamcmd 工坊"
+              "内容目录，里面是按编号命名的 mod 文件夹）。需要先在左上角"
+              "选中游戏档案"))
         act_open_dl.triggered.connect(self._open_download_dir)
         m_file.addAction(act_open_dl)
         self._act_open_download = act_open_dl  # 无档案时置灰（_on_game_changed）
 
-        act_open_root = QAction("打开软件所在目录", self)
+        act_open_root = QAction(t("打开软件所在目录"), self)
         act_open_root.setToolTip(
-            "在文件管理器打开本软件的文件夹——绿色软件，账本（mods.db）"
-            "等数据都在其中的 data 子目录")
+            t("在文件管理器打开本软件的文件夹——绿色软件，账本（mods.db）"
+              "等数据都在其中的 data 子目录"))
         act_open_root.triggered.connect(self._open_software_dir)
         m_file.addAction(act_open_root)
 
         m_file.addSeparator()
-        act_quit = QAction("退出", self)
+        act_quit = QAction(t("退出"), self)
         act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         act_quit.triggered.connect(self.close)
         m_file.addAction(act_quit)
@@ -809,11 +815,11 @@ class MainWindow(QMainWindow):
         # —— 游戏(&G)：档案工具四项（编辑/连接/重定位/删除）随四个
         # 对话框搬迁轮回填（switcher 的 open_* 方法届时一并补）；
         # 本轮建档入口真实可用 ——
-        m_game = self.menuBar().addMenu("游戏(&G)")
-        act_add_game = QAction("添加游戏档案…", self)
+        m_game = self.menuBar().addMenu(t("游戏(&G)"))
+        act_add_game = QAction(t("添加游戏档案…"), self)
         act_add_game.setToolTip(
-            "输入 AppID 一屏建档：自动查名、查重、下载目录按 steamcmd "
-            "位置推导并可预览")
+            t("输入 AppID 一屏建档：自动查名、查重、下载目录按 steamcmd "
+              "位置推导并可预览"))
         act_add_game.triggered.connect(self._switcher.add_game_dialog)
         m_game.addAction(act_add_game)
         # act_link_guide = QAction("连接指引…", self)
@@ -823,27 +829,27 @@ class MainWindow(QMainWindow):
         # act_link_guide.triggered.connect(
         #     lambda: self._goto_page(constants.PAGE_JUNCTION_CHECK))
         # m_game.addAction(act_link_guide)
-        act_edit_game = QAction("编辑档案…", self)
+        act_edit_game = QAction(t("编辑档案…"), self)
         act_edit_game.setToolTip(
-            "编辑当前游戏档案（如显示名称）——保存成功后下拉框与"
-            "各页同步更新")
+            t("编辑当前游戏档案（如显示名称）——保存成功后下拉框与"
+              "各页同步更新"))
         act_edit_game.triggered.connect(self._switcher.open_edit)
         m_game.addAction(act_edit_game)
         self._act_game_edit = act_edit_game
 
-        act_relocate = QAction("备份目录重定位…", self)
+        act_relocate = QAction(t("备份目录重定位…"), self)
         act_relocate.setToolTip(
-            "备份文件夹被搬动/改名后，把当前档案的备份目录指针指回"
-            "文件真正所在的位置——先预演命中率，确认后才写库"
-            "（只改档案的备份目录一个字段，逐条备份记录零改动）")
+            t("备份文件夹被搬动/改名后，把当前档案的备份目录指针指回"
+              "文件真正所在的位置——先预演命中率，确认后才写库"
+              "（只改档案的备份目录一个字段，逐条备份记录零改动）"))
         act_relocate.triggered.connect(self._switcher.open_relocate)
         m_game.addAction(act_relocate)
         self._act_game_relocate = act_relocate
 
-        act_del_game = QAction("删除档案…", self)
+        act_del_game = QAction(t("删除档案…"), self)
         act_del_game.setToolTip(
-            "删除当前游戏档案：先盘点名下账目，确认后自动做数据库"
-            "快照兜底、一个事务清账；磁盘备份目录按勾选处理（默认保留）")
+            t("删除当前游戏档案：先盘点名下账目，确认后自动做数据库"
+              "快照兜底、一个事务清账；磁盘备份目录按勾选处理（默认保留）"))
         act_del_game.triggered.connect(self._switcher.open_delete)
         m_game.addAction(act_del_game)
         self._act_game_delete = act_del_game
@@ -851,7 +857,7 @@ class MainWindow(QMainWindow):
         # —— 顶级动作「高级筛选(&S)」：不挂菜单、点字即开（拍板记录：
         # 主打随时搜索——人在任何页都能拉开就查）。Alt+S 或
         # Ctrl+Shift+F 同效；非模态窗口，开着不影响继续操作 ——
-        act_adv = QAction("高级筛选(&S)", self)
+        act_adv = QAction(t("高级筛选(&S)"), self)
         act_adv.setToolTip(
             "打开 mod 库高级筛选：标题/备注/编号/作者/大小/更新时间/"
             "标签多条件叠加，与 mod 库页顶栏筛选叠加生效。\n"
@@ -865,8 +871,8 @@ class MainWindow(QMainWindow):
 
         # —— 视图(&V)：侧栏 / 控制台 / 详情面板三个显隐开关
         #（末者随 mod 库轮回填）——
-        m_view = self.menuBar().addMenu("视图(&V)")
-        self._act_side = QAction("显示 / 隐藏左侧导航栏", self)
+        m_view = self.menuBar().addMenu(t("视图(&V)"))
+        self._act_side = QAction(t("显示 / 隐藏左侧导航栏"), self)
         self._act_side.setCheckable(True)
         self._act_side.setChecked(True)
         self._act_side.toggled.connect(self._toggle_side)
@@ -877,20 +883,30 @@ class MainWindow(QMainWindow):
         # 反映到勾选上），不用手写槽，也就没有反馈环要防。
         # 动作文字默认取窗口标题"控制台"，这里换成与侧栏项同款句式
         self._act_console = self._dock_console.toggleViewAction()
-        self._act_console.setText("显示 / 隐藏控制台")
+        self._act_console.setText(t("显示 / 隐藏控制台"))
         self._act_console.setToolTip(
-            "底部控制台面板（运行日志 + steamcmd 终端两个标签页）的"
-            "显隐开关；隐藏期间有新日志到达时仍会按设置自动弹出")
+            t("底部控制台面板（运行日志 + steamcmd 终端两个标签页）的"
+              "显隐开关；隐藏期间有新日志到达时仍会按设置自动弹出"))
         m_view.addAction(self._act_console)
+
+        # 控制台回停靠：与面板里的「回主窗停靠」按钮同一目的地（同
+        # 2026-10-31 浮动踩坑）。菜单这条路给没注意到面板按钮的人——
+        # 视图菜单本来就是控制台显隐的家，多一个归位动作不算越界
+        self._act_redock_console = QAction(t("控制台回底部停靠"), self)
+        self._act_redock_console.setToolTip(
+            t("若控制台被拖成了独立浮动窗口，点这里停回主窗口底部；"
+              "也可以直接双击浮动窗标题栏切回停靠"))
+        self._act_redock_console.triggered.connect(self._redock_console)
+        m_view.addAction(self._act_redock_console)
 
         # 详情面板显隐（mod 库轮）：只影响 mod 库页右侧详情——
         # QSplitter 不给隐藏子件分配空间，表格自动占满整行
-        self._act_detail = QAction("显示 / 隐藏详情面板", self)
+        self._act_detail = QAction(t("显示 / 隐藏详情面板"), self)
         self._act_detail.setCheckable(True)
         self._act_detail.setChecked(True)
-        self._act_detail.setToolTip(
+        self._act_detail.setToolTip(t(
             "mod 库页右侧的详情面板（选中条目的字段、确认来源与最近"
-            "判决）显隐开关")
+            "判决）显隐开关"))
         self._act_detail.toggled.connect(self._toggle_detail)
         m_view.addAction(self._act_detail)
 
@@ -902,9 +918,9 @@ class MainWindow(QMainWindow):
 
         # —— 帮助(&H)：关于。图标 + 项目主页链接依赖欢迎页的
         # 常量与 icon 资源——欢迎页已搬迁，富版已回填 ——
-        m_help = self.menuBar().addMenu("帮助(&H)")
-        act_about = QAction("关于…", self)
-        act_about.setToolTip("查看本工具的版本与简介")
+        m_help = self.menuBar().addMenu(t("帮助(&H)"))
+        act_about = QAction(t("关于…"), self)
+        act_about.setToolTip(t("查看本工具的版本与简介"))
         act_about.triggered.connect(self._about)
         m_help.addAction(act_about)
         m_help.setToolTipsVisible(True)
@@ -912,12 +928,12 @@ class MainWindow(QMainWindow):
     def _about(self) -> None:
         ver = QApplication.applicationVersion()
         QMessageBox.about(
-            self, "关于",
-            "<b>Steam 创意工坊 Mod 辅助管理工具</b>"
+            self, t("关于"),
+            t("<b>Steam 创意工坊 Mod 辅助管理工具</b>")
             + (f"（版本 {ver}）" if ver else "")
-            + "<br><br>帮助大量使用 mod 的 Steam 玩家，在不打开 Steam 客户端"
+            + "<br><br>" + t("帮助大量使用 mod 的 Steam 玩家，在不打开 Steam 客户端"
               "的情况下完成工坊 mod 的登记、更新检测、下载与备份恢复。"
-              "绿色软件：账本、设置等全部数据保存在软件自己的文件夹里。"
+              "绿色软件：账本、设置等全部数据保存在软件自己的文件夹里。")
             + f"<br><br>项目主页：<a href=\"{PROJECT_URL}\">{PROJECT_URL}</a>"
               "（点击用浏览器打开）")
 
@@ -974,7 +990,7 @@ class MainWindow(QMainWindow):
         act = getattr(self, "_act_adv", None)
         if act is None:
             return
-        act.setText("高级筛选(&S) ＊" if active else "高级筛选(&S)")
+        act.setText(t("高级筛选(&S) ＊") if active else t("高级筛选(&S)"))
         act.setToolTip(
             "高级筛选条件生效中（菜单项带 ＊）——点开可查看/修改条件"
             if active else
@@ -1113,10 +1129,21 @@ class MainWindow(QMainWindow):
         判断，这里只管"怎么弹"。"""
         self._dock_console.show()
         self._dock_console.raise_()
+
+    def _redock_console(self) -> None:
+        """控制台停回底部（ConsolePanel.redock_requested / 视图菜单
+        两路进来）：拖出/双击标题栏会让停靠窗变浮动，而 saveState 把
+        浮动状态一并记住——一次意外拖动就被永久记住（2026-10-31
+        用户踩坑："控制台变成独立窗口"）。setFloating(False) 即回
+        底部原位；顺带 show+raise_，若它此前被关掉也能一并找回。"""
+        self._dock_console.setFloating(False)
+        self._dock_console.show()
+        self._dock_console.raise_()
+
     def _on_game_changed(self, game: Game | None) -> None:
         self._current_game = game
         if game is None:
-            self._status_game.setText("当前游戏：（无）—— 请先添加档案")
+            self._status_game.setText(t("当前游戏：（无）—— 请先添加档案"))
         else:
             self._status_game.setText(
                 f"当前游戏：{game.name}（{game.app_id}）")
