@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from core.i18n import t
 from gui.logBus import LogBus   # V2：LogBus 独立成文件
 
 # 注册页：免费，个人默认额度 10 万次/天，本工具每轮拉取个位数请求
@@ -150,22 +151,22 @@ class ApiKeyPage(QWidget):
         root.setContentsMargins(24, 24, 24, 24)
         root.setSpacing(10)
 
-        title = QLabel("<b>Steam Web API 密钥</b>", self)
+        title = QLabel(t("<b>Steam Web API 密钥</b>"), self)
         title.setTextFormat(Qt.TextFormat.RichText)
         root.addWidget(title)
 
         intro = QLabel(
-            "依赖检测（异常处理的「缺依赖 / 依赖变化」）需要一把免费的 "
+            t("依赖检测（异常处理的「缺依赖 / 依赖变化」）需要一把免费的 "
             "Steam Web API key：匿名接口拿不到 mod 的「必需物品」清单，"
-            "只有带 key 的官方接口才返回。", self)
+            "只有带 key 的官方接口才返回。"), self)
         intro.setWordWrap(True)
         root.addWidget(intro)
 
         # 提醒行（固定文案）：纪律一次说清
         self._status = QLabel(
-            "本软件不保存 key：验证与【拉取依赖】都是现场粘贴、用完即弃；"
+            t("本软件不保存 key：验证与【拉取依赖】都是现场粘贴、用完即弃；"
             "绝不写入设置文件与日志。验证结束后输入框会自动清空。"
-            "泄露了随时到注册页点【重置】，旧 key 立即失效。", self)
+            "泄露了随时到注册页点【重置】，旧 key 立即失效。"), self)
         self._status.setWordWrap(True)
         self._status.setStyleSheet("color: gray;")
         root.addWidget(self._status)
@@ -175,24 +176,24 @@ class ApiKeyPage(QWidget):
         row.addWidget(QLabel("key：", self))
         self._input = QLineEdit(self)
         self._input.setPlaceholderText(
-            "粘贴 32 位 key（仅本次使用，验证后自动清空）")
+            t("粘贴 32 位 key（仅本次使用，验证后自动清空）"))
         row.addWidget(self._input, 1)
-        self._verify_btn = QPushButton("验证此 key（联网查询一次）", self)
+        self._verify_btn = QPushButton(t("验证此 key（联网查询一次）"), self)
         self._verify_btn.setToolTip(
-            "现场探针：用下面的验证编号现查一次官方接口，回报该 mod "
+            t("现场探针：用下面的验证编号现查一次官方接口，回报该 mod "
             "的必需物品清单——通过 = key 有效、依赖数据管道畅通。\n"
-            "验证结束后输入框自动清空（本软件不保存 key）")
+            "验证结束后输入框自动清空（本软件不保存 key）"))
         self._verify_btn.clicked.connect(self._on_verify)
         row.addWidget(self._verify_btn)
         root.addLayout(row)
 
         btn_open = QPushButton(
-            "打开 Steam 注册页（steamcommunity.com/dev/apikey）", self)
+            t("打开 Steam 注册页（steamcommunity.com/dev/apikey）"), self)
         btn_open.clicked.connect(self._on_open_register)
         root.addWidget(btn_open)
 
         guide = QLabel(
-            "<h3>四步拿到 key（免费，约两分钟）</h3>"
+            t("<h3>四步拿到 key（免费，约两分钟）</h3>"
             "1. 浏览器登录 steamcommunity.com（你逛创意工坊的账号）<br>"
             '2. 打开 <a href="https://steamcommunity.com/dev/apikey">'
             "steamcommunity.com/dev/apikey</a><br>"
@@ -215,7 +216,7 @@ class ApiKeyPage(QWidget):
             "后点第四个铃铛图标“notifications”，刷新等显示“1 pending "
             "confirmation”就点它，点进去授权就能在电脑上看到密钥。\n"
             "注册不了不影响本软件其他功能：依赖检测保持未开启，"
-            "其余一切照常。", self)
+            "其余一切照常。"), self)
         guide.setTextFormat(Qt.TextFormat.RichText)
         guide.setOpenExternalLinks(True)
         guide.setTextInteractionFlags(
@@ -225,20 +226,20 @@ class ApiKeyPage(QWidget):
 
         # ---- 现场验证区 ----
         verify_hint = QLabel(
-            "<b>现场验证（可选，但强烈建议）</b>：探针用下面这个 mod 现查"
+            t("<b>现场验证（可选，但强烈建议）</b>：探针用下面这个 mod 现查"
             "一次接口——它的工坊页明确写了 3 个必需物品，children 应报 "
             "3 项。通过 = key 有效、依赖数据管道畅通，之后到异常处理页"
-            "【拉取依赖（联网）】再粘一次就能用。", self)
+            "【拉取依赖（联网）】再粘一次就能用。"), self)
         verify_hint.setTextFormat(Qt.TextFormat.RichText)
         verify_hint.setWordWrap(True)
         root.addWidget(verify_hint)
 
         vrow = QHBoxLayout()
-        vrow.addWidget(QLabel("验证编号（默认即可）：", self))
+        vrow.addWidget(QLabel(t("验证编号（默认即可）："), self))
         self._probe_input = QLineEdit(_DEFAULT_PROBE_ID, self)
         self._probe_input.setToolTip(
-            "探针查询的工坊编号：默认这个 mod 的必需物品数已知"
-            "（3 项），适合当对照样本；一般不用改")
+            t("探针查询的工坊编号：默认这个 mod 的必需物品数已知"
+            "（3 项），适合当对照样本；一般不用改"))
         vrow.addWidget(self._probe_input, 1)
         root.addLayout(vrow)
 
@@ -255,14 +256,14 @@ class ApiKeyPage(QWidget):
         key = self._input.text().strip()
         if not key:
             QMessageBox.information(
-                self, "验证密钥",
-                "先粘贴 key（本软件不保存：用完即弃，要再用重新粘贴）。")
+                self, t("验证密钥"),
+                t("先粘贴 key（本软件不保存：用完即弃，要再用重新粘贴）。"))
             return
         if not _HEX32.fullmatch(key):
             ret = QMessageBox.question(
-                self, "格式不像 key",
-                "Steam Web API key 通常是 32 位十六进制字符，当前输入不是"
-                "这个形状——可能是没复制全。\n\n仍要验证吗？",
+                self, t("格式不像 key"),
+                t("Steam Web API key 通常是 32 位十六进制字符，当前输入不是"
+                "这个形状——可能是没复制全。\n\n仍要验证吗？"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No)
             if ret != QMessageBox.StandardButton.Yes:
@@ -270,10 +271,10 @@ class ApiKeyPage(QWidget):
         target = self._probe_input.text().strip() or _DEFAULT_PROBE_ID
         if not (target.isascii() and target.isdigit()):
             QMessageBox.information(
-                self, "验证编号", "验证编号应是纯数字的工坊编号。")
+                self, t("验证编号"), t("验证编号应是纯数字的工坊编号。"))
             return
         self._verify_btn.setEnabled(False)
-        self._result.setText("正在查询……（验证结束后输入框会自动清空）")
+        self._result.setText(t("正在查询……（验证结束后输入框会自动清空）"))
         self._worker = _ProbeWorker(key, target, self)
         self._worker.done.connect(self._on_probe_done)
         self._worker.start()
@@ -288,10 +289,10 @@ class ApiKeyPage(QWidget):
         if self._log is not None:
             if payload.get("ok"):
                 n = len(payload.get("children") or [])
-                self._log.ok(f"API key 验证完成：接口返回 children {n} 项"
-                             "（详情见「Steam API 密钥」页）")
+                self._log.ok(t("API key 验证完成：接口返回 children ") + f"{n}"
+                             + t(" 项（详情见「Steam API 密钥」页）"))
             else:
-                self._log.warn(f"API key 验证未通过：{payload.get('msg')}")
+                self._log.warn(t("API key 验证未通过：") + f"{payload.get('msg')}")
 
     def _on_open_register(self) -> None:
         QDesktopServices.openUrl(QUrl(_REGISTER_URL))

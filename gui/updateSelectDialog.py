@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
 
 from core.formatters import abs_time, fmt_size
 from core.models import Mod
+from core.i18n import t
 from PySide6.QtGui import QColor, QDesktopServices
 
 _COLUMNS = ["选", "", "编号", "标题", "远端版本", "本地版本", "大小", "上次执行"]
@@ -80,7 +81,7 @@ class UpdateSelectDialog(QDialog):
                 self._stale_cutoff = int(time.time()) - _days * 86400
             except Exception:
                 pass  # 设置对象不合预期：降级为只标特别关注，不崩
-        self.setWindowTitle("发现更新——选择要执行的条目")
+        self.setWindowTitle(t("发现更新——选择要执行的条目"))
         self.resize(880, 540)
         self._mods = list(mods)
         # 批次归属 = 检测那一刻的档案，随执行信号原样带回。非模态下
@@ -90,19 +91,20 @@ class UpdateSelectDialog(QDialog):
         self._building = True  # 建表期间 itemChanged 是程序设值
         root = QVBoxLayout(self)
         tip = QLabel(
-            f"检测到 {len(self._mods)} 个 mod 有新版本。勾选条目、"
-            "在底部选动作、点【执行选中】：\n"
-            "· 备份+更新 = 先把当前版本复制进备份区（可回滚），再下载"
-            "新版；\n"
-            "· 仅更新 = 直接下载；不勾选 = 不动。\n"
-            "尚未下载过的条目没有旧版本可保护，选「备份+更新」会按"
-            "「仅更新」执行；本地版本未确认的条目会被整条剔出批次"
-            "（先到 mod 库页右键【设定本地版本…】）。\n"
-            "本窗口不挡别的操作：steamcmd 没启动的话，切到底部控制台"
-            "启动并登录，回来再点【执行选中】——勾选不会丢。\n"
-            "批次真正受理后勾选才清掉、留痕；可以改勾选、换动作、继续"
-            "执行下一组（上一批没跑完时会提示稍候）。点【完成】收工"
-            "——已开的批次照常跑完，不受影响。",
+            t("检测到 ") + f"{len(self._mods)}"
+            + t(" 个 mod 有新版本。勾选条目、"
+                "在底部选动作、点【执行选中】：\n"
+                "· 备份+更新 = 先把当前版本复制进备份区（可回滚），再下载"
+                "新版；\n"
+                "· 仅更新 = 直接下载；不勾选 = 不动。\n"
+                "尚未下载过的条目没有旧版本可保护，选「备份+更新」会按"
+                "「仅更新」执行；本地版本未确认的条目会被整条剔出批次"
+                "（先到 mod 库页右键【设定本地版本…】）。\n"
+                "本窗口不挡别的操作：steamcmd 没启动的话，切到底部控制台"
+                "启动并登录，回来再点【执行选中】——勾选不会丢。\n"
+                "批次真正受理后勾选才清掉、留痕；可以改勾选、换动作、继续"
+                "执行下一组（上一批没跑完时会提示稍候）。点【完成】收工"
+                "——已开的批次照常跑完，不受影响。"),
             self)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
@@ -131,7 +133,7 @@ class UpdateSelectDialog(QDialog):
         filter_row = QWidget(self)
         fh = QHBoxLayout(filter_row)
         fh.setContentsMargins(0, 0, 0, 0)
-        fh.addWidget(QLabel("只看：", filter_row))
+        fh.addWidget(QLabel(t("只看："), filter_row))
         self._filter = QComboBox(filter_row)
         for text, key in (("全部", None),
                           ("★ 特别关注", "special"),
@@ -140,12 +142,12 @@ class UpdateSelectDialog(QDialog):
                           ("其他（无底色）", "plain")):
             self._filter.addItem(text, key)
         self._filter.setToolTip(
-            "按行底色类别筛条目（纯显隐，不动勾选）：\n"
+            t("按行底色类别筛条目（纯显隐，不动勾选）：\n"
             "★ 特别关注 = 琥珀底；长时间未更新 = 灰底（远端最后更新"
             "距今超过慢更新阈值——需主窗口把设置传进来才生效）；\n"
             "两者兼有 = 红底；其他 = 没上色的行。\n"
             "筛选生效期间：全选只勾看得见的行，【执行选中】也只执行"
-            "看得见的勾选——被藏起来的不隐形参与")
+            "看得见的勾选——被藏起来的不隐形参与"))
         self._filter.currentIndexChanged.connect(self._apply_filter)
         fh.addWidget(self._filter, 1)
         fh.addStretch(1)
@@ -153,12 +155,12 @@ class UpdateSelectDialog(QDialog):
         self._sync_filter_options()  # 本批没有的类别：下拉里置灰点不开
 
         bottom = QHBoxLayout()
-        btn_all = QPushButton("全选", self)
-        btn_all.setToolTip("勾选全部条目（打开时默认已全选）；"
-                           "筛选生效时只勾看得见的行")
+        btn_all = QPushButton(t("全选"), self)
+        btn_all.setToolTip(t("勾选全部条目（打开时默认已全选）；"
+                           "筛选生效时只勾看得见的行"))
         btn_all.clicked.connect(lambda: self._set_all_checked(True))
-        btn_none = QPushButton("全不选", self)
-        btn_none.setToolTip("取消全部勾选——不勾选的条目不会被处理")
+        btn_none = QPushButton(t("全不选"), self)
+        btn_none.setToolTip(t("取消全部勾选——不勾选的条目不会被处理"))
         btn_none.clicked.connect(lambda: self._set_all_checked(False))
         bottom.addWidget(btn_all)
         bottom.addWidget(btn_none)
@@ -166,26 +168,26 @@ class UpdateSelectDialog(QDialog):
         for value, label in _ACTION_LABELS:
             self._combo_action.addItem(label, value)
         self._combo_action.setToolTip(
-            "对本次勾选的条目统一执行这个动作：\n"
-            "备份+更新 = 先备份当前版本再下载；仅更新 = 直接下载")
+            t("对本次勾选的条目统一执行这个动作：\n"
+            "备份+更新 = 先备份当前版本再下载；仅更新 = 直接下载"))
         bottom.addWidget(self._combo_action)
-        self._btn_execute = QPushButton("执行选中", self)
+        self._btn_execute = QPushButton(t("执行选中"), self)
         self._btn_execute.setDefault(True)
         self._btn_execute.setToolTip(
-            "把勾选的条目按所选动作请求开批（顺序 = 表格行序）；\n"
+            t("把勾选的条目按所选动作请求开批（顺序 = 表格行序）；\n"
             "steamcmd 未启动时批次不会开始、勾选保留——切到底部控制台"
             "启动并登录后回来再点一次即可。\n"
-            "筛选生效时只执行看得见的勾选（被藏起来的不隐形参与）")
+            "筛选生效时只执行看得见的勾选（被藏起来的不隐形参与）"))
         self._btn_execute.clicked.connect(self._on_execute_clicked)
         bottom.addWidget(self._btn_execute)
         bottom.addStretch(1)
         self._hint = QLabel("", self)
         self._hint.setStyleSheet("color: #f5a623;")
         bottom.addWidget(self._hint)
-        btn_done = QPushButton("完成", self)
+        btn_done = QPushButton(t("完成"), self)
         btn_done.setToolTip(
-            "关闭窗口。已开出的批次照常跑完；没执行的条目之后可到"
-            " mod 库页手动下载")
+            t("关闭窗口。已开出的批次照常跑完；没执行的条目之后可到"
+            " mod 库页手动下载"))
         btn_done.clicked.connect(self.accept)
         bottom.addWidget(btn_done)
         root.addLayout(bottom)
@@ -212,18 +214,18 @@ class UpdateSelectDialog(QDialog):
             chk.setCheckState(Qt.CheckState.Checked)
             if m.status != "downloaded":
                 chk.setToolTip(
-                    "这个条目尚未下载过，没有旧版本可备份——"
-                    "选「备份+更新」也会自动按「仅更新」执行")
+                    t("这个条目尚未下载过，没有旧版本可备份——"
+                    "选「备份+更新」也会自动按「仅更新」执行"))
             elif m.version_unknown:
                 chk.setToolTip(
-                    "这个条目的本地版本未确认：会被整条剔出批次"
+                    t("这个条目的本地版本未确认：会被整条剔出批次"
                     "（备份引擎拒绝没有版本锚的备份）。\n"
-                    "先到 mod 库页右键【设定本地版本…】再下载")
+                    "先到 mod 库页右键【设定本地版本…】再下载"))
             self._table.setItem(r, 0, chk)
             # ↗ = 打开工坊页面查详情（约定：选 mod 的窗口都带）
             btn = QToolButton()
             btn.setText("↗")
-            btn.setToolTip(f"打开工坊页面查看详情：\n{m.url or '（无链接）'}")
+            btn.setToolTip(t("打开工坊页面查看详情：") + "\n" + (m.url or t("（无链接）")))
             btn.setEnabled(bool(m.url))
             btn.clicked.connect(
                 lambda _=False, u=m.url: QDesktopServices.openUrl(QUrl(u)))
@@ -244,8 +246,8 @@ class UpdateSelectDialog(QDialog):
             else:
                 local = abs_time(m.confirmed_version)
             item_local = QTableWidgetItem(local)
-            item_local.setToolTip("本地版本 = 你确认过的版本"
-                                  "（确认入账/手工设定后才有值）")
+            item_local.setToolTip(t("本地版本 = 你确认过的版本"
+                                  "（确认入账/手工设定后才有值）"))
             self._table.setItem(r, 5, item_local)
             self._table.setItem(
                 r, 6, QTableWidgetItem(fmt_size(m.local_size or m.file_size)))
@@ -336,9 +338,8 @@ class UpdateSelectDialog(QDialog):
         if self._building:
             return
         self._hint.setText(
-            f"已勾选 {len(self._checked_rows())} / "
-            f"{self._table.rowCount()} 个条目。")
-
+            t("已勾选 ") + f"{len(self._checked_rows())}" + t(" / ")
+            + f"{self._table.rowCount()}" + t(" 个条目。"))
     def _on_execute_clicked(self) -> None:
         """【执行选中】：只发请求，不动勾选、不留痕。受理与否由
         主窗口回话：受理 → mark_executed（留痕 + 清勾选），没受理 →
@@ -346,8 +347,8 @@ class UpdateSelectDialog(QDialog):
         emit 返回之前，本方法无需任何后续处理。"""
         rows = self._checked_rows()
         if not rows:
-            self._hint.setText("没有勾选任何条目——先在表格第一列勾选要"
-                               "处理的 mod。")
+            self._hint.setText(t("没有勾选任何条目——先在表格第一列勾选要"
+                               "处理的 mod。"))
             return
         self._hint.setText("")
         action = self._combo_action.currentData()
@@ -368,19 +369,17 @@ class UpdateSelectDialog(QDialog):
             self._table.item(r, 7).setText(_ACTION_NAME.get(action, action))
         self._hint.setStyleSheet("color: #46a758;")
         self._hint.setText(
-            f"已受理 {len(mod_ids)} 个"
-            f"（{_ACTION_NAME.get(action, action)}）——进度见底部控制台"
-            "·「下载批次」；批次结束后会弹收尾确认清单，核对勾选后"
-            "【确认入账】版本才落账。")
-
+            t("已受理 ") + f"{len(mod_ids)}" + t(" 个（")
+            + t(_ACTION_NAME.get(action, action))
+            + t("）——进度见底部控制台·「下载批次」；批次结束后会弹收尾确认清单，"
+                "核对勾选后【确认入账】版本才落账。"))
     def notify_not_started(self, reason: str) -> None:
         """拒绝回执：批次没开起来。勾选原样保留——修好原因（启动
         steamcmd / 等上一批跑完）后直接再点【执行选中】即可。"""
         self._hint.setStyleSheet("color: #f5a623;")
         self._hint.setText(
-            f"批次没有开始：{reason}"
-            "（清单可能被主窗口挡住：任务栏或 Alt+Tab 切回来）")
-
+            t("批次没有开始：") + f"{reason}"
+            + t("（清单可能被主窗口挡住：任务栏或 Alt+Tab 切回来）"))
 
 # 动作 → 显示文案（下拉框条目与留痕列共用）：值引用类常量单源，
 # 别在别处再写一份字面量

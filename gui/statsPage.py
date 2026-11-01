@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
 
 from core.models import Game
 from core.formatters import fmt_size
+from core.i18n import t
 
 def _needs_update(m) -> bool:
     """需更新判定（D2 显示侧）：单源 = modListModel._update_state
@@ -76,12 +77,12 @@ class StatsPage(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(8)
         head = QHBoxLayout()
-        title = QLabel("统计", self)
+        title = QLabel(t("统计"), self)
         title.setStyleSheet(f"font-size: {font_px(18)}px; font-weight: 600;")
         head.addWidget(title)
         head.addStretch(1)
-        btn = QPushButton("刷新", self)
-        btn.setToolTip("重新计算全部数字；其他页面改了数据后回来点一下")
+        btn = QPushButton(t("刷新"), self)
+        btn.setToolTip(t("重新计算全部数字；其他页面改了数据后回来点一下"))
         btn.clicked.connect(self._refresh)
         head.addWidget(btn)
         root.addLayout(head)
@@ -128,7 +129,8 @@ class StatsPage(QWidget):
             [name for name, _ in tag_counter.most_common(10)],
             [n for _, n in tag_counter.most_common(10)]))
         self._add_section("失效归档", self._failed_lines())
-        foot = QLabel(f"以上为 {time.strftime('%H:%M:%S')} 时刻的快照。",
+        foot = QLabel(t("以上为 ") + f"{time.strftime('%H:%M:%S')}"
+                      + t(" 时刻的快照。"),
                       self)
         foot.setStyleSheet("color: gray;")
         self._body.addWidget(foot)

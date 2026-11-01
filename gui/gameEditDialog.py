@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
 
 from core import steamPaths
 from core.models import Game
+from core.i18n import t
 from gui.logBus import LogBus
 from gui.theme import font_px  # 字号单源（D25）
 
@@ -93,7 +94,7 @@ class GameEditDialog(QDialog):
 
         self._dd_pending = False  # 用户点了【改为推导值】、等待保存
 
-        self.setWindowTitle(f"编辑档案 — {game.name}（{game.app_id}）")
+        self.setWindowTitle(t("编辑档案 — ") + f"{game.name}" + t("（") + f"{game.app_id}" + t("）"))
         self.setMinimumWidth(560)
         self._build_ui()
 
@@ -126,20 +127,20 @@ class GameEditDialog(QDialog):
 
         # ---- 名称：自由编辑，直接保存（纯记录字段） ----
         self._name_edit = QLineEdit(self._orig_name)
-        self._name_edit.setPlaceholderText("显示在下拉框和各页标题里的名字")
+        self._name_edit.setPlaceholderText(t("显示在下拉框和各页标题里的名字"))
         form.addRow("名称", self._name_edit)
 
         # ---- 游戏 mod 目录：自由编辑，直接保存（纯记录字段） ----
         # 这就是连接指引里要填的那个路径——游戏从这里读 mod
         self._gm_edit = QLineEdit(self._orig_gm)
         self._gm_edit.setPlaceholderText(
-            r"游戏自己的 mod 文件夹，Windows 如 C:\Users\<用户名>\Documents\...；"
-            r"Linux 如 ~/.local/share/Paradox Interactive/…/mod（可留空）")
+            t(r"游戏自己的 mod 文件夹，Windows 如 C:\Users\<用户名>\Documents\...；"
+            r"Linux 如 ~/.local/share/Paradox Interactive/…/mod（可留空）"))
         form.addRow("游戏 mod 目录", self._wrap_with_browse(self._gm_edit))
 
         # ---- 备份目录：自由编辑，保存前弹影响确认 ----
         self._bk_edit = QLineEdit(self._orig_bk)
-        self._bk_edit.setPlaceholderText("留空 = 每次按 steamcmd 位置自动推导")
+        self._bk_edit.setPlaceholderText(t("留空 = 每次按 steamcmd 位置自动推导"))
         bk_field = self._wrap_with_browse(self._bk_edit)
         default_root = steamPaths.backup_root_default(
             self._steamcmd_exe, self._game.app_id)
@@ -150,10 +151,10 @@ class GameEditDialog(QDialog):
             # 打进输入框，没有"待保存"状态机——填完仍要点下方【保存】
             # 才写入档案。修的场景：老档案/迁移来的档案备份目录是空的，
             # 账上的备份记录解析不了位置；点这里 + 保存，全部记录立即对上。
-            bk_btn = QPushButton("改为推导值", bk_field)
+            bk_btn = QPushButton(t("改为推导值"), bk_field)
             bk_btn.setToolTip(
-                "把上方输入框填成按 steamcmd 当前位置推导的标准备份目录。\n"
-                "填好还要点下方【保存】才真正写入档案。")
+                t("把上方输入框填成按 steamcmd 当前位置推导的标准备份目录。\n"
+                "填好还要点下方【保存】才真正写入档案。"))
             bk_btn.clicked.connect(
                 lambda _=False: self._bk_edit.setText(default_root))
             bk_field.layout().addWidget(bk_btn)
@@ -179,11 +180,11 @@ class GameEditDialog(QDialog):
         dd_v.addWidget(self._dd_state)
         # 按钮先创建、再挂说明与接线：先有对象才能往它身上挂东西
         # （顺序反了 = 对象还不存在就访问它，实测就是这个错）
-        self._dd_btn = QPushButton("改为推导值", dd_field)
+        self._dd_btn = QPushButton(t("改为推导值"), dd_field)
         self._dd_btn.setToolTip(
-            "把下载目录改成按 steamcmd 当前位置推导的标准值"
+            t("把下载目录改成按 steamcmd 当前位置推导的标准值"
             "（下载目录永远由 steamcmd 位置决定，不开放手填）。"
-            "点了之后还要点下方【保存】才真正写入。")
+            "点了之后还要点下方【保存】才真正写入。"))
         self._dd_btn.clicked.connect(self._toggle_dd)
 
         dd_h = QHBoxLayout()
@@ -192,8 +193,8 @@ class GameEditDialog(QDialog):
         dd_h.addStretch(1)
         dd_v.addLayout(dd_h)
         dd_desc = QLabel(
-            "由 steamcmd 位置唯一决定，这里不开放手填——"
-            "历史错值正是手填造成的。推导不出时保留现值，绝不瞎猜。",
+            t("由 steamcmd 位置唯一决定，这里不开放手填——"
+            "历史错值正是手填造成的。推导不出时保留现值，绝不瞎猜。"),
             dd_field)
         dd_desc.setWordWrap(True)
         dd_desc.setStyleSheet(f"color: gray; font-size: {font_px(11)}px;")
@@ -208,11 +209,11 @@ class GameEditDialog(QDialog):
             | QDialogButtonBox.StandardButton.Cancel, self)
 
         ok = bb.button(QDialogButtonBox.StandardButton.Ok)
-        ok.setText("保存")
+        ok.setText(t("保存"))
         bb.setCenterButtons(True)  # 保存/取消整组居中（默认靠右）
 
         cancel = bb.button(QDialogButtonBox.StandardButton.Cancel)
-        cancel.setText("取消")  # 没装 Qt 中文翻译时的兜底
+        cancel.setText(t("取消"))  # 没装 Qt 中文翻译时的兜底
 
         bb.accepted.connect(self._on_save)
         bb.rejected.connect(self.reject)
@@ -239,7 +240,7 @@ class GameEditDialog(QDialog):
         h = QHBoxLayout()
         h.setContentsMargins(0, 0, 0, 0)
         h.addWidget(edit, 1)
-        btn = QPushButton("目录选择…", field)
+        btn = QPushButton(t("目录选择…"), field)
         btn.clicked.connect(lambda _=False: self._browse(edit))
         h.addWidget(btn)
         v.addLayout(h)
@@ -266,31 +267,31 @@ class GameEditDialog(QDialog):
             old = str(self._game.download_dir or "").strip()
             origin = f"原记录：{old}" if old else "原记录：（空）"
             self._dd_state.setText(
-                "上面这个推导值还没写进账本——点【保存】后生效"
-                f"（{origin}）；不点保存则维持原状。")
+                t("上面这个推导值还没写进账本——点【保存】后生效（")
+                + f"{origin}" + t("）；不点保存则维持原状。"))
             self._dd_state.setStyleSheet(f"color: {_C_WARN};")
-            self._dd_btn.setText("不改了，保留原记录")
+            self._dd_btn.setText(t("不改了，保留原记录"))
             self._dd_btn.setVisible(True)
         elif self._derived is None:
             self._dd_current.setText(self._game.download_dir or "（空）")
             self._dd_state.setText(
-                "推导不出：设置页还没填 steamcmd 程序路径。保留档案现值。")
+                t("推导不出：设置页还没填 steamcmd 程序路径。保留档案现值。"))
             self._dd_state.setStyleSheet(f"color: {_C_MUTED};")
             self._dd_btn.setVisible(False)
         elif _norm(self._derived) == _norm(self._game.download_dir):
             self._dd_current.setText(self._game.download_dir or "（空）")
-            self._dd_state.setText("✓ 与按当前 steamcmd 位置推导的值一致")
+            self._dd_state.setText(t("✓ 与按当前 steamcmd 位置推导的值一致"))
             self._dd_state.setStyleSheet(f"color: {_C_OK};")
             self._dd_btn.setVisible(False)
         else:
             self._dd_current.setText(self._game.download_dir or "（空）")
             self._dd_state.setText(
-                "与推导值不一致。按当前 steamcmd 位置推导应为：\n"
-                f"{self._derived}\n"
-                "（历史上手填过下载目录的档案常见这种情况；连接指引已经"
-                "按推导值工作，改回后两边重新一致。）")
+                t("与推导值不一致。按当前 steamcmd 位置推导应为：") + "\n"
+                + f"{self._derived}" + "\n"
+                + t("（历史上手填过下载目录的档案常见这种情况；连接指引已经"
+                    "按推导值工作，改回后两边重新一致。）"))
             self._dd_state.setStyleSheet(f"color: {_C_WARN};")
-            self._dd_btn.setText("改为推导值")
+            self._dd_btn.setText(t("改为推导值"))
             self._dd_btn.setVisible(True)
 
     def _toggle_dd(self) -> None:
@@ -303,7 +304,7 @@ class GameEditDialog(QDialog):
     def _on_save(self) -> None:
         name = self._name_edit.text().strip()
         if not name:
-            QMessageBox.warning(self, "无法保存", "名称不能为空。")
+            QMessageBox.warning(self, t("无法保存"), t("名称不能为空。"))
             return
 
         # 收集改动：路径用 _norm 比较（大小写/斜杠差异不算改），
@@ -321,25 +322,23 @@ class GameEditDialog(QDialog):
             changes["download_dir"] = self._derived
 
         if not changes:
-            QMessageBox.information(self, "编辑档案", "没有需要保存的改动。")
+            QMessageBox.information(self, t("编辑档案"), t("没有需要保存的改动。"))
             return
 
         # 影响面确认（决策 22⑥）：动"备份去向"或"扫描/命令基准"才弹窗
         impact: list[str] = []
         if "download_dir" in changes:
             impact.append(
-                f"下载目录将改为：\n{changes['download_dir']}\n"
-                "影响：本地扫描与下载命令都按它定位；已记录的 mod 本地路径"
-                "会暂时指向旧位置，重新扫描本地后自动回填。")
-        if "backup_dir" in changes:
+                t("下载目录将改为：") + "\n" + f"{changes['download_dir']}" + "\n"
+                + t("影响：本地扫描与下载命令都按它定位；已记录的 mod 本地路径"
+                    "会暂时指向旧位置，重新扫描本地后自动回填。"))
             impact.append(
-                f"备份目录将改为：\n{changes['backup_dir']}\n"
-                "影响：之后的新备份写到新位置；已有备份记录按相对路径解析，"
-                "备份文件若没一起搬过去，「盘上」列会失联——届时用"
-                "【重定位备份目录】指认，或用【备份搬家】把文件搬过去。")
-        if impact:
+                t("备份目录将改为：") + "\n" + f"{changes['backup_dir']}" + "\n"
+                + t("影响：之后的新备份写到新位置；已有备份记录按相对路径解析，"
+                    "备份文件若没一起搬过去，「盘上」列会失联——届时用"
+                    "【重定位备份目录】指认，或用【备份搬家】把文件搬过去。"))
             ret = QMessageBox.question(
-                self, "确认保存",
+                self, t("确认保存"),
                 "以下修改会影响相关功能，确认保存？\n\n" + "\n\n".join(impact),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if ret != QMessageBox.StandardButton.Yes:
@@ -350,7 +349,7 @@ class GameEditDialog(QDialog):
         try:
             self._repo.update_game(self._game.app_id, **changes)
         except Exception as exc:
-            QMessageBox.critical(self, "保存失败", f"写入数据库失败：{exc}")
+            QMessageBox.critical(self, t("保存失败"), t("写入数据库失败：") + f"{exc}")
             return
 
         self._log.ok(
