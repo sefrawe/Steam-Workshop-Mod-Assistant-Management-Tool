@@ -13,6 +13,7 @@ WorkshopItemsInstalled 的安装时间不是版本，不混用。
 """
 import re
 from pathlib import Path
+from core.i18n import t
 
 _INT_TOKEN = re.compile(r"^-?\d+$")
 
@@ -56,7 +57,7 @@ def parse_acf_text(text: str) -> dict:
     ValueError（显式爆炸，调用方记日志后自行决定是否继续）。"""
     tokens = _tokenize(text)
     if not tokens:
-        raise ValueError("ACF 文本为空")
+        raise ValueError(t('ACF 文本为空'))
     pos = 0
 
     def block() -> dict:
@@ -69,7 +70,7 @@ def parse_acf_text(text: str) -> dict:
             key = tokens[pos]
             pos += 1
             if pos >= len(tokens):
-                raise ValueError(f"ACF 文本不完整：键 {key!r} 后缺值")
+                raise ValueError((t('ACF 文本不完整：键 ') + f"{key!r}" + t(' 后缺值')))
             val = tokens[pos]
             if val == "{":
                 pos += 1

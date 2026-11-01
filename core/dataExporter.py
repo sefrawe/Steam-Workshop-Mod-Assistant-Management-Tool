@@ -62,6 +62,7 @@ from pathlib import Path
 
 from core.models import Game, Mod
 from core.modRepository import LEDGER_TABLES, ModRepository
+from core.i18n import t
 
 # 两种产品与当前格式版本。载荷结构每变一次 format_version +1；
 # 本程序只认 ≤ 自己的版本（旧文件自然能读）。
@@ -122,7 +123,7 @@ def build_sharepack(repo: ModRepository, app_id: int) -> dict:
     dump = repo.export_all()
     games = [g for g in dump["tables"]["games"] if g["app_id"] == app_id]
     if not games:
-        raise ValueError(f"游戏档案 {app_id} 不存在")
+        raise ValueError((t('游戏档案 ') + f"{app_id}" + t(' 不存在')))
     game_row = dict(games[0])
     for field in _SHARE_STRIP_GAME:
         game_row[field] = None
@@ -178,7 +179,7 @@ def load(path: str | Path) -> dict:
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"不是有效的 JSON 文件：{exc}") from exc
+        raise ValueError((t('不是有效的 JSON 文件：') + f"{exc}")) from exc
     _check_header(payload)
     _check_tables(payload)
     return payload
@@ -186,22 +187,20 @@ def load(path: str | Path) -> dict:
 
 def _check_header(payload: dict) -> None:
     if not isinstance(payload, dict):
-        raise ValueError("文件内容不是 JSON 对象")
+        raise ValueError(t('文件内容不是 JSON 对象'))
     if payload.get("format") not in KNOWN_FORMATS:
-        raise ValueError("这不是本工具导出的账本/分享包文件"
-                         f"（format={payload.get('format')!r}）")
+        raise ValueError((t('这不是本工具导出的账本/分享包文件（format=') + f"{payload.get('format')!r}" + '）'))
     ver = payload.get("format_version")
     if not isinstance(ver, int) or isinstance(ver, bool):
-        raise ValueError("format_version 缺失或不是整数")
+        raise ValueError(t('format_version 缺失或不是整数'))
     if ver > FORMAT_VERSION:
         raise ValueError(
-            f"文件由更新版本的程序导出（格式 v{ver}，本工具支持到"
-            f" v{FORMAT_VERSION}），请先升级本工具再导入")
+            (t('文件由更新版本的程序导出（格式 v') + f"{ver}" + t('，本工具支持到 v') + f"{FORMAT_VERSION}" + t('），请先升级本工具再导入')))
     sv = payload.get("schema_version")
     if not isinstance(sv, int) or isinstance(sv, bool):
-        raise ValueError("schema_version 缺失或不是整数")
+        raise ValueError(t('schema_version 缺失或不是整数'))
     if not isinstance(payload.get("tables"), dict):
-        raise ValueError("tables 缺失或不是对象")
+        raise ValueError(t('tables 缺失或不是对象'))
 
 
 def _check_tables(payload: dict) -> None:
@@ -210,28 +209,28 @@ def _check_tables(payload: dict) -> None:
                else frozenset({"games", "mods"}))
     missing = allowed - set(tables)
     if missing:
-        raise ValueError(f"载荷缺少表：{sorted(missing)}（文件可能被截断）")
+        raise ValueError((t('载荷缺少表：') + f"{sorted(missing)}" + t('（文件可能被截断）')))
     extra = set(tables) - allowed
     if extra:
-        raise ValueError(f"载荷里出现了不属于该格式的表：{sorted(extra)}")
+        raise ValueError((t('载荷里出现了不属于该格式的表：') + f"{sorted(extra)}"))
     for name, rows in tables.items():
         if not isinstance(rows, list):
-            raise ValueError(f"{name} 不是列表")
+            raise ValueError((f"{name}" + t(' 不是列表')))
         required = _REQUIRED.get(name, {})
         for i, row in enumerate(rows):
             if not isinstance(row, dict):
-                raise ValueError(f"{name}[{i}] 不是对象")
+                raise ValueError((f"{name}" + '[' + f"{i}" + t('] 不是对象')))
             for key, typ in required.items():
                 if key not in row:
-                    raise ValueError(f"{name}[{i}] 缺少必要字段 {key}")
+                    raise ValueError((f"{name}" + '[' + f"{i}" + t('] 缺少必要字段 ') + f"{key}"))
                 val = row[key]
                 # bool 是 int 的子类，必须先排掉：mod_id=True 这种
                 # 病态值不能放行
                 if typ is int and (not isinstance(val, int)
                                    or isinstance(val, bool)):
-                    raise ValueError(f"{name}[{i}].{key} 应为整数")
+                    raise ValueError((f"{name}" + '[' + f"{i}" + '].' + f"{key}" + t(' 应为整数')))
                 if typ is str and not isinstance(val, str):
-                    raise ValueError(f"{name}[{i}].{key} 应为字符串")
+                    raise ValueError((f"{name}" + '[' + f"{i}" + '].' + f"{key}" + t(' 应为字符串')))
 
 
 # ================= 导入 =================
@@ -265,8 +264,7 @@ def import_sharepack(payload: dict, repo: ModRepository) -> dict:
     会当场 TypeError 指名道姓（sharepack 的 schema 闸就靠它）。"""
     games = payload["tables"]["games"]
     if len(games) != 1:
-        raise ValueError(f"分享包应恰好包含 1 个游戏档案，"
-                         f"实际 {len(games)} 个")
+        raise ValueError((t('分享包应恰好包含 1 个游戏档案，实际 ') + f"{len(games)}" + t(' 个')))
     incoming = Game(**games[0])
     incoming_mods = [Mod(**row) for row in payload["tables"]["mods"]]
     added = skipped = 0

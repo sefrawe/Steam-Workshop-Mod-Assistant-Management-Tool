@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from core.modRepository import ModRepository
+from core.i18n import t
 
 # ------------------------------------------------------------------
 # 两个世界的鉴别标记
@@ -340,12 +341,11 @@ def migrate_old_ledger(old_db_path: str | Path,
     info = peek_old_ledger(old_db_path)
     if not info.is_migratable:
         raise ValueError(
-            f"「{info.path}」{info.summary()}——迁移只处理上一代工具的旧账本")
+            ('「' + f"{info.path}" + '」' + f"{info.summary()}" + t('——迁移只处理上一代工具的旧账本')))
     # ---- 闸 2：新库必须是空的 ----
     if new_repo.list_games() or new_repo.pending_confirmations():
         raise ValueError(
-            "目标账本不是空库（已有档案或待确认条目）：迁移只能搬进"
-            "空库。请先确认新工具指向的是一个全新的数据库文件")
+            t('目标账本不是空库（已有档案或待确认条目）：迁移只能搬进空库。请先确认新工具指向的是一个全新的数据库文件'))
 
     migration_time = int(time.time())
     warnings = report.warnings

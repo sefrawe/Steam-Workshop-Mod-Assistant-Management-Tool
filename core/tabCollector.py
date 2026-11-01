@@ -42,6 +42,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+from core.i18n import t
 # 实时采集的第三方依赖（真驱动用；psutil 项目 requirements 里已有）
 REQUIRED_PACKAGES = ("pywinauto", "pyautogui", "pyperclip", "psutil")
 
@@ -106,8 +107,7 @@ def collect_tabs(driver, *, max_tabs: int = 300,
     从不动鼠标，宽限期后位移超阈值只能是人在动 = 立即收工。"""
     windows = driver.find_windows()
     if not windows:
-        raise CollectError("未发现正在运行的 Edge 窗口——请先打开 Edge"
-                           "（窗口可以最小化，但不能全关）")
+        raise CollectError(t('未发现正在运行的 Edge 窗口——请先打开 Edge（窗口可以最小化，但不能全关）'))
     arm = getattr(driver, "arm_mouse_brake", None)
     if callable(arm):
         arm()  # 假驱动没有这两个原语，getattr 惰性跳过
@@ -241,9 +241,7 @@ class EdgeDriver:
                 import psutil
         except ImportError as exc:
             raise CollectError(
-                "实时采集需要一次性安装四个包：\n"
-                "pip install pywinauto pyautogui pyperclip psutil\n"
-                "（装完无需重启本工具，再点一次采集即可）") from exc
+                t('实时采集需要一次性安装四个包：\npip install pywinauto pyautogui pyperclip psutil\n（装完无需重启本工具，再点一次采集即可）')) from exc
         self._Application = Application
         self._Desktop = Desktop
         self._findwindows = findwindows
@@ -446,8 +444,7 @@ class FirefoxSessionDriver:
                 import lz4.block
             except ImportError as exc:
                 raise CollectError(
-                    "读到 Firefox 压缩会话，但缺 lz4 库：\n"
-                    "pip install lz4\n装完再点一次即可。") from exc
+                    t('读到 Firefox 压缩会话，但缺 lz4 库：\npip install lz4\n装完再点一次即可。')) from exc
             size = int.from_bytes(data[8:12], "little")
             raw = lz4.block.decompress(data[12:], uncompressed_size=size)
         else:
@@ -461,9 +458,7 @@ class FirefoxSessionDriver:
         files = self._session_files()
         if not files:
             raise CollectError(
-                "未发现 Firefox 会话文件——请确认装了 Firefox 且打开过"
-                "标签页（正在运行或正常关闭过都行）。用的若是 Edge/Chrome，"
-                "本功能暂不支持。")
+                t('未发现 Firefox 会话文件——请确认装了 Firefox 且打开过标签页（正在运行或正常关闭过都行）。用的若是 Edge/Chrome，本功能暂不支持。'))
         out: list[CollectedTab] = []
         seen: set[str] = set()
         for f in files:
@@ -490,6 +485,5 @@ class FirefoxSessionDriver:
                             return out
         if not out:
             raise CollectError(
-                "Firefox 会话里没有可用的 http(s) 标签页"
-                "（可能全停在空白页或浏览器内部页）。")
+                t('Firefox 会话里没有可用的 http(s) 标签页（可能全停在空白页或浏览器内部页）。'))
         return out

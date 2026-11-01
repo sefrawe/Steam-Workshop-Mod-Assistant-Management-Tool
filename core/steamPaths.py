@@ -41,6 +41,7 @@ from typing import NamedTuple
 
 import shutil  # 决策 100：清缓存删目录树用
 import vdf     # ValvePython：解析 libraryfolders.vdf 与 acf（读 acf 的同一份依赖，零新增）
+from core.i18n import t
 
 
 def _paths_eq(a: str, b: str) -> bool:
@@ -507,18 +508,18 @@ def remove_items_from_acf(
         # utf-8-sig：顺手吃掉 Windows 文件可能带的 BOM（与旧 scan_acf 同款）
         text = p.read_text(encoding="utf-8-sig")
     except OSError as exc:
-        raise ValueError(f"acf 读取失败：{p}（{exc}）") from exc
+        raise ValueError((t('acf 读取失败：') + f"{p}" + '（' + f"{exc}" + '）')) from exc
     except UnicodeDecodeError as exc:
-        raise ValueError(f"acf 不是 UTF-8 文本：{p}") from exc
+        raise ValueError((t('acf 不是 UTF-8 文本：') + f"{p}")) from exc
 
     try:
         data = vdf.loads(text)
     except Exception as exc:
         # 解析不了就不写——绝不把可能损坏的文件写回去
-        raise ValueError(f"acf 解析失败（文件损坏或不是 VDF 格式）：{p}") from exc
+        raise ValueError((t('acf 解析失败（文件损坏或不是 VDF 格式）：') + f"{p}")) from exc
 
     if not isinstance(data, dict) or not isinstance(data.get("AppWorkshop"), dict):
-        raise ValueError(f"该文件没有 AppWorkshop 根区块（可能选错了文件）：{p}")
+        raise ValueError((t('该文件没有 AppWorkshop 根区块（可能选错了文件）：') + f"{p}"))
 
     workshop = data["AppWorkshop"]
     blocks = (workshop.get("WorkshopItemsInstalled"),
@@ -548,7 +549,7 @@ def remove_items_from_acf(
         p.write_text(vdf.dumps(data, pretty=True),
                      encoding="utf-8", newline="\n")
     except OSError as exc:
-        raise ValueError(f"acf 写回失败（原文件已备份在 {backup}）：{exc}") from exc
+        raise ValueError((t('acf 写回失败（原文件已备份在 ') + f"{backup}" + '）：' + f"{exc}")) from exc
 
     # 写回成功才清旧备份（keep=1，2026-10 拍板）：写失败的路径走不到
     # 这里——刚建的备份安然无恙，是唯一的好账本

@@ -37,6 +37,7 @@ from pathlib import Path
 
 import vdf
 from core.steamPaths import locate_acf  # noqa: F401  # acf 定位单源在 steamPaths（v1.3 既定归位）；
+from core.i18n import t
 # 本模块 re-export 保旧 import 路径——firstUsePage 与测试零改动
 
 # 质量谓词拦下的跳过原因统一用这个前缀：
@@ -99,19 +100,19 @@ def scan_acf(path: str | Path) -> ScanResult:
         # 第一个键就解析坏
         text = p.read_text(encoding="utf-8-sig")
     except OSError as exc:
-        raise ValueError(f"acf 读取失败：{p}（{exc}）") from exc
+        raise ValueError((t('acf 读取失败：') + f"{p}" + '（' + f"{exc}" + '）')) from exc
     except UnicodeDecodeError as exc:
-        raise ValueError(f"acf 不是 UTF-8 文本：{p}") from exc
+        raise ValueError((t('acf 不是 UTF-8 文本：') + f"{p}")) from exc
     try:
         data = vdf.loads(text)
     except Exception as exc:
         # vdf 对半截文件抛自己的异常类型；统一转写为 ValueError 并
         # 保留原始异常链——是转写不是吞掉，页面层只需接一种异常
         raise ValueError(
-            f"acf 解析失败（文件损坏或不是 VDF 格式）：{p}") from exc
+            (t('acf 解析失败（文件损坏或不是 VDF 格式）：') + f"{p}")) from exc
     if not isinstance(data, dict) or not isinstance(
             data.get("AppWorkshop"), dict):
-        raise ValueError(f"该文件没有 AppWorkshop 根区块（可能选错了文件）：{p}")
+        raise ValueError((t('该文件没有 AppWorkshop 根区块（可能选错了文件）：') + f"{p}"))
 
     installed = data["AppWorkshop"].get("WorkshopItemsInstalled")
     if not isinstance(installed, dict):

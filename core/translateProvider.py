@@ -29,6 +29,7 @@ import re
 import threading
 import urllib.parse
 import urllib.request
+from core.i18n import t
 
 
 class TranslateProviderError(Exception):
@@ -96,14 +97,12 @@ class EdgeProvider(BaseProvider):
                 data = json.loads(resp.read().decode("utf-8", "replace"))
         except Exception as exc:
             raise TranslateProviderError(
-                f"Edge 翻译请求失败：{exc}"
-                "（网络不通/端点改版——可到设置把间隔调大再试，"
-                "或等 Azure key 通道启用）") from exc
+                (t('Edge 翻译请求失败：') + f"{exc}" + t('（网络不通/端点改版——可到设置把间隔调大再试，或等 Azure key 通道启用）'))) from exc
         try:
             return [item["translations"][0]["text"] for item in data]
         except (TypeError, KeyError, IndexError) as exc:
             raise TranslateProviderError(
-                f"Edge 翻译回执异常：{str(data)[:120]}") from exc
+                (t('Edge 翻译回执异常：') + f"{str(data)[:120]}")) from exc
 
     def translate(self, text: str, target: str) -> str:
         if not text.strip():
@@ -175,7 +174,7 @@ class BingWebProvider(BaseProvider):
             return json.loads(raw)
         except ValueError as exc:
             raise TranslateProviderError(
-                f"Bing 回执不是 JSON（HTTP 层可能被拦）：{raw[:120]}") from exc
+                (t('Bing 回执不是 JSON（HTTP 层可能被拦）：') + f"{raw[:120]}")) from exc
 
     def _ensure_token(self) -> None:
         if self._key is not None and self._token is not None and self._api:
@@ -187,8 +186,7 @@ class BingWebProvider(BaseProvider):
             r"\s*\"([^\"]+)\"", page)
         if m_ig is None or m_key is None:
             raise TranslateProviderError(
-                "Bing 翻译通道失效（页面取不到 token，可能已改版）——"
-                "默认通道已换 Edge，本通道仅备选。")
+                t('Bing 翻译通道失效（页面取不到 token，可能已改版）——默认通道已换 Edge，本通道仅备选。'))
         self._ig = m_ig.group(1)
         self._key = m_key.group(1)
         self._token = m_key.group(2)
@@ -206,15 +204,14 @@ class BingWebProvider(BaseProvider):
             data = self._post(url, payload)
         except Exception as exc:
             self._key = self._token = None
-            raise TranslateProviderError(f"Bing 请求失败：{exc}") from exc
+            raise TranslateProviderError((t('Bing 请求失败：') + f"{exc}")) from exc
         try:
             item = data[0]
             return item["translations"][0]["text"]
         except (TypeError, IndexError, KeyError):
             self._key = self._token = None
             raise TranslateProviderError(
-                f"Bing 回执异常（{str(data)[:120]}）——若反复出现，"
-                "请使用默认的 Edge 通道。")
+                (t('Bing 回执异常（') + f"{str(data)[:120]}" + t('）——若反复出现，请使用默认的 Edge 通道。')))
 
 
 def make_provider(name: str, *, cancel_event: threading.Event | None = None):
@@ -226,5 +223,5 @@ def make_provider(name: str, *, cancel_event: threading.Event | None = None):
         return BingWebProvider(cancel_event)
     if name == "azure":
         raise TranslateProviderError(
-            "Azure 通道是预留位：待设置页加 Ocp-Apim key 配置后启用。")
-    raise TranslateProviderError(f"未知翻译通道：{name}")
+            t('Azure 通道是预留位：待设置页加 Ocp-Apim key 配置后启用。'))
+    raise TranslateProviderError((t('未知翻译通道：') + f"{name}"))

@@ -51,6 +51,7 @@ from core.models import (
     Translation,
     Verdict,
 )
+from core.i18n import t
 
 # 合法状态值单源取自 constants（D37），本文件不再手抄一份
 _TRACKED = constants.STATUS_TRACKED
@@ -130,16 +131,12 @@ class SQLiteRepository(ModRepository):
                 (_NEW_WORLD_MARKER_TABLE,)).fetchone()
             if marker is None:
                 raise ValueError(
-                    f"{self._path} 是上一代工具的旧账本：请到"
-                    "「换机迁移」页先做一次旧账迁移，把旧数据搬进新库；"
-                    "不要让新旧两代工具指向同一个数据库文件")
+                    (f"{self._path}" + t(' 是上一代工具的旧账本：请到「换机迁移」页先做一次旧账迁移，把旧数据搬进新库；不要让新旧两代工具指向同一个数据库文件')))
         else:
             # 版本号比本工具认识的新（或旧世系 v2/v3）——都读不懂，拒绝。
             # 显式爆炸好过静默错读（约定 3）
             raise ValueError(
-                f"{self._path} 的数据库结构版本（v{version}）本工具读不懂："
-                "旧世系库请走「换机迁移」的旧账迁移；更新版本的库请先"
-                "升级本工具再打开")
+                (f"{self._path}" + t(' 的数据库结构版本（v') + f"{version}" + t('）本工具读不懂：旧世系库请走「换机迁移」的旧账迁移；更新版本的库请先升级本工具再打开')))
         # 刀1（2026-10）：描述四列迁移——旧库 ALTER 补列、新库兜底，
         # 必须在任何查询之前跑完（_mod 转换器按列名取值，缺列即炸）
         self._ensure_description_columns()
@@ -150,7 +147,7 @@ class SQLiteRepository(ModRepository):
         """调用方的事务：块内任何异常全部回滚，正常退出统一提交。
         不支持嵌套（嵌套 = 调用方没想清楚边界，直接炸出来）。"""
         if self._in_transaction:
-            raise RuntimeError("transaction() 不支持嵌套")
+            raise RuntimeError(t('transaction() 不支持嵌套'))
         self._conn.execute("BEGIN")
         self._in_transaction = True
         try:
@@ -230,7 +227,7 @@ class SQLiteRepository(ModRepository):
 
     def _require_mod(self, mod_id: int) -> None:
         if self.get_mod(mod_id) is None:
-            raise ValueError(f"mod {mod_id} 不存在")
+            raise ValueError(('mod ' + f"{mod_id}" + t(' 不存在')))
 
     @staticmethod
     def _in_chunks(ids: list[int]) -> Iterable[list[int]]:
@@ -423,7 +420,7 @@ class SQLiteRepository(ModRepository):
     def game_deletion_summary(self, app_id: int) -> GameDeletionSummary:
         # get_game 查不到返回 None → 这里转成 ValueError（口径同 update_game）
         if self.get_game(app_id) is None:
-            raise ValueError(f"游戏档案 {app_id} 不存在")
+            raise ValueError((t('游戏档案 ') + f"{app_id}" + t(' 不存在')))
         mod_total = self._conn.execute(
             "SELECT COUNT(*) FROM mods WHERE game_id = ?",
             (app_id,)).fetchone()[0]
@@ -581,7 +578,7 @@ class SQLiteRepository(ModRepository):
         文本，数据库不做结构化查询，取回后在 Python 里精确比对。"""
         if order_by not in ALLOWED_ORDERS:
             raise ValueError(
-                f"order_by 必须取自 ALLOWED_ORDERS，收到：{order_by!r}")
+                (t('order_by 必须取自 ALLOWED_ORDERS，收到：') + f"{order_by!r}"))
         where = ["game_id = ?"]
         params: list = [game_id]
         if status is not None:
@@ -727,10 +724,10 @@ class SQLiteRepository(ModRepository):
         只动账面，磁盘处置归清理页。仅 deleted 条目可恢复。"""
         mod = self.get_mod(mod_id)
         if mod is None:
-            raise ValueError(f"mod {mod_id} 不存在")
+            raise ValueError(('mod ' + f"{mod_id}" + t(' 不存在')))
         if mod.status != _DELETED:
             raise ValueError(
-                f"mod {mod_id} 不是已删除状态（现为 {mod.status}），无需恢复")
+                ('mod ' + f"{mod_id}" + t(' 不是已删除状态（现为 ') + f"{mod.status}" + t('），无需恢复')))
         new_status = _DOWNLOADED if mod.confirmed_version is not None \
             else _TRACKED
         self._conn.execute(
@@ -744,7 +741,7 @@ class SQLiteRepository(ModRepository):
         with self._atomic():
             mod = self.get_mod(mod_id)
             if mod is None:
-                raise ValueError(f"mod {mod_id} 不存在")
+                raise ValueError(('mod ' + f"{mod_id}" + t(' 不存在')))
             # 末态快照字段随判决制换血：确认版本与来源顶替了
             # 旧版的 acf 本地版本与 manifest
             state = {"title": mod.title, "url": mod.url,
@@ -771,10 +768,10 @@ class SQLiteRepository(ModRepository):
             old = self.get_mod(old_mod_id)
             new = self.get_mod(new_mod_id)
             if old is None:
-                raise ValueError(f"旧 mod {old_mod_id} 不存在")
+                raise ValueError((t('旧 mod ') + f"{old_mod_id}" + t(' 不存在')))
             if new is None:
                 raise ValueError(
-                    f"新 mod {new_mod_id} 不存在（请先 add_mod）")
+                    (t('新 mod ') + f"{new_mod_id}" + t(' 不存在（请先 add_mod）')))
             merged: dict = {}
             if new.note is None and old.note is not None:
                 merged["note"] = old.note
@@ -809,14 +806,13 @@ class SQLiteRepository(ModRepository):
             # 一次查询两个用途：存在性检查 + 末态快照（登记黑名单要用）
             mod = self.get_mod(mod_id)
             if mod is None:
-                raise ValueError(f"mod {mod_id} 不存在")
+                raise ValueError(('mod ' + f"{mod_id}" + t(' 不存在')))
             n_backups = self._conn.execute(
                 "SELECT COUNT(*) FROM backups WHERE mod_id = ?",
                 (mod_id,)).fetchone()[0]
             if n_backups and not purge_backups:
                 raise ValueError(
-                    f"mod {mod_id} 名下有 {n_backups} 份备份登记：彻底清账"
-                    "须先处置备份（清理页勾选，或到备份总览页逐份处理）")
+                    ('mod ' + f"{mod_id}" + t(' 名下有 ') + f"{n_backups}" + t(' 份备份登记：彻底清账须先处置备份（清理页勾选，或到备份总览页逐份处理）')))
             if n_backups:
                 self._conn.execute(
                     "DELETE FROM backups WHERE mod_id = ?", (mod_id,))
@@ -889,11 +885,10 @@ class SQLiteRepository(ModRepository):
                 mod_id = item["mod_id"]
                 kind = item["kind"]
                 if kind not in _VALID_KINDS:
-                    raise ValueError(f"非法判决种类：{kind!r}")
+                    raise ValueError((t('非法判决种类：') + f"{kind!r}"))
                 if item.get("game_id") is None:
                     raise ValueError(
-                        f"mod {mod_id} 的判决行缺 game_id"
-                        "（没有它入账中心没法按档案过滤，flow 层必须给）")
+                        ('mod ' + f"{mod_id}" + t(' 的判决行缺 game_id（没有它入账中心没法按档案过滤，flow 层必须给）')))
                 self._insert("verdict_log", {
                     "mod_id": mod_id,
                     "kind": kind,
@@ -1008,12 +1003,10 @@ class SQLiteRepository(ModRepository):
                     (mod_id, *_QUEUE_KINDS)).fetchone()
                 if row is None:
                     raise ValueError(
-                        f"mod {mod_id} 没有待确认的判决行（可能已确认过，"
-                        "或从未跑过批次）——刷新入账中心后重试")
+                        ('mod ' + f"{mod_id}" + t(' 没有待确认的判决行（可能已确认过，或从未跑过批次）——刷新入账中心后重试')))
                 if self.is_purged(mod_id):
                     raise ValueError(
-                        f"mod {mod_id} 在已清账黑名单里（D11）：要重新收录"
-                        "请先到「已清账管理」页移出名单")
+                        ('mod ' + f"{mod_id}" + t(' 在已清账黑名单里（D11）：要重新收录请先到「已清账管理」页移出名单')))
                 version = row["version_written"]
                 source = row["source"]
                 now = _now()
@@ -1037,8 +1030,7 @@ class SQLiteRepository(ModRepository):
                     status = existing["status"]
                     if status == _DELETED:
                         raise ValueError(
-                            f"mod {mod_id} 是已删除状态："
-                            "请先在 mod 库页恢复再确认")
+                            ('mod ' + f"{mod_id}" + t(' 是已删除状态：请先在 mod 库页恢复再确认')))
                     if status in (_TRACKED, "failed"):
                         # tracked→downloaded 的状态迁移发生在这一刻
                         # （D6 唯一入口）；failed 复活同理（重试成功）
@@ -1074,16 +1066,15 @@ class SQLiteRepository(ModRepository):
         version=None 合法：文件在、版本读不出来 → 确认成"版本未知"
         （备份守卫会照旧拒绝给版本未知的东西做备份）。"""
         if source not in _VALID_SOURCES:
-            raise ValueError(f"非法确认来源：{source!r}")
+            raise ValueError((t('非法确认来源：') + f"{source!r}"))
         with self._atomic():
             mod = self.get_mod(mod_id)
             if mod is None:
                 raise ValueError(
-                    f"mod {mod_id} 不在账本里：右键认领只服务已收录条目；"
-                    "盘上陌生目录请走扫描 → 入账中心确认")
+                    ('mod ' + f"{mod_id}" + t(' 不在账本里：右键认领只服务已收录条目；盘上陌生目录请走扫描 → 入账中心确认')))
             if mod.status == _DELETED:
                 raise ValueError(
-                    f"mod {mod_id} 是已删除状态：请先恢复再认领")
+                    ('mod ' + f"{mod_id}" + t(' 是已删除状态：请先恢复再认领')))
             now = _now()
             self._insert("verdict_log", {
                 "mod_id": mod_id,
@@ -1114,10 +1105,10 @@ class SQLiteRepository(ModRepository):
         with self._atomic():
             mod = self.get_mod(mod_id)
             if mod is None:
-                raise ValueError(f"mod {mod_id} 不存在")
+                raise ValueError(('mod ' + f"{mod_id}" + t(' 不存在')))
             if mod.status == _DELETED:
                 raise ValueError(
-                    f"mod {mod_id} 是已删除状态：请先恢复再设定版本")
+                    ('mod ' + f"{mod_id}" + t(' 是已删除状态：请先恢复再设定版本')))
             now = _now()
             self._insert("verdict_log", {
                 "mod_id": mod_id,
@@ -1287,7 +1278,7 @@ class SQLiteRepository(ModRepository):
         事务中调用 → RuntimeError：备份到未提交状态没有意义。
         本方法是 SQLite 实现的特有能力，刻意不进 ModRepository 契约。"""
         if self._in_transaction:
-            raise RuntimeError("数据库备份不允许在事务中进行（先提交或回滚）")
+            raise RuntimeError(t('数据库备份不允许在事务中进行（先提交或回滚）'))
         keep_total = self._db_backup_keep if keep is None else max(1, int(keep))
         dest = Path(dest_dir)
         dest.mkdir(parents=True, exist_ok=True)
@@ -1415,7 +1406,7 @@ class SQLiteRepository(ModRepository):
             "DELETE FROM purged_mods WHERE mod_id = ?",
             (mod_id,)).rowcount
         if rc == 0:
-            raise ValueError(f"mod {mod_id} 不在已清账名单中")
+            raise ValueError(('mod ' + f"{mod_id}" + t(' 不在已清账名单中')))
 
     def add_purged(self, mod_id: int, game_id: int, *,
                    title: str | None = None,
@@ -1434,7 +1425,7 @@ class SQLiteRepository(ModRepository):
         """清旧边 + 写新边，一个事务——依赖清单以最近一次拉取为准。
         无外键版本：存在性由本方法显式校验。required_ids 去重保序。"""
         if self.get_mod(mod_id) is None:
-            raise ValueError(f"mod {mod_id} 不在账本中，无法记录依赖")
+            raise ValueError(('mod ' + f"{mod_id}" + t(' 不在账本中，无法记录依赖')))
         ts = fetched_at if fetched_at is not None else _now()
         ids = list(dict.fromkeys(int(i) for i in required_ids))
         with self._atomic():
@@ -1501,19 +1492,17 @@ class SQLiteRepository(ModRepository):
         user_version = exported.get("user_version")
         tables = exported.get("tables")
         if not isinstance(user_version, int) or isinstance(user_version, bool):
-            raise ValueError("载荷缺少 user_version（schema 版本）")
+            raise ValueError(t('载荷缺少 user_version（schema 版本）'))
         if not isinstance(tables, dict):
-            raise ValueError("载荷缺少 tables")
+            raise ValueError(t('载荷缺少 tables'))
         unknown = set(tables) - set(LEDGER_TABLES)
         if unknown:
             raise ValueError(
-                f"载荷里出现了不认识的表：{sorted(unknown)}")
+                (t('载荷里出现了不认识的表：') + f"{sorted(unknown)}"))
         mine = self._conn.execute("PRAGMA user_version").fetchone()[0]
         if user_version > mine:
             raise ValueError(
-                f"账本结构版本（v{user_version}）比本工具（v{mine}）新或属"
-                "旧世系：旧版工具的账本请走「换机迁移」的旧账迁移；"
-                "更新版本的账本请先升级本工具")
+                (t('账本结构版本（v') + f"{user_version}" + t('）比本工具（v') + f"{mine}" + t('）新或属旧世系：旧版工具的账本请走「换机迁移」的旧账迁移；更新版本的账本请先升级本工具')))
         with self._atomic():
             # 清空顺序 = 灌入顺序的倒序：RESTRICT 外键要求先删子表
             for table in reversed(LEDGER_TABLES):

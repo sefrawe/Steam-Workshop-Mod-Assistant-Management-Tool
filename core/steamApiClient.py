@@ -48,6 +48,7 @@ import threading
 
 import requests
 from loguru import logger
+from core.i18n import t
 
 # 可选增强：注入失败不应影响程序其余部分，所以吞掉一切异常并注明原因
 try:
@@ -260,7 +261,7 @@ class SteamApiClient:
             if isinstance(response, dict) else None
         if not isinstance(details, list):
             raise SteamApiError(
-                "GetPublishedFileDetails 响应缺少 publishedfiledetails 列表")
+                t('GetPublishedFileDetails 响应缺少 publishedfiledetails 列表'))
         return [WorkshopItem.from_api(d) for d in details
                 if isinstance(d, dict)]
 
@@ -353,7 +354,7 @@ class SteamApiClient:
             details = response.get("publishedfiledetails") \
                 if isinstance(response, dict) else None
             if not isinstance(details, list):
-                raise SteamApiError("GetDetails 响应缺少 publishedfiledetails 列表")
+                raise SteamApiError(t('GetDetails 响应缺少 publishedfiledetails 列表'))
             items.extend(KeyedItem.from_api(d) for d in details
                          if isinstance(d, dict))
             if start + batch < len(ids):
@@ -404,7 +405,7 @@ class SteamApiClient:
                                               self._interval_ms / 1000 * (2 ** attempt))
                 elif resp.status_code != 200:
                     raise SteamApiError(
-                        f"HTTP {resp.status_code}，接口：{url}")
+                        ('HTTP ' + f"{resp.status_code}" + t('，接口：') + f"{url}"))
                 else:
                     try:
                         return resp.json()
@@ -422,7 +423,7 @@ class SteamApiClient:
                     self._interval_ms / 1000 * (2 ** attempt))
                 self._check_cancel()
         raise SteamApiError(
-            f"请求多次失败（共 {self._max_retries + 1} 次）：{last_exc}")
+            (t('请求多次失败（共 ') + f"{self._max_retries + 1}" + t(' 次）：') + f"{last_exc}"))
 
 
     def _post_json(self, url: str, form: dict) -> dict:

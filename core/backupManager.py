@@ -69,6 +69,7 @@ import psutil
 from core import steamPaths
 from core.models import Backup
 from core.modRepository import ModRepository
+from core.i18n import t
 
 # robocopy 退出码 >= 8 才算失败（R5）。单独提成函数：纯逻辑，
 # 全平台可测，且"1 也是成功"这个反直觉点必须有测试钉死
@@ -147,13 +148,12 @@ def _assert_inside(target: Path, expected_root: Path) -> None:
     """
     if _is_link_or_junction(target):
         raise RuntimeError(
-            f"拒绝操作链接/junction：{target}\n"
-            "（若确需操作，请先手动处理链接本身）")
+            (t('拒绝操作链接/junction：') + f"{target}" + t('\n（若确需操作，请先手动处理链接本身）')))
     real = _norm(Path(os.path.realpath(target)))
     root = _norm(Path(os.path.realpath(expected_root))).rstrip(os.sep)
     if not real.startswith(root + os.sep):
         raise RuntimeError(
-            f"路径越界：{real} 不在 {root} 内，拒绝操作")
+            (t('路径越界：') + f"{real}" + t(' 不在 ') + f"{root}" + t(' 内，拒绝操作')))
 
 
 def _safe_rmtree(target: Path, expected_root: Path) -> None:
@@ -245,10 +245,10 @@ class BackupManager:
         warnings: list[str] = []
         mod = self._repo.get_mod(mod_id)
         if mod is None:
-            raise ValueError(f"mod {mod_id} 不存在")
+            raise ValueError(('mod ' + f"{mod_id}" + t(' 不存在')))
         game = self._repo.get_game(mod.game_id)
         if game is None:
-            raise ValueError(f"游戏档案 {mod.game_id} 不存在（数据不一致）")
+            raise ValueError((t('游戏档案 ') + f"{mod.game_id}" + t(' 不存在（数据不一致）')))
 
         # ---- 前提一：本地版本必须已知（backups.version_timeupdated 非空）----
         # v2 判决制：version_unknown = confirmed_version IS NULL（单源取
@@ -374,11 +374,11 @@ class BackupManager:
         warnings: list[str] = []
         record = self._repo.get_backup(backup_id)
         if record is None:
-            raise ValueError(f"备份记录 {backup_id} 不存在")
+            raise ValueError((t('备份记录 ') + f"{backup_id}" + t(' 不存在')))
         mod = self._repo.get_mod(record.mod_id)
         game = self._repo.get_game(mod.game_id) if mod else None
         if mod is None or game is None:
-            raise ValueError("备份对应的 mod 或游戏档案不存在（数据不一致）")
+            raise ValueError(t('备份对应的 mod 或游戏档案不存在（数据不一致）'))
         if mod.status == "deleted":
             warnings.append("该 mod 当前状态为已删除：恢复会把文件放回下载目录，"
                             "但数据库状态不变。")
@@ -550,7 +550,7 @@ class BackupManager:
         """
         record = self._repo.get_backup(backup_id)
         if record is None:
-            raise ValueError(f"备份记录 {backup_id} 不存在")
+            raise ValueError((t('备份记录 ') + f"{backup_id}" + t(' 不存在')))
         mod = self._repo.get_mod(record.mod_id)
         game = self._repo.get_game(mod.game_id) if mod else None
         if game is None or not (game.backup_dir or "").strip():
