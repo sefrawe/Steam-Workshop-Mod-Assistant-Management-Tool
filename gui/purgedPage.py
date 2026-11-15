@@ -63,8 +63,8 @@ COL_URL = 4
 COL_PURGED = 5
 COL_RESIDUE = 6
 COL_NOTE = 7
-_COL_HEADERS = [t('选'), t('游戏'), t('Mod 编号'), t('标题快照'), "↗", t('清账时间'),
-                t('残留'), t('备注')]
+_COL_HEADERS = ['选', '游戏', 'Mod 编号', '标题快照', "↗", '清账时间', '残留', '备注']
+
 _SES_TIP_FOLD = "session/purged_tip_fold"  # 说明区收展状态（沿备份页先例）
 
 class PurgedPage(QWidget):
@@ -254,7 +254,8 @@ class PurgedPage(QWidget):
 
         # ---- 表格 ----
         self._table = QTableWidget(0, len(_COL_HEADERS), self)
-        self._table.setHorizontalHeaderLabels(_COL_HEADERS)
+        self._table.setHorizontalHeaderLabels([t(h) for h in _COL_HEADERS])
+
         self._table.verticalHeader().setVisible(False)
         self._table.setWordWrap(False)
         self._table.setEditTriggers(
@@ -347,9 +348,8 @@ class PurgedPage(QWidget):
             elif disp == "✓":
                 ri.setForeground(QBrush(QColor(_C_OK)))
             self._table.setItem(row, COL_RESIDUE, ri)
-
-            self._table.setItem(row, COL_NOTE, QTableWidgetItem(r.note or ""))
-
+            self._table.setItem(row, COL_NOTE,
+                                QTableWidgetItem(t(r.note) if r.note else ""))
         n = len(rows)
         self._count_label.setText(
             (t('黑名单共 ') + f"{n}" + t(' 个编号'))

@@ -260,12 +260,10 @@ class AccountCenterPage(QWidget):
 
     # ---------------- 三区构建 ----------------
     @staticmethod
-    def _style_table(t: QTableWidget) -> None:
-        t.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        t.verticalHeader().setVisible(False)
-
-
+    def _style_table(tbl: QTableWidget) -> None:
+        tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        tbl.verticalHeader().setVisible(False)
 
     def _build_pending_zone(self) -> QWidget:
         zone = QWidget(self)
@@ -451,25 +449,24 @@ class AccountCenterPage(QWidget):
         wrap.setFrameShape(QFrame.Shape.NoFrame)
         wrap.setWidget(inner)
         return wrap
-
     def _apply_item_filter(self, *_a) -> None:
         """页面级查找：对①待确认、②待认领、③判决史三张表做行隐藏。
         只隐藏不清数据——清空关键词全部恢复；隐藏不影响已勾选的行
         （查找是视图帮手，不是数据闸门），不碰账本。"""
         kw = self._filter_edit.text().strip().casefold()
 
-        def hide_table(t: QTableWidget, text_cols: list[int]) -> None:
-            for r in range(t.rowCount()):
+        def hide_table(tbl: QTableWidget, text_cols: list[int]) -> None:
+            for r in range(tbl.rowCount()):
                 if not kw:
-                    t.setRowHidden(r, False)
+                    tbl.setRowHidden(r, False)
                     continue
                 hit = False
                 for c in text_cols:
-                    it = t.item(r, c)
+                    it = tbl.item(r, c)
                     if it is not None and kw in it.text().casefold():
                         hit = True
                         break
-                t.setRowHidden(r, not hit)
+                tbl.setRowHidden(r, not hit)
 
         # 各表参与匹配的列：编号/标题优先，顺带说明类文字
         hide_table(self._pending_table, [1, 2, 5, 7])   # 编号/标题/将写入/来源
@@ -681,24 +678,23 @@ class AccountCenterPage(QWidget):
 
     # ---------------- 待确认区动作 ----------------
     def _checked_pending_ids(self) -> list[int]:
-        t = self._pending_table
+        tbl = self._pending_table
         ids = []
-        for r in range(t.rowCount()):
-            it = t.item(r, 0)
+        for r in range(tbl.rowCount()):
+            it = tbl.item(r, 0)
             if it.checkState() == Qt.CheckState.Checked:
                 ids.append(it.data(Qt.ItemDataRole.UserRole))
         return ids
 
     def _toggle_all_pending(self) -> None:
-        t = self._pending_table
-        if not t.rowCount():
+        tbl = self._pending_table
+        if not tbl.rowCount():
             return
-        any_off = any(t.item(r, 0).checkState() != Qt.CheckState.Checked
-                      for r in range(t.rowCount()))
-        state = (Qt.CheckState.Checked if any_off
-                 else Qt.CheckState.Unchecked)
-        for r in range(t.rowCount()):
-            t.item(r, 0).setCheckState(state)
+        any_off = any(tbl.item(r, 0).checkState() != Qt.CheckState.Checked
+                      for r in range(tbl.rowCount()))
+        state = (Qt.CheckState.Checked if any_off else Qt.CheckState.Unchecked)
+        for r in range(tbl.rowCount()):
+            tbl.item(r, 0).setCheckState(state)
 
     def _on_confirm_checked(self) -> None:
         ids = self._checked_pending_ids()
@@ -776,20 +772,20 @@ class AccountCenterPage(QWidget):
     # ---------------- 登记区动作 ----------------
     # ---------------- 待认领区动作 ----------------
     def _checked_claim_ids(self) -> list[int]:
-        t = self._claims_table
-        return [t.item(r, 0).data(Qt.ItemDataRole.UserRole)
-                for r in range(t.rowCount())
-                if t.item(r, 0).checkState() == Qt.CheckState.Checked]
+        tbl = self._claims_table
+        return [tbl.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                for r in range(tbl.rowCount())
+                if tbl.item(r, 0).checkState() == Qt.CheckState.Checked]
+
     def _toggle_all_claims(self) -> None:
-        t = self._claims_table
-        if not t.rowCount():
+        tbl = self._claims_table
+        if not tbl.rowCount():
             return
-        any_off = any(t.item(r, 0).checkState() != Qt.CheckState.Checked
-                      for r in range(t.rowCount()))
-        state = (Qt.CheckState.Checked if any_off
-                 else Qt.CheckState.Unchecked)
-        for r in range(t.rowCount()):
-            t.item(r, 0).setCheckState(state)
+        any_off = any(tbl.item(r, 0).checkState() != Qt.CheckState.Checked
+                      for r in range(tbl.rowCount()))
+        state = (Qt.CheckState.Checked if any_off else Qt.CheckState.Unchecked)
+        for r in range(tbl.rowCount()):
+            tbl.item(r, 0).setCheckState(state)
 
     def _on_claim_checked(self) -> None:
         ids = self._checked_claim_ids()
@@ -823,7 +819,7 @@ class AccountCenterPage(QWidget):
         if gid is None:
             return
         for mid in ids:  # 逐条独立（repo 单语句方法自带原子性）
-            self._repo.add_purged(mid, gid, note=t('盘点忽略'))
+            self._repo.add_purged(mid, gid, note='盘点忽略')
         self._repo.drop_stale_claims(gid, ids)  # 候选提案随忽略作废
 
         if self._log is not None:
@@ -980,8 +976,9 @@ class AccountCenterPage(QWidget):
             if self._log is not None:
                 self._log.warn(t('元数据批查失败（') + f"{error}" + t('）：登记照常，标题/大小留空，等更新检测补全'))
         metas = {mid: rf.RegisterMeta(
-            mod_id=mid, title=t, creator=c, file_size=s, time_updated=tu)
-            for mid, (tu, t, s, c) in result.items()}
+            mod_id=mid, title=title, creator=c, file_size=s,
+            time_updated=tu)
+            for mid, (tu, title, s, c) in result.items()}
         report = rf.apply_register(self._repo, p, metas)
         if self._log is not None:
             self._log.ok(t('已登记 ') + f"{report.registered}" + t(' 条为「待下载」（') + f"{report.with_metadata}" + t(' 条带标题/大小，') + f"{report.without_metadata}" + t(' 条待更新检测补全）——可到 mod 库页按「待下载」筛选查看'))

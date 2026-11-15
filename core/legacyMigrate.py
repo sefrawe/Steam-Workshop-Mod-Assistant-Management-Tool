@@ -83,10 +83,10 @@ class OldLedgerSummary:
     def is_migratable(self) -> bool:
         """只有旧世界的库才搬得动——其余一切情形调用方直接给对应文案。"""
         return self.kind == "old"
-
     def summary(self) -> str:
-        """一句话人话描述（弹窗第一行）。"""
-        return _KIND_ZH.get(self.kind, self.kind)
+        """一句话人话描述（弹窗第一行）。用时翻：kind → 原词 → t()。"""
+        return t(_KIND_ZH.get(self.kind, self.kind))
+
 
 
 @dataclass
@@ -123,23 +123,27 @@ class MigrationReport:
             text += ('；⚠ ' + f"{len(self.warnings)}" + t(' 条提醒（详见运行日志）'))
         return text
 
-
-# peek 结果 kind 的人话对照（弹窗/日志共用，别各写各的）
+# peek 结果 kind 的原词对照（弹窗/日志共用）。★ 导入期红线：这里不许调
+# t()——import 时语言表未初始化，词被烤死，英文界面照显中文。
+# 存原词、用时翻（与 constants.STATUS_ZH 同款消费模式）
 _KIND_ZH = {
-    "old": t('上一代工具的旧账本（可迁移）'),
-    "new": t('已经是新版账本，无需迁移'),
-    "empty": t('空库，没有可迁移的数据'),
-    "alien": t('不是本工具的账本（表结构对不上）'),
-    "not_sqlite": t('这个文件不是 SQLite 数据库'),
-    "missing": t('文件不存在'),
+    "old": '上一代工具的旧账本（可迁移）',
+    "new": '已经是新版账本，无需迁移',
+    "empty": '空库，没有可迁移的数据',
+    "alien": '不是本工具的账本（表结构对不上）',
+    "not_sqlite": '这个文件不是 SQLite 数据库',
+    "missing": '文件不存在',
 }
-
-# 计数显示顺序与中文标签（弹窗里"档案 2 · mod 237 …"那一行）
 _COUNT_ZH: tuple[tuple[str, str], ...] = (
-    ("games", t('档案')), ("mods", "mod"), ("mod_snapshots", t('远端观测史')),
-    ("backups", t('备份登记')), ("operations_log", t('操作日志')),
-    ("failed_mods", t('失效归档')), ("special_mod_alerts", t('特殊提醒')),
-    ("purged_mods", t('黑名单')), ("mod_dependencies", t('依赖边')),
+    ("games", '档案'),
+    ("mods", "mod"),
+    ("mod_snapshots", '远端观测史'),
+    ("backups", '备份登记'),
+    ("operations_log", '操作日志'),
+    ("failed_mods", '失效归档'),
+    ("special_mod_alerts", '特殊提醒'),
+    ("purged_mods", '黑名单'),
+    ("mod_dependencies", '依赖边'),
 )
 
 

@@ -86,13 +86,17 @@ def parse_description(raw: str | None) -> list[DescBlock]:
     两段策略：先 stash 再归位——认识的内嵌标签换成 \x00序号\x00 哨兵
     混进正文流，等文本清洗（[*]→圆点、剥壳留肉、压空行）按空行切段
     后，再按哨兵原位插回链接块。顺序全程不乱。
-
     嵌套修复（2026-10 实证"□13□"方块 + 内容缺失）：[url=X][img]U[/img]
     [/url]（工坊常见的"图片带超链接"）在 on_url 里拆解——内层图片块
     就地接管外层链接的点击目标，绝不让哨兵残留在任何显示文案里。
     出口另有净化兜底：任何未知路径漏进块文本的哨兵就地剥除——
     内部占位符永远不该抵达用户眼前。只动 link 块与残留净化，
     text 块序稳定——已落库译文（按 text 块序对齐）不受影响。
+
+    本函数红线（2026-11-02 实证）：任何局部变量不许叫 t——嵌套
+    on_yt/on_img 里的 t(...) 是 core.i18n 的翻译函数，外层一旦有
+    叫 t 的局部名，嵌套函数里的 t 就被闭包劫持成"还没赋值的变量"，
+    调用早于赋值 = NameError。净化循环的变量因此叫 clean。
     """
     if not raw:
         return []
@@ -105,8 +109,7 @@ def parse_description(raw: str | None) -> list[DescBlock]:
 
     def on_yt(m: re.Match) -> str:
         url = _youtube_url(m.group(1))
-        return (stash(DescBlock("link", t('▶ 视频 · 点击打开'), url))
-                if url else m.group(1))
+        return (stash(DescBlock("link", t('▶ 视频 · 点击打开'), url)) if url else m.group(1))
 
     img_n = 0
 
@@ -194,16 +197,18 @@ def parse_description(raw: str | None) -> list[DescBlock]:
     # （\x00N\x00——Qt 富文本显示为"□N□"方块）就地剥除；
     # 剥空的 text 块丢弃（原"非空才收"口径的自然延伸），
     # link 块剥空退回 url——占位符绝不抵达用户眼前
+    # ★ 修复点（2026-11-02）：循环变量原名 t——正是它把嵌套函数里的
+    # t() 劫持成闭包变量（调用早于赋值 = NameError）。改名 clean，
+    # 逻辑零改动
     final: list[DescBlock] = []
     for b in blocks:
-        t = _RE_SENTINEL_ANY.sub("", b.text).strip()
-        if not t and b.kind == "link" and b.url:
-            t = b.url
-        if not t:
+        clean = _RE_SENTINEL_ANY.sub("", b.text).strip()
+        if not clean and b.kind == "link" and b.url:
+            clean = b.url
+        if not clean:
             continue
-        final.append(b if t == b.text else DescBlock(b.kind, t, b.url))
+        final.append(b if clean == b.text else DescBlock(b.kind, clean, b.url))
     return final
-
 
 # ---------- 渲染 ----------
 
@@ -230,28 +235,21 @@ def _html_text(s: str) -> str:
     直接进 href 属性即合法 HTML（浏览器自动解回 &）。"""
     out = html.escape(s, quote=True)
     return _linkify_html(out).replace("\n", "<br>")
-
-def blocks_to_html(blocks: list[DescBlock], *,
-                   translations: list[str | None] | None = None,
-                   compare: bool = False,
-                   dim: str = "#8a8a8f") -> str:
+def blocks_to_html(blocks: list[DescBlock], *, translations: list[str | None] | None = None,
+                   compare: bool = False, dim: str = "#8a8a8f") -> str:
     """块序列 → HTML（配 QTextBrowser.setHtml）。三态一函三吃：
-
     - translations=None 且 compare=False → 原文态；
-    - translations 给定 → 译文态（text 块换成译文段；None 段 =
-      「⚠ 该段翻译失败」附原文；段数不齐缺的按失败回退——宁保真
-      不装懂）；
-    - compare=True → 对照态：text 块 = 原文段 + 紧随的译文行（dim
-      色），link 块原位穿插。
-
+    - translations 给定 → 译文态（text 块换成译文段；None 段 = 「⚠ 该段翻译失败」附原文；段数不齐缺的按失败回退——宁保真 不装懂）；
+    - compare=True → 对照态：text 块 = 原文段 + 紧随的译文行（dim 色），link 块原位穿插。
     link 块三种态都是同一行链接（<a href> 走 setOpenExternalLinks）。
+    HTML 骨架（<p>/<span>/<br>/style 属性）全是字面量、住在 t() 边界
+    外（第 6 类红线）；进 t() 的只有纯文案。
     """
     out: list[str] = []
     ti = 0  # text 块序号 = 译文段下标
     for blk in blocks:
         if blk.kind == "link":
-            out.append('<p><a href="'
-                       + html.escape(blk.url or "", quote=True)
+            out.append('<p><a href="' + html.escape(blk.url or "", quote=True)
                        + '">' + _html_text(blk.text) + "</a></p>")
             continue
         seg = None
@@ -265,9 +263,12 @@ def blocks_to_html(blocks: list[DescBlock], *,
             elif seg:
                 out.append(f"<p>{_html_text(seg)}</p>")
             elif seg is None:
-                out.append(('<p>' + f"{orig}" + '<br><span style="color:' + f"{dim}" + t('">⚠ 该段翻译失败</span></p>')))
+                out.append('<p>' + f"{orig}" + '<br><span style="color:'
+                           + f"{dim}" + '">' + t('⚠ 该段翻译失败')
+                           + '</span></p>')
             else:
-                out.append(('<p><span style="color:' + f"{dim}" + t('">（译文为空）</span></p>')))
+                out.append('<p><span style="color:' + f"{dim}" + '">'
+                           + t('（译文为空）') + '</span></p>')
         else:
             body = orig
             if translations is not None:
@@ -275,8 +276,10 @@ def blocks_to_html(blocks: list[DescBlock], *,
                     body += (f'<br><span style="color:{dim}">'
                              f"{_html_text(seg)}</span>")
                 elif seg is None:
-                    body += (('<br><span style="color:' + f"{dim}" + t('">⚠ 该段翻译失败</span>')))
+                    body += ('<br><span style="color:' + f"{dim}" + '">'
+                             + t('⚠ 该段翻译失败') + '</span>')
                 else:
-                    body += (('<br><span style="color:' + f"{dim}" + t('">（译文为空）</span>')))
+                    body += ('<br><span style="color:' + f"{dim}" + '">'
+                             + t('（译文为空）') + '</span>')
             out.append(f"<p>{body}</p>")
     return "\n".join(out)

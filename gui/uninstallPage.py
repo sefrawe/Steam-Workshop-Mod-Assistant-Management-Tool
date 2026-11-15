@@ -204,7 +204,7 @@ class UninstallPage(QWidget):
         for i, e in enumerate(report.entries):
             tbl.setItem(i, 0, QTableWidgetItem(e.rel_path))
             tbl.setItem(i, 1, QTableWidgetItem(fmt_size(e.size_bytes)))
-            tbl.setItem(i, 2, QTableWidgetItem(e.role))
+            tbl.setItem(i, 2, QTableWidgetItem(t(e.role)))
         tbl.setVisible(True)
         self._d1_total.setVisible(True)
         if not report.entries:

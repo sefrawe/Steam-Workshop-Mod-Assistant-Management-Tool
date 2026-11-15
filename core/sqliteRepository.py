@@ -831,7 +831,7 @@ class SQLiteRepository(ModRepository):
             # 旧行 note 为空显示"未知"，不做迁移
             self._conn.execute(
                 """INSERT OR REPLACE INTO purged_mods (mod_id, game_id, title, note) VALUES (?, ?, ?, ?)""",
-                (mod_id, mod.game_id, mod.title, t('彻底清账自动登记')))
+                (mod_id, mod.game_id, mod.title, '彻底清账自动登记'))
 
         return n_backups
 

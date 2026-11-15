@@ -77,12 +77,12 @@ from gui.theme import font_px  # 字号单源（D25）
 # 组键 not_downloaded 与 core/commandBuilder.group_mods 的返回键一致，别改；
 # 界面标题"已收录"与 mod 库页状态词同源。语义 = 没有确认版本的
 # 条目：未下载的正常排队 + 已下载但版本未知（重下无害，正好补版本）
-
 _GROUP_ORDER = [
-    ("needs_update", t('需要更新')),
-    ("not_downloaded", t('待下载')),
-    ("up_to_date", t('已最新')),
+    ("needs_update", '需要更新'),
+    ("not_downloaded", '待下载'),
+    ("up_to_date", '已最新'),
 ]
+
 
 # 登录命令在设置页里的键名（appSettings.DEFAULTS / settingsPage._FIELDS 同名）
 _LOGIN_CMD_KEY = "steamcmd_login_cmd"
@@ -99,10 +99,6 @@ _TOOLS_H = 28
 _SEC_MIN_H = 120
 _SEC_MAX_H = 400
 _TIP_ALLOWANCE = 40      # "已收录"说明行的固定高度预算
-
-_USAGE_TEXT = (
-    t('使用方法：① 自己打开 steamcmd 并登录（账号必须拥有该游戏）→ ② 在下面勾选 mod，点右下角“复制命令”→ ③ 粘贴到 steamcmd 窗口回车，命令会一行一行依次执行。')
-)
 
 
 class CommandGenPage(QWidget):
@@ -181,7 +177,9 @@ class CommandGenPage(QWidget):
         # 恒定——照共享件契约"收起/展开占同样空间，内容多时控件
         # 内部滚动"。折叠状态刻意不记 QSettings：提示总共三行，
         # 为它引一条记忆链路不值当，要记再议
-        lbl_usage = QLabel(_USAGE_TEXT)
+        lbl_usage = QLabel(
+            t('使用方法：① 自己打开 steamcmd 并登录（账号必须拥有该游戏）→ ② 在下面勾选 mod，点右下角“复制命令”→ ③ 粘贴到 steamcmd 窗口回车，命令会一行一行依次执行。'))
+
         lbl_usage.setWordWrap(True)
         lbl_usage.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
         usage_scroll = QScrollArea(self)
@@ -298,8 +296,9 @@ class CommandGenPage(QWidget):
         mods = self._repo.list_mods(self._game.app_id)
         groups = group_mods(mods)
         self._clear_body()
-        for key, title in _GROUP_ORDER:
-            self._make_section(key, title, groups[key])
+        for key, word in _GROUP_ORDER:
+            self._make_section(key, t(word), groups[key])
+
         # v2.41.1 主修复：容器末尾必须补 stretch。
         # 没有它，QScrollArea(widgetResizable) 把内容页拉高到视口高度、
         # 三个分区（默认尺寸策略）跟着被拉高，共享件里"固定高度的内容
@@ -499,7 +498,9 @@ class CommandGenPage(QWidget):
         q = self._filter.text().strip().casefold() if self._filter else ""
         total = 0
         parts = []
-        for key, title in _GROUP_ORDER:
+        for key, word in _GROUP_ORDER:
+            title = t(word)
+
             rows = self._rows.get(key, [])
             n = sum(1 for r in rows if r["checkbox"].isChecked())
             total += n
@@ -583,7 +584,7 @@ class CommandGenPage(QWidget):
         if not ids:
             QMessageBox.information(self, t("提示"), t("还没勾选任何 mod。"))
             return
-        default_name = (t('下载命令_') + f"{date.today():'%Y%m%d'}" + '.txt')
+        default_name = (t('下载命令_') + f"{date.today():%Y%m%d}" + '.txt')
         # 默认存到系统"文档"目录，而不是游戏的下载目录（download_dir）。
         # 原因（两条，本质都是"别把命令文件混进 mod 内容"）：
         # 1) download_dir 指向 steamcmd 的 content\<appid>\，这棵目录树

@@ -48,6 +48,7 @@ from core import modVerifier, steamPaths
 from core.backupManager import safe_rmtree, steamcmd_running
 from core.models import Game
 from core.modRepository import ModRepository
+from core.i18n import t  # 显示专用串（notes/校验消息/detail 拼接）运行期翻；落库串仍存原词
 
 
 def _fmt_size(n: int) -> str:
@@ -104,21 +105,25 @@ def _acf_remove(acf_path: Path, ids: list[int]) -> tuple[int, str]:
     Installed / Details 两区块由底层一起清（只清 Installed 拦得住
     入账、拦不住整体校验装配——两块都删才算断根）；写前自动备份
     （.bak_时间戳）与只留最近 1 份由底层负责；一个条目都没删时底层
-    不动文件、不产生备份。文件级问题（读不了/解析失败/没有
-    AppWorkshop 根）底层抛 ValueError——execute_action 的 except
-    须已按本轮刀法加宽收编，逐条失败不炸整批。steamcmd 运行中的
-    拒绝已在 build_plan 决定（不发动作）。"""
+    不动文件、不产生备份。文件级问题（读不了/解析失败/没有 AppWorkshop
+    根）底层抛 ValueError——execute_action 的 except 须已按本轮刀法
+    加宽收编，逐条失败不炸整批。steamcmd 运行中的拒绝已在 build_plan
+    决定（不发动作）。返回的人话只进显示（日志/汇总），不落库——
+    运行期 t() 合法。"""
     removed, absent = steamPaths.remove_items_from_acf(str(acf_path), ids)
-    if not removed:  # 底层口径：一个没删 → 文件没动、备份没产生
+    if not removed:
+        # 底层口径：一个没删 → 文件没动、备份没产生
         shown = ("、".join(str(i) for i in absent[:8])
                  + ("…" if len(absent) > 8 else "")) if absent else ""
-        return 0, ("这些编号本来就不在账本里，无事可移"
-                   + (f"：{shown}" if shown else ""))
-    note = f"移除 {len(removed)} 条，写前备份已自动留存（只留最近 1 份）"
+        return 0, (t('这些编号本来就不在账本里，无事可移')
+                   + ((t('：') + shown) if shown else ""))
+    note = (t('移除 ') + f"{len(removed)}"
+            + t(' 条，写前备份已自动留存（只留最近 1 份）'))
     if absent:
-        note += ("；账本里本就没有：" + "、".join(str(i) for i in absent[:8])
+        note += (t('；账本里本就没有：')
+                 + "、".join(str(i) for i in absent[:8])
                  + ("…" if len(absent) > 8 else ""))
-    return len(removed), note + "——装配引信已拆"
+    return len(removed), note + t('——装配引信已拆')
 
 # ============ 盘点 ============
 
@@ -275,39 +280,41 @@ class ActionResult:
 class CleanupPlan:
     actions: list[Action]
     notes: list[str]   # 确认弹窗逐条展示：做什么 / 动多大 / 回程票
-
-
 def build_plan(repo: ModRepository, report: InventoryReport,
                req: PlanRequest) -> CleanupPlan:
     """把用户勾选校验、定序成动作清单。校验不过 → ValueError
-    （消息可直接给用户看）。纯逻辑，可单测。"""
+    （消息可直接给用户看）。纯逻辑，可单测。
+    notes 与校验消息是纯显示串（确认弹窗/异常框），运行期 t() 合法；
+    本模块唯一落库串（孤儿处置拉黑）在 execute_action，原词不动。"""
     missing_ids = {r.mod_id for r in report.missing_rows}
     clean_by_id = {r.mod_id: r for r in report.cleanable_rows}
     orphan_ids = {o.mod_id for o in report.orphans}
-
     # ---- 校验：每个动作都必须落在盘点给过的行上（不许凭空发明） ----
     for mid, act in req.ledger_actions.items():
         if mid not in missing_ids:
-            raise ValueError(f"mod {mid} 不在「账有盘无」清单里，不能处置")
+            raise ValueError(f"mod {mid}"
+                             + t(' 不在「账有盘无」清单里，不能处置'))
         if act not in ("soft", "purge"):
-            raise ValueError(f"未知的账面动作：{act}")
+            raise ValueError(t('未知的账面动作：') + f"{act}")
     for mid, act in req.clean_actions.items():
         row = clean_by_id.get(mid)
         if row is None:
-            raise ValueError(f"mod {mid} 不在「盘上可清」清单里，不能处置")
+            raise ValueError(f"mod {mid}"
+                             + t(' 不在「盘上可清」清单里，不能处置'))
         if act == "wipe_soft" and row.status != "downloaded":
             raise ValueError(
-                f"mod {mid} 状态为{row.status}，没有「软删除」可做"
-                "（已经是删除/失效状态）")
+                f"mod {mid}" + t(' 状态为') + f"{row.status}"
+                + t('，没有「软删除」可做（已经是删除/失效状态）'))
         if act == "wipe_purge" and row.status == "failed":
             raise ValueError(
-                f"mod {mid} 是失效条目：处置链归异常页，本页只清文件")
+                f"mod {mid}"
+                + t(' 是失效条目：处置链归异常页，本页只清文件'))
         if act not in ("wipe", "wipe_soft", "wipe_purge"):
-            raise ValueError(f"未知的清理动作：{act}")
+            raise ValueError(t('未知的清理动作：') + f"{act}")
     for mid in req.orphan_ids:
         if mid not in orphan_ids:
-            raise ValueError(f"{mid} 不在孤儿清单里（可能已被处置或认领）")
-
+            raise ValueError(f"{mid}"
+                             + t(' 不在孤儿清单里（可能已被处置或认领）'))
     # ---- 收集"彻底清账"对象（账有盘无的 purge + 盘上可清的 wipe_purge） ----
     purge_ids = sorted(
         [mid for mid, a in req.ledger_actions.items() if a == "purge"]
@@ -315,7 +322,6 @@ def build_plan(repo: ModRepository, report: InventoryReport,
     soft_ids = sorted(
         [mid for mid, a in req.ledger_actions.items() if a == "soft"]
         + [mid for mid, a in req.clean_actions.items() if a == "wipe_soft"])
-
     # ---- 备份文件动作：路径必须在账还在的时候取好（purge 之后记录就没了） ----
     backup_file_actions: list[Action] = []
     purge_backup_records = 0
@@ -328,8 +334,8 @@ def build_plan(repo: ModRepository, report: InventoryReport,
                 backup_file_actions.append(Action(
                     kind="backup_file", mod_id=mid,
                     path=str(Path(report.backup_root) / b.backup_path),
-                    expected_root=report.backup_root, backup_id=b.id))
-
+                    expected_root=report.backup_root,
+                    backup_id=b.id))
     # ---- 磁盘目录动作（content / 孤儿） ----
     content_actions: list[Action] = []
     content_bytes = 0
@@ -385,60 +391,66 @@ def build_plan(repo: ModRepository, report: InventoryReport,
     actions.extend(black_actions)
     actions.extend(acf_actions)
     for mid in soft_ids:
-
         actions.append(Action(kind="ledger_soft", mod_id=mid))
     for mid in purge_ids:
         actions.append(Action(kind="ledger_purge", mod_id=mid))
     actions.extend(backup_file_actions)
     actions.extend(content_actions)
     actions.extend(orphan_actions)
-
-    # ---- 人话备注（确认弹窗逐条展示：做什么/动多大/回程票/可逆性） ----
+    # ---- 人话备注（确认弹窗逐条展示：做什么/动多大/回程票/可逆性）----
     notes: list[str] = []
     if soft_ids:
-        notes.append(f"账面·软删除 {len(soft_ids)} 个：记录与快照保留，"
-                     "随时可恢复（回程票：mod 库页右键即可恢复状态）。")
+        notes.append(t('账面·软删除') + f" {len(soft_ids)}"
+                     + t(' 个：记录与快照保留，随时可恢复'
+                         '（回程票：mod 库页右键即可恢复状态）。'))
     if purge_ids:
         notes.append(
-            f"账面·彻底清账 {len(purge_ids)} 个：记录物理删除，不可恢复；"
-            f"随账清除备份登记 {purge_backup_records} 份"
-            f"（约 {_fmt_size(purge_backup_bytes)}）。")
-        if not req.purge_backup_files:
-            notes.append("备份磁盘文件保留在原地，成为未登记的普通文件夹"
-                         "（可日后手动删；本工具不再跟踪它们）。")
+            t('账面·彻底清账') + f" {len(purge_ids)}"
+            + t(' 个：记录物理删除，不可恢复；随账清除备份登记 ')
+            + f"{purge_backup_records}" + t(' 份（约 ')
+            + _fmt_size(purge_backup_bytes) + t('）。'))
+    if not req.purge_backup_files:
+        notes.append(t('备份磁盘文件保留在原地，成为未登记的普通文件夹'
+                       '（可日后手动删；本工具不再跟踪它们）。'))
     if backup_file_actions:
-        notes.append(f"备份文件：删除 {len(backup_file_actions)} 份"
-                     f"（约 {_fmt_size(purge_backup_bytes)}）——不可恢复。")
+        notes.append(t('备份文件：删除 ') + f"{len(backup_file_actions)}"
+                     + t(' 份（约 ') + _fmt_size(purge_backup_bytes)
+                     + t('）——不可恢复。'))
     if content_actions:
-        notes.append(f"content 目录：删除 {len(content_actions)} 个"
-                     f"（约 {_fmt_size(content_bytes)}）——"
-                     "可重得：重新下载即可回来。")
+        notes.append(t('content 目录：删除 ')
+                     + f"{len(content_actions)}" + t(' 个（约 ')
+                     + _fmt_size(content_bytes)
+                     + t('）——可重得：重新下载即可回来。'))
     if orphan_actions:
         notes.append(
-            f"孤儿目录：删除 {len(orphan_actions)} 个"
-            f"（约 {_fmt_size(orphan_bytes)}）——账本无记录，"
-            "删了没有账面可回，这是删前的最后一道确认。")
+            t('孤儿目录：删除 ') + f"{len(orphan_actions)}"
+            + t(' 个（约 ') + _fmt_size(orphan_bytes)
+            + t('）——账本无记录，删了没有账面可回，'
+                '这是删前的最后一道确认。'))
     if req.orphan_defense and req.orphan_ids:
-        lines = [f"孤儿·防复活 {len(req.orphan_ids)} 个：删除文件之外——"]
-        lines.append(f"· {len(black_actions)} 个列入已清账黑名单"
-                     "（本工具从此不自动入账；想反悔：【已清账管理】"
-                     "→ 允许录入）")
+        lines = [t('孤儿·防复活') + f" {len(req.orphan_ids)}"
+                 + t(' 个：删除文件之外——')]
+        lines.append(f"· {len(black_actions)}"
+                     + t(' 个列入已清账黑名单（本工具从此不自动入账；'
+                         '想反悔：【已清账管理】→ 允许录入）'))
         if resurfaced_n:
-            lines.append(f"· {resurfaced_n} 个已在名单（复活条目）："
-                         "跳过重复登记，其余处置照常")
+            lines.append(f"· {resurfaced_n}"
+                         + t(' 个已在名单（复活条目）：'
+                             '跳过重复登记，其余处置照常'))
         if acf_actions:
-            lines.append(f"· steamcmd 账本条目移除 "
-                         f"{len(acf_actions[0].ids)} 个（写前自动备份）"
-                         "——条目不除，steamcmd 会反复把它们装配回来")
+            lines.append(t('· steamcmd 账本条目移除 ')
+                         + f"{len(acf_actions[0].ids)}"
+                         + t(' 个（写前自动备份）——条目不除，'
+                             'steamcmd 会反复把它们装配回来'))
         elif acf_note:
-            lines.append(f"· 账本条目移除跳过：{acf_note}")
-        lines.append("· 若这些编号有待认领提案，随拉黑一并撤销；"
-                     "执行收尾自动清一次 steamcmd 缓存（复活燃料）")
+            lines.append(t('· 账本条目移除跳过：') + t(acf_note))
+        lines.append(t('· 若这些编号有待认领提案，随拉黑一并撤销；'
+                       '执行收尾自动清一次 steamcmd 缓存（复活燃料）'))
         notes.append("\n".join(lines))
-
     if report.steamcmd_running and (content_actions or orphan_actions):
-        notes.append("注意：steamcmd 正在运行——此刻删除可能与下载争用。"
-                     "被误删的条目重跑下载命令即可回来（steamcmd 会自建条目）。")
+        notes.append(t('注意：steamcmd 正在运行——此刻删除可能与下载争用。'
+                       '被误删的条目重跑下载命令即可回来'
+                       '（steamcmd 会自建条目）。'))
     # 动作口径预告（2026-10 增补）：执行层把「连账面一起处置」的条目
     # 拆成账面+文件两条动作（wipe_soft / wipe_purge，"账先盘后"定序），
     # 勾了带走备份文件的每份各一条——动作总条数可能大于 mod 个数。
@@ -448,11 +460,14 @@ def build_plan(repo: ModRepository, report: InventoryReport,
                 | set(req.clean_actions) | set(req.orphan_ids))
     if len(actions) > len(involved):
         notes.append(
-            f"执行口径：本次共 {len(actions)} 条动作、涉及 "
-            f"{len(involved)} 个 mod——「连账面一起处置」的条目各拆"
-            "「账面 + 文件」两步，带走备份文件的每份各一条，孤儿防复活每条各拆「拉黑 + 账本 + 文件」（账本移除整批一条）；进度与"
-            "完成数按动作条计，逐条日志写明是哪一步。")
+            t('执行口径：本次共 ') + f"{len(actions)}"
+            + t(' 条动作、涉及 ') + f"{len(involved)}"
+            + t(' 个 mod——「连账面一起处置」的条目各拆「账面 + 文件」'
+                '两步，带走备份文件的每份各一条，孤儿防复活每条各拆'
+                '「拉黑 + 账本 + 文件」（账本移除整批一条）；进度与'
+                '完成数按动作条计，逐条日志写明是哪一步。'))
     return CleanupPlan(actions=actions, notes=notes)
+
 def _find_acf(report: InventoryReport, steamcmd_path: str | None) -> Path | None:
     """定位 appworkshop_<appid>.acf——单源走 steamPaths.locate_acf。
     先按下载目录上两级（= workshop 层，第三口径直接命中），再按
@@ -494,7 +509,8 @@ def execute_action(repo: ModRepository, action: Action) -> ActionResult:
         if action.kind == "ledger_purge":
             n = repo.purge_mod(action.mod_id, purge_backups=True)
             return ActionResult(action.kind, action.mod_id, ok=True,
-                                detail=f"记录已彻底清除（随账清除备份登记 {n} 份）")
+                                detail=t('记录已彻底清除（随账清除备份登记 ')
+                                       + f"{n}" + t(' 份）'))
         if action.kind == "backup_file":
             target = Path(action.path)
             if not target.is_dir():
@@ -509,9 +525,9 @@ def execute_action(repo: ModRepository, action: Action) -> ActionResult:
             if links:
                 return ActionResult(
                     action.kind, action.mod_id, ok=False,
-                    detail="目录树中发现链接/junction，拒绝删除："
+                    detail=t('目录树中发现链接/junction，拒绝删除：')
                            + "、".join(str(p) for p in links[:3])
-                           + "——请先到「连接」指引处理拓扑，再回来清理")
+                           + t('——请先到「连接」指引处理拓扑，再回来清理'))
             if not target.is_dir():
                 return ActionResult(action.kind, action.mod_id, ok=True,
                                     detail="盘上本已不存在")
@@ -525,21 +541,20 @@ def execute_action(repo: ModRepository, action: Action) -> ActionResult:
                             note="孤儿处置拉黑")
             dropped = repo.drop_stale_claims(action.game_id,
                                              [action.mod_id])
-            extra = (f"；撤销未确认认领提案 {dropped} 条"
+            extra = (t('；撤销未确认认领提案 ') + f"{dropped}" + t(' 条')
                      if dropped else "")
             return ActionResult(
                 action.kind, action.mod_id, ok=True,
-                detail="已列入已清账黑名单（本工具永不自动入账；"
-                       "反悔走已清账管理·允许录入）" + extra)
+                detail=t('已列入已清账黑名单（本工具永不自动入账；'
+                         '反悔走已清账管理·允许录入）') + extra)
         if action.kind == "orphan_acf":
             if not action.ids:
                 return ActionResult(action.kind, 0, ok=True,
                                     detail="无编号可处理")
             _, note = _acf_remove(Path(action.path), action.ids)
             return ActionResult(action.kind, 0, ok=True, detail=note)
-
         return ActionResult(action.kind, action.mod_id, ok=False,
-                            detail=f"未知动作类型：{action.kind}")
+                            detail=t('未知动作类型：') + f"{action.kind}")
     except (RuntimeError, OSError, ValueError) as exc:
         # R4 保险丝拒绝 / 权限 / 文件被占用 / repo 与 acf 层的
         # 「操作不成立」（显式爆炸约定）——逐条报告，不炸整批

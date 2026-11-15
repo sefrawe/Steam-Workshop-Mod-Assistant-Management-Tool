@@ -66,18 +66,20 @@ _ID_LIMIT = 20  # 编号最多原样列出多少个，超出折成"…"
 # 顺序 = 先 steamcmd（本工具一切功能的地基），后 Watt Toolkit（浏览器
 # 访问工坊页的前置）。本页不检测装没装——第三方软件检测不了，也不该
 # 装作能检测；两张卡是纯说明，永远显示
-_GUIDE_STEAMCMD_TITLE = t('准备 · 安装 steamcmd')
+_GUIDE_STEAMCMD_TITLE = '准备 · 安装 steamcmd'
+
 if os.name == "nt":
     _GUIDE_STEAMCMD = (
-        t('安装 steamcmd（Steam 命令行工具）是本工具的前置条件：官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\n下载后解压得到steamcmd.exe，先别急着点进去，首次运行会自动安装到当前目录下，应当把它移到一个固定目录（如 D:\\steamcmd）再运行，\n请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦；不能装在带中文的路径，会闪退。\n调整好位置后运行 steamcmd.exe 让它安装完成，务必关闭watt Toolkit等加速器，否则无法安装，提示无法下载；装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。千万不能输入中文，否则会一直输出“？？？？？？”只能关闭软件\n装好后回下方第①步填路径。')
+        '安装 steamcmd（Steam 命令行工具）是本工具的前置条件：官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\n下载后解压得到steamcmd.exe，先别急着点进去，首次运行会自动安装到当前目录下，应当把它移到一个固定目录（如 D:\\steamcmd）再运行，\n请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦；不能装在带中文的路径，会闪退。\n调整好位置后运行 steamcmd.exe 让它安装完成，务必关闭watt Toolkit等加速器，否则无法安装，提示无法下载；装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。千万不能输入中文，否则会一直输出“？？？？？？”只能关闭软件\n装好后回下方第①步填路径。'
     )
 else:
     _GUIDE_STEAMCMD = (
-        t('安装 steamcmd（Steam 命令行工具）是本工具的前置条件：官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\nLinux 版：解压官方 tar 包到固定目录（如 ~/steamcmd），首次使用先补 32 位架构：\n  sudo dpkg --add-architecture i386 && sudo apt update\n（Debian/Ubuntu/Mint 也可直接 sudo apt install steamcmd，装到 /usr/games/steamcmd）\n请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦。\n调整好位置后运行一次 ./steamcmd.sh 让它安装完成；\n装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；\n额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。\n装好后回下方第①步填路径（如 ~/steamcmd/steamcmd.sh 或 /usr/games/steamcmd）。')
+        '安装 steamcmd（Steam 命令行工具）是本工具的前置条件：官网：https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD\nLinux 版：解压官方 tar 包到固定目录（如 ~/steamcmd），首次使用先补 32 位架构：\n  sudo dpkg --add-architecture i386 && sudo apt update\n（Debian/Ubuntu/Mint 也可直接 sudo apt install steamcmd，装到 /usr/games/steamcmd）\n请慎重选择目录，事关本软件的 mod 下载与备份和文件夹连接等功能，用一段时间后改变非常麻烦。\n调整好位置后运行一次 ./steamcmd.sh 让它安装完成；\n装好后建议登录一次（steamcmd +login <用户名>），第一次登录会要求输入密码和验证码，就有了本地缓存（steamcmd自身行为，与此软件无关），之后登录只用输入登录命令即可；\n额外提示：使用steamcmd下载mod需要登录的账号拥有对应游戏，否则报错。\n装好后回下方第①步填路径（如 ~/steamcmd/steamcmd.sh 或 /usr/games/steamcmd）。'
     )
-_GUIDE_WATT_TITLE = t('推荐 · Watt Toolkit（原 Steam++）')
+_GUIDE_WATT_TITLE = '推荐 · Watt Toolkit（原 Steam++）'
+
 _GUIDE_WATT = (
-    t('Watt Toolkit 是一个网络加速工具，可以加速Steam、github等相关平台。官网：https://steampp.net/ \n安装后启动点击网络加速，勾选并启动 Steam 相关加速，这样浏览器才能正常打开工坊页和提高访问相关api（比如日常更新模块的获取更新信息）成功率。而有些api访问在watt Toolkit启动时会失败，比如异常处理模块深度联网检测时访问的api。网络加速页，头像下面的“网络加速”的傍边有个“脚本配置”，点进去后点“脚本工坊”，登录后，推荐安装“steam创意工坊大图修复”\n注意：Watt Toolkit 不是本工具的前置条件，没装也能用，但装了就能访问创意工坊和提高访问相关api的成功率。')
+    'Watt Toolkit 是一个网络加速工具，可以加速Steam、github等相关平台。官网：https://steampp.net/ \n安装后启动点击网络加速，勾选并启动 Steam 相关加速，这样浏览器才能正常打开工坊页和提高访问相关api（比如日常更新模块的获取更新信息）成功率。而有些api访问在watt Toolkit启动时会失败，比如异常处理模块深度联网检测时访问的api。网络加速页，头像下面的“网络加速”的傍边有个“脚本配置”，点进去后点“脚本工坊”，登录后，推荐安装“steam创意工坊大图修复”\n注意：Watt Toolkit 不是本工具的前置条件，没装也能用，但装了就能访问创意工坊和提高访问相关api的成功率。'
 )
 
 
@@ -154,10 +156,10 @@ class FirstUsePage(QWidget):
 
         # —— 安装引导区：两张纯说明卡，置于四步之前——静态卡：
         # 不参与刷新，内容即常量
-        _d_prep1 = self._make_card("prep_steamcmd", _GUIDE_STEAMCMD_TITLE)[0]
-        _d_prep1.setText(_GUIDE_STEAMCMD)
-        _d_prep2 = self._make_card("prep_watt", _GUIDE_WATT_TITLE)[0]
-        _d_prep2.setText(_GUIDE_WATT)
+        _d_prep1 = self._make_card("prep_steamcmd", t(_GUIDE_STEAMCMD_TITLE))[0]
+        _d_prep1.setText(t(_GUIDE_STEAMCMD))
+        _d_prep2 = self._make_card("prep_watt", t(_GUIDE_WATT_TITLE))[0]
+        _d_prep2.setText(t(_GUIDE_WATT))
 
         # ① steamcmd 卡：状态 + 去设置页 + 重新检查
         self._d1, box1 = self._make_card("step1", t("① 定位 steamcmd"))

@@ -117,8 +117,11 @@ COL_SIZE = 6
 COL_DISK = 7          # 盘上三态：✓ / 失联 / —
 COL_PIN = 8
 COL_NOTE = 9
-_COL_HEADERS = [t('选'), "↗", t('mod 标题'), t('mod 编号'), t('备份时间'),
-                t('版本时间'), t('大小'), t('盘上'), t('钉'), t('备注')]
+# 列头原词表。★ 导入期红线：模块级不许调 t()——import 时语言表未初始化，
+# 词被烤死，英文界面照显中文。存原词、用时翻（消费点在 _build_ui）。
+_COL_HEADERS = ['选', "↗", 'mod 标题', 'mod 编号', '备份时间', '版本时间',
+                '大小', '盘上', '钉', '备注']
+
 # 盘上列的排序次序：正常的在前、失联居中、没档案垫底
 _DISK_RANK = {"✓": 0, "失联": 1, "—": 2}
 
@@ -512,7 +515,7 @@ class BackupPage(QWidget):
         root.addWidget(self._progress)
 
         self._table = QTableWidget(0, len(_COL_HEADERS), self)
-        self._table.setHorizontalHeaderLabels(_COL_HEADERS)
+        self._table.setHorizontalHeaderLabels([t(h) for h in _COL_HEADERS])
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)
         self._table.setWordWrap(False)
@@ -955,7 +958,7 @@ class BackupPage(QWidget):
 
         title_item = QTableWidgetItem(self._title_of(b))
         title_item.setToolTip((t('备份目录名：') + f"{b.backup_path}")
-                              + ((t('\n备注：') + f"{b.note}") if b.note else ""))
+                              + ((t('\n备注：') + f"{t(b.note)}") if b.note else ""))
         self._table.setItem(r, COL_TITLE, title_item)
 
         # 数值列全部用 _SortItem：显示可读文本、排序按原始值
@@ -979,7 +982,7 @@ class BackupPage(QWidget):
 
         self._table.setItem(
             r, COL_PIN, _SortItem(t('是') if b.pinned else "", 1 if b.pinned else 0))
-        self._table.setItem(r, COL_NOTE, QTableWidgetItem(b.note or ""))
+        self._table.setItem(r, COL_NOTE, QTableWidgetItem(t(b.note) if b.note else ""))
 
     def _group_colors(self) -> tuple[QColor, QColor]:
         """组头（底色, 字色）：按当前主题返回成对定值（常量见文件头

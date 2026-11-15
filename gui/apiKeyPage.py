@@ -142,8 +142,7 @@ class ApiKeyPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
         root.setSpacing(10)
-
-        title = QLabel(t("<b>Steam Web API 密钥</b>"), self)
+        title = QLabel(f"<b>{t('Steam Web API 密钥')}</b>", self)
         title.setTextFormat(Qt.TextFormat.RichText)
         root.addWidget(title)
 
@@ -183,32 +182,21 @@ class ApiKeyPage(QWidget):
             t("打开 Steam 注册页（steamcommunity.com/dev/apikey）"), self)
         btn_open.clicked.connect(self._on_open_register)
         root.addWidget(btn_open)
-
         guide = QLabel(
-            t("<h3>四步拿到 key（免费，约两分钟）</h3>"
-            "1. 浏览器登录 steamcommunity.com（你逛创意工坊的账号）<br>"
-            '2. 打开 <a href="https://steamcommunity.com/dev/apikey">'
-            "steamcommunity.com/dev/apikey</a><br>"
-            "3. 域名一栏随便填（例如 localhost），勾选同意条款，点【注册】"
-            "<br>4. 复制页面上 32 位的 key，粘贴到上面输入框点【验证此 "
-            "key】试一把；到异常处理页【拉取依赖（联网）】时也会现场问"
-            "你粘贴——本软件不保存 key，用完即弃。"
-            "<br><br>忘了 key 是什么？回注册页点【重置】拿一个新的即可，"
-            "旧 key 同时失效。"
-            "<br><br><b>看到「拒绝访问」？</b>新注册或消费未满 $5 的受限"
-            "账户暂时拿不到 key（在别的平台买的 CDKey 激活不计入消费"
-            "额度）。在 Steam 商店直接消费满 $5（约 ¥36，买游戏/充钱包"
-            "都算）后回来重试即可。\n除了要求消费，还要求账号在 steam "
-            "app 中开启 QR 码验证身份方式防止盗号。steam app 下载地址："
-            "https://store.steampowered.com/mobile?l=schinese，可以直接"
-            "找到 app 的下载链接而不用通过 Google Play，手机登录和开启 "
-            "QR 码相关操作不用加速，电脑端问你要域名用“localhost”就行，"
-            "之后接收授权密钥的信息需要（电脑显示“正在等待来自您 steam "
-            "令牌手机验证器的确认”）加速，手机推荐“biubiu加速器”，加速"
-            "后点第四个铃铛图标“notifications”，刷新等显示“1 pending "
-            "confirmation”就点它，点进去授权就能在电脑上看到密钥。\n"
-            "注册不了不影响本软件其他功能：依赖检测保持未开启，"
-            "其余一切照常。"), self)
+            "<h3>" + t('四步拿到 key（免费，约两分钟）') + "</h3>"
+                                                        "1. " + t('浏览器登录 steamcommunity.com（你逛创意工坊的账号）') + "<br>"
+                                                                                                                         "2. " + t('打开')
+            + ' <a href="https://steamcommunity.com/dev/apikey">'
+              "steamcommunity.com/dev/apikey</a><br>"
+              "3. " + t('域名一栏随便填（例如 localhost），勾选同意条款，点【注册】')
+            + "<br>4. " + t('复制页面上 32 位的 key，粘贴到上面输入框点【验证此 key】试一把；到异常处理页【拉取依赖（联网）】时也会现场问你粘贴——本软件不保存 key，用完即弃。')
+            + "<br><br>" + t('忘了 key 是什么？回注册页点【重置】拿一个新的即可，旧 key 同时失效。')
+            + "<br><br><b>" + t('看到「拒绝访问」？') + "</b>"
+            + t('新注册或消费未满 $5 的受限账户暂时拿不到 key（在别的平台买的 CDKey 激活不计入消费额度）。在 Steam 商店直接消费满 $5（约 ¥36，买游戏/充钱包都算）后回来重试即可。')
+            + "\n" + t('除了要求消费，还要求账号在 steam app 中开启 QR 码验证身份方式防止盗号。steam app 下载地址：https://store.steampowered.com/mobile?l=schinese，可以直接找到 app 的下载链接而不用通过 Google Play，手机登录和开启 QR 码相关操作不用加速，电脑端问你要域名用“localhost”就行，之后接收授权密钥的信息需要（电脑显示“正在等待来自您 steam 令牌手机验证器的确认”）加速，手机推荐“biubiu加速器”，加速后点第四个铃铛图标“notifications”，刷新等显示“1 pending confirmation”就点它，点进去授权就能在电脑上看到密钥。')
+            + "\n" + t('注册不了不影响本软件其他功能：依赖检测保持未开启，其余一切照常。'),
+            self)
+
         guide.setTextFormat(Qt.TextFormat.RichText)
         guide.setOpenExternalLinks(True)
         guide.setTextInteractionFlags(
@@ -218,10 +206,13 @@ class ApiKeyPage(QWidget):
 
         # ---- 现场验证区 ----
         verify_hint = QLabel(
-            t("<b>现场验证（可选，但强烈建议）</b>：探针用下面这个 mod 现查"
-            "一次接口——它的工坊页明确写了 3 个必需物品，children 应报 "
-            "3 项。通过 = key 有效、依赖数据管道畅通，之后到异常处理页"
-            "【拉取依赖（联网）】再粘一次就能用。"), self)
+            "<b>" + t('现场验证（可选，但强烈建议）') + "</b>"
+            + t('：探针用下面这个 mod 现查一次接口——它的工坊页明确写了 '
+                "3 个必需物品，children 应报 3 项。通过 = key 有效、依赖"
+                "数据管道畅通，之后到异常处理页【拉取依赖（联网）】再粘"
+                "一次就能用。"),
+            self)
+
         verify_hint.setTextFormat(Qt.TextFormat.RichText)
         verify_hint.setWordWrap(True)
         root.addWidget(verify_hint)

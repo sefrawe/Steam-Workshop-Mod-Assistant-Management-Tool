@@ -77,24 +77,24 @@ _URL_COL = {"missing": M_URL, "clean": C_URL, "orphan": O_URL}
 # 引擎动作 kind → 人话（逐条日志/失败明细用；ActionResult.kind 是
 # 数据契约不动，翻译住页面侧——账面/文件两步在日志里肉眼可分）
 _KIND_ZH = {
-    "ledger_soft": t('账面·软删除'),
-    "ledger_purge": t('账面·彻底清账'),
-    "backup_file": t('备份文件'),
-    "content": t('content 文件'),
-    "orphan": t('孤儿目录'),
-    "orphan_blacklist": t('孤儿·拉黑'),
-    "orphan_acf": t('孤儿·账本条目移除'),
-
+    "ledger_soft": '账面·软删除',
+    "ledger_purge": '账面·彻底清账',
+    "backup_file": '备份文件',
+    "content": 'content 文件',
+    "orphan": '孤儿目录',
+    "orphan_blacklist": '孤儿·拉黑',
+    "orphan_acf": '孤儿·账本条目移除',
 }
+
 def _who(mod_id: int) -> str:
     """日志主语：批次级动作（孤儿·账本条目移除，mod_id=0 只是占位）
     显示「（整批）」，其余显示 mod N。"""
     return f"mod {mod_id}" if mod_id else t('（整批）')
 
 _CLEAN_SORTS = (
-    (t('按编号（小→大）'), lambda r: r.mod_id),
-    (t('按盘上大小（大→小）'), lambda r: -(r.dir_size or 0)),
-    (t('按标题（A→Z）'), lambda r: (r.title or "").casefold()),
+    ('按编号（小→大）', lambda r: r.mod_id),
+    ('按盘上大小（大→小）', lambda r: -(r.dir_size or 0)),
+    ('按标题（A→Z）', lambda r: (r.title or "").casefold()),
 )
 
 
@@ -145,7 +145,7 @@ class _ExecuteWorker(QThread):
                     break
                 res = dmf.execute_action(self._repo, act)
                 results.append(res)
-                self.progress.emit(i, total, f"{act.kind} {_who(act.mod_id)}: {res.detail}")
+                self.progress.emit(i, total, f"{t(_KIND_ZH.get(act.kind, act.kind))} {_who(act.mod_id)}: {t(res.detail)}")
         except Exception as exc:  # noqa: BLE001
             self.crashed.emit(str(exc))
             return
@@ -367,7 +367,8 @@ class DeletePage(QWidget):
         h2.addWidget(QLabel(t("排序"), self._bar_clean))
         self._sort_combo = QComboBox(self._bar_clean)
         for label, _key in _CLEAN_SORTS:
-            self._sort_combo.addItem(label)
+            self._sort_combo.addItem(t(label))
+
         self._sort_combo.setToolTip(
             t("重排清单（数据重灌，不用表头排序——行内挂着动作下拉，"
             "表头排序会让控件搬家错位）；重排不丢已选动作"))
@@ -421,7 +422,7 @@ class DeletePage(QWidget):
             body)
 
         olbl.setWordWrap(True)
-        olbl.setToolTip(_MULTIFRONTEND_NOTE)   # V2：文案内联（见文件顶部）
+        olbl.setToolTip(t(_MULTIFRONTEND_NOTE))   # V2：文案内联（见文件顶部）
         box4.addWidget(olbl)
 
         self._bar_orphan = QWidget(body)
@@ -551,15 +552,15 @@ class DeletePage(QWidget):
     def _make_table(self, cols: int, stretch_col: int) -> QTableWidget:
         """清单表通用底子：只读、无行头、斑马纹（核验页同款观感）、
         指定列拉伸占满剩余宽度。"""
-        t = QTableWidget(0, cols)
-        t.verticalHeader().setVisible(False)
-        t.setAlternatingRowColors(True)
-        t.setWordWrap(False)
-        t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        t.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        t.horizontalHeader().setSectionResizeMode(
+        tbl = QTableWidget(0, cols)
+        tbl.verticalHeader().setVisible(False)
+        tbl.setAlternatingRowColors(True)
+        tbl.setWordWrap(False)
+        tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        tbl.horizontalHeader().setSectionResizeMode(
             stretch_col, QHeaderView.ResizeMode.Stretch)
-        return t
+        return tbl
 
     # ---------- 对外 ----------
     def set_game(self, game: Game | None) -> None:
@@ -871,23 +872,22 @@ class DeletePage(QWidget):
         self._restore_actions(prev)
 
     def _restore_actions(self, prev: dmf.PlanRequest) -> None:
-        t = self._tbl_missing
-        for r in range(t.rowCount()):
-            mid = int(t.item(r, M_ID).data(Qt.ItemDataRole.UserRole))
-            combo = t.cellWidget(r, M_ACT)
+        tbl = self._tbl_missing
+        for r in range(tbl.rowCount()):
+            mid = int(tbl.item(r, M_ID).data(Qt.ItemDataRole.UserRole))
+            combo = tbl.cellWidget(r, M_ACT)
             combo.setCurrentIndex(max(combo.findData(
                 prev.ledger_actions.get(mid)), 0))
-        t = self._tbl_clean
-        for r in range(t.rowCount()):
-            mid = int(t.item(r, C_ID).data(Qt.ItemDataRole.UserRole))
-            combo = t.cellWidget(r, C_ACT)
+        tbl = self._tbl_clean
+        for r in range(tbl.rowCount()):
+            mid = int(tbl.item(r, C_ID).data(Qt.ItemDataRole.UserRole))
+            combo = tbl.cellWidget(r, C_ACT)
             combo.setCurrentIndex(max(combo.findData(
                 prev.clean_actions.get(mid)), 0))
-        t = self._tbl_orphan
-        for r in range(t.rowCount()):
-            mid = int(t.item(r, O_ID).data(Qt.ItemDataRole.UserRole))
-            t.cellWidget(r, O_CHK).setChecked(mid in prev.orphan_ids)
-
+        tbl = self._tbl_orphan
+        for r in range(tbl.rowCount()):
+            mid = int(tbl.item(r, O_ID).data(Qt.ItemDataRole.UserRole))
+            tbl.cellWidget(r, O_CHK).setChecked(mid in prev.orphan_ids)
     # ---------- 行内动作：↗ / 右键 / 推荐 / 重置 ----------
     def _on_cell_clicked(self, table: QTableWidget, kind: str,
                          row: int, col: int) -> None:
@@ -986,12 +986,12 @@ class DeletePage(QWidget):
         """③ 全选推荐：按行状态给推荐动作。状态一律读 UserRole 里的
         英文原值——显示列是中文（status_zh），拿显示文本去查英文键
         的字典永远 miss。"""
-        t = self._tbl_clean
-        for r in range(t.rowCount()):
-            if t.isRowHidden(r):
+        tbl = self._tbl_clean
+        for r in range(tbl.rowCount()):
+            if tbl.isRowHidden(r):
                 continue
-            status = t.item(r, C_STATUS).data(Qt.ItemDataRole.UserRole)
-            combo = t.cellWidget(r, C_ACT)
+            status = tbl.item(r, C_STATUS).data(Qt.ItemDataRole.UserRole)
+            combo = tbl.cellWidget(r, C_ACT)
             want = {"downloaded": "wipe_soft", "deleted": "wipe",
                     "failed": "wipe"}.get(status)
             idx = combo.findData(want) if want else -1
@@ -1008,12 +1008,12 @@ class DeletePage(QWidget):
         勾选 = 背书，点按钮的人看得见要动什么（与备份总览「全选当前
         显示」同一纪律）；清除勾选作用全部行（保守方向，可以放宽）。
         已显式选好的勾选不受过滤影响，照常被 _collect_request 收集。"""
-        t = self._tbl_orphan
-        for r in range(t.rowCount()):
-            chk = t.cellWidget(r, O_CHK)
+        tbl = self._tbl_orphan
+        for r in range(tbl.rowCount()):
+            chk = tbl.cellWidget(r, O_CHK)
             if chk is None:
                 continue
-            if on and t.isRowHidden(r):
+            if on and tbl.isRowHidden(r):
                 continue
             chk.setChecked(on)
 
@@ -1022,30 +1022,27 @@ class DeletePage(QWidget):
         """收集动作（备份页纪律移植：按行内 id 定位，不按行号）。隐藏行
         已显式选好的动作照常收集——执行前确认弹窗全量列出。"""
         req = dmf.PlanRequest()
-        t = self._tbl_missing
-        for r in range(t.rowCount()):
-            act = t.cellWidget(r, M_ACT).currentData()
+        tbl = self._tbl_missing
+        for r in range(tbl.rowCount()):
+            act = tbl.cellWidget(r, M_ACT).currentData()
             if act:
-                req.ledger_actions[int(t.item(r, M_ID).data(
+                req.ledger_actions[int(tbl.item(r, M_ID).data(
                     Qt.ItemDataRole.UserRole))] = act
-        t = self._tbl_clean
-        for r in range(t.rowCount()):
-            act = t.cellWidget(r, C_ACT).currentData()
+        tbl = self._tbl_clean
+        for r in range(tbl.rowCount()):
+            act = tbl.cellWidget(r, C_ACT).currentData()
             if act:
-                req.clean_actions[int(t.item(r, C_ID).data(
+                req.clean_actions[int(tbl.item(r, C_ID).data(
                     Qt.ItemDataRole.UserRole))] = act
         req.purge_backup_files = self._chk_backup_files.isChecked()
-        t = self._tbl_orphan
-        for r in range(t.rowCount()):
-            if t.cellWidget(r, O_CHK).isChecked():
-                req.orphan_ids.append(int(t.item(r, O_ID).data(
+        tbl = self._tbl_orphan
+        for r in range(tbl.rowCount()):
+            if tbl.cellWidget(r, O_CHK).isChecked():
+                req.orphan_ids.append(int(tbl.item(r, O_ID).data(
                     Qt.ItemDataRole.UserRole)))
-        req.orphan_defense = (bool(req.orphan_ids)
-                              and self._chk_orphan_defense.isChecked())
+        req.orphan_defense = (bool(req.orphan_ids) and self._chk_orphan_defense.isChecked())
         req.steamcmd_path = self._settings.get("steamcmd_path")
-
         return req
-
     def _on_execute(self) -> None:
         if self._report is None or self._exec_worker is not None:
             return
@@ -1063,8 +1060,7 @@ class DeletePage(QWidget):
             return
         ret = QMessageBox.question(
             self, t("确认执行（最后一道确认）"),
-            "\n".join(plan.notes)
-            + t('\n\n确认按上述执行？默认按钮是「否」，回车不会动手。'),
+            "\n".join(t(n) for n in plan.notes) + t('\n\n确认按上述执行？默认按钮是「否」，回车不会动手。'),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
@@ -1111,15 +1107,19 @@ class DeletePage(QWidget):
         tail = t('（已按要求停止，剩余动作未执行）') if stopped else ""
         summary = (
                 (t('执行结束：完成 ') + f"{len(ok)}" + t(' 条动作（涉及 ') + f"{n_mods}" + t(' 个 mod），失败 ') + f"{len(bad)}" + t(' 条') + f"{tail}")
-                + ("\n" + "\n".join(f"· {_KIND_ZH.get(r.kind, r.kind)} "
-                                    f"{_who(r.mod_id)}：{r.detail}" for r in bad) if bad else ""))
+                + ("\n" + "\n".join(f"· {t(_KIND_ZH.get(r.kind, r.kind))} " f"{_who(r.mod_id)}：{t(r.detail)}" for r in bad) if bad else ""))
+
         self._set_colored(self._lbl_progress, summary, _C_OK if (not bad and not stopped) else _C_WARN)
         if stopped:
             self._log.warn(t("处置已停止：停在条与条之间，完成的条目已生效"))
         for r in ok:
-            self._log.ok(t('清理·') + f"{_KIND_ZH.get(r.kind, r.kind)}" + f' ' + f"{_who(r.mod_id)}" + f'：' + f"{r.detail}")
+            self._log.ok(
+                t('清理·') + f"{t(_KIND_ZH.get(r.kind, r.kind))}" + f' '
+                + f"{_who(r.mod_id)}" + f'：' + f"{t(r.detail)}")
+
         for r in bad:
-            self._log.error(t('清理·') + f"{_KIND_ZH.get(r.kind, r.kind)}" + f' ' + f"{_who(r.mod_id)}" + t(' 失败：') + f"{r.detail}")
+            self._log.error(t('清理·') + f"{t(_KIND_ZH.get(r.kind, r.kind))}" + f' '
+                            + f"{_who(r.mod_id)}" + t(' 失败：') + f"{t(r.detail)}")
 
         # T4（2026-10 增补）：本轮有彻底清账 → 顺手清一次 steamcmd
         # 缓存（防复活断根的最后一步）：刚删完 content + acf 条目，
@@ -1133,7 +1133,7 @@ class DeletePage(QWidget):
                 freed, cleared, skipped = steamPaths.clear_download_caches(cmd)
                 if cleared or skipped:
                     self._log.info(
-                        (t('清账后清缓存（防复活）：清掉 ') + f"{cleared}" + t(' 项，释放 ') + f"{freed / 2 ** 20:'.1f'}" + ' MB')
+                        (t('清账后清缓存（防复活）：清掉 ') + f"{cleared}" + t(' 项，释放 ') + f"{freed / 2 ** 20:.1f}" + ' MB')
                         + ((t('；跳过 ') + f"{len(skipped)}" + t(' 项（被占用）')) if skipped else ""))
             except OSError as exc:
                 self._log.warn(t('清账后清缓存出错（不影响清账结果）：') + f"{exc}")

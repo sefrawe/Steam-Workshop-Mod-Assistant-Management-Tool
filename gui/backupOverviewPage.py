@@ -68,8 +68,8 @@ COL_DISK = 7
 COL_PIN = 8
 COL_CREATED = 9
 COL_STATUS = 10
-_COL_HEADERS = [t('选'), t('游戏'), t('Mod 编号'), t('标题'), "↗", t('备份版本'),
-                t('大小'), t('盘上'), t('钉'), t('登记时间'), t('mod 状态')]
+_COL_HEADERS = ['选', '游戏', 'Mod 编号', '标题', "↗", '备份版本', '大小', '盘上', '钉', '登记时间', 'mod 状态']
+
 
 # 盘上列的排序次序：正常的在前、失联居中、没档案垫底
 _DISK_RANK = {"✓": 0, "失联": 1, "—": 2}
@@ -276,7 +276,7 @@ class BackupOverviewPage(QWidget):
 
         # ---- 表格 ----
         self._table = QTableWidget(0, len(_COL_HEADERS), self)
-        self._table.setHorizontalHeaderLabels(_COL_HEADERS)
+        self._table.setHorizontalHeaderLabels([t(h) for h in _COL_HEADERS])
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)
         self._table.setWordWrap(False)

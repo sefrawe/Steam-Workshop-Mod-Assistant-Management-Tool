@@ -282,25 +282,25 @@ class TitleCheckPage(QWidget):
             if it is not None else None
         if mid is not None:
             self._open_url(mid)
+
     def _apply_filter(self) -> None:
         """查找落地：不命中的行隐藏（只隐藏不清数据，清空即全恢复；
         幂等）。标题列的纯文本住在数据角色（显示层是富文本标签），
         匹配读数据不读显示。"""
         kw = self._filter_edit.text().strip().casefold()
-        t = self._table
-        for r in range(t.rowCount()):
+        tbl = self._table
+        for r in range(tbl.rowCount()):
             if not kw:
-                t.setRowHidden(r, False)
+                tbl.setRowHidden(r, False)
                 continue
-            it1 = t.item(r, 1)
+            it1 = tbl.item(r, 1)
             hay = " ".join((
-                t.item(r, 0).text() if t.item(r, 0) is not None else "",
+                tbl.item(r, 0).text() if tbl.item(r, 0) is not None else "",
                 str(it1.data(_TITLE_ROLE) or "")
                 if it1 is not None else "",
-                t.item(r, 2).text() if t.item(r, 2) is not None else "",
+                tbl.item(r, 2).text() if tbl.item(r, 2) is not None else "",
             )).casefold()
-            t.setRowHidden(r, kw not in hay)
-
+            tbl.setRowHidden(r, kw not in hay)
 
     def _title_of(self, mid: int) -> str:
         m = self._mods_by_id.get(mid)

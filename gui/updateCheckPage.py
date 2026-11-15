@@ -57,13 +57,11 @@ _KEY_AUTO_DOWNLOAD = "auto_download_after_check"
 
 # Steam 官方接口单批上限 100（D13 沿用）
 _BATCH = 100
-
-_RESULT_COLUMNS = [t('编号'), t('标题'), t('结果'), t('远端更新'), t('更新间隔'), t('大小'), t('操作')]
-
+_RESULT_COLUMNS = ['编号', '标题', '结果', '远端更新', '更新间隔', '大小', '操作']
 # 决策 46：网络类失败固定附带的提示（失败原文照展在前，提示附后——
-# 连接超时是到 Steam 的链路波动，不是软件坏了，也不是 Steam 限流）
-_NET_HINT = (t('提示：连续失败常是到 Steam 服务器的网络波动（晚间更明显），属正常现象——稍等几分钟到几十分钟再试通常就能恢复。本次结果没有写入，数据无损；不必连续重试（失败要等重试跑完才报错，最长一两分钟），隔段时间来试即可。可以参考watt toolkit的连通性测试，若一直不通过，可以尝试关闭watt toolkit，然后尝试。下载mod同理。'))
-
+# 连接超时是到 Steam 的链路波动，不是软件坏了，也不是 Steam 限流）。
+# ★ 导入期红线：存原词，三个使用点用时翻
+_NET_HINT = ('提示：连续失败常是到 Steam 服务器的网络波动（晚间更明显），属正常现象——稍等几分钟到几十分钟再试通常就能恢复。本次结果没有写入，数据无损；不必连续重试（失败要等重试跑完才报错，最长一两分钟），隔段时间来试即可。可以参考watt toolkit的连通性测试，若一直不通过，可以尝试关闭watt toolkit，然后尝试。下载mod同理。')
 
 class _CheckWorker(QThread):
     """后台检测线程：分批查询全部条目，每查完一批就报告一次进度。
@@ -257,7 +255,7 @@ class UpdateCheckPage(QWidget):
         root.addWidget(self._summary)
 
         self._table = QTableWidget(0, len(_RESULT_COLUMNS), self)
-        self._table.setHorizontalHeaderLabels(_RESULT_COLUMNS)
+        self._table.setHorizontalHeaderLabels([t(h) for h in _RESULT_COLUMNS])
         self._table.verticalHeader().setVisible(False)
         # 交替行必须关：qdarktheme 的 QSS 会在视图级把交替色压在
         # 单元格背景之上，结果表的三色底会被整个盖住（mod 库页同款
@@ -485,7 +483,7 @@ class UpdateCheckPage(QWidget):
                 if row is None or row.status not in ("downloaded", "failed"):
                     continue
                 self._repo.mark_failed(
-                    mid, t('接口返回 result=9（删除/下架/转私有等）'))
+                    mid, '接口返回 result=9（删除/下架/转私有等）')
                 n_archived += 1
             for item in ok_items:
                 row = self._repo.get_mod(item.mod_id)
@@ -654,7 +652,7 @@ class UpdateCheckPage(QWidget):
                     and baseline != fresh.time_updated):
                 days = (fresh.time_updated - baseline) / 86400
             if days is not None and days >= 0:
-                text = (f"{days:'.0f'}" + t(' 天')) if days >= 1 else t('不足 1 天')
+                text = (f"{days:.0f}" + t(' 天')) if days >= 1 else t('不足 1 天')
                 item = self._set_cell(r, 4, text)
                 if days > threshold:
                     item.setForeground(red)
@@ -887,11 +885,12 @@ class UpdateCheckPage(QWidget):
         # D42：非成功收尾通知模块页收起进度条（成功走 checks_finished）
         self.check_interrupted.emit(message)
         # D46：失败细节原文保留（诊断有用），固定提示附在后面
-        self._summary.setText(message + "\n" + _NET_HINT)
+        self._summary.setText(message + "\n" + t(_NET_HINT))
+
         self._summary.setStyleSheet("color: #e5484d;")
         self._log.error(message)
-        self._log.warn(_NET_HINT)
-        QMessageBox.warning(self, t("检测失败"), message + "\n\n" + _NET_HINT)
+        self._log.warn(t(_NET_HINT))
+        QMessageBox.warning(self, t("检测失败"), message + "\n\n" + t(_NET_HINT))
 
     def _on_check_stopped(self) -> None:
         """用户手动停止：正常收场。不弹窗、不标红——停止是用户主动

@@ -94,9 +94,11 @@ class DepCheckPage(QWidget):
         # key 管理页直链：已申请过的用户点开就能查看/复制自己的 key，
         # 不用再去【Steam API 密钥】页翻注册步骤
         key_link = QLabel(
-            t('<a href="https://steamcommunity.com/dev/apikey">'
-            "已申请过 key？点这里打开 Steam 官方 key 页面"
-            "（登录后可见并可复制）</a>"), self)
+            '<a href="https://steamcommunity.com/dev/apikey">'
+            + t('已申请过 key？点这里打开 Steam 官方 key 页面（登录后可见并可复制）')
+            + '</a>',
+            self)
+
         key_link.setOpenExternalLinks(True)  # 没有这行 <a> 只是字、点不动
         root.addWidget(key_link)
 
@@ -512,10 +514,11 @@ class DepCheckPage(QWidget):
         head = getattr(self, "_dep_detail_head", None)
         if head is not None:
             head.setVisible(False)
-        t = getattr(self, "_dep_detail", None)
-        if t is not None:
-            t.setRowCount(0)
-            t.setVisible(False)
+        d = getattr(self, "_dep_detail", None)
+        if d is not None:
+            d.setRowCount(0)
+            d.setVisible(False)
+
     def _fill_list(self, lw: QListWidget, rows, *,
                    checkable: bool = False) -> None:
         lw.clear()
@@ -819,10 +822,10 @@ class DepCheckPage(QWidget):
         """勾选行的缺失依赖编号并集（去重升序）——复制与送登记两路
         共用一份采集，口径不漂。勾选记编号不记行号：行内容按编号从
         _missing_now 现取，重建表格后勾选不掉。"""
-        t = self._miss_table
+        tbl = self._miss_table
         ids: set[int] = set()
-        for r in range(t.rowCount()):
-            it = t.item(r, 0)
+        for r in range(tbl.rowCount()):
+            it = tbl.item(r, 0)
             if it is not None and it.checkState() == Qt.CheckState.Checked:
                 ids.update((getattr(self, "_missing_now", {}) or {})
                            .get(it.data(Qt.ItemDataRole.UserRole), []))
@@ -958,58 +961,56 @@ class DepCheckPage(QWidget):
     def _check_all_visible(self) -> None:
         """全选只勾可见行（备份页同款）；清空仍作用所有行——只往
         安全方向走。"""
-        t = self._miss_table
-        for r in range(t.rowCount()):
-            if t.isRowHidden(r):
+        tbl = self._miss_table
+        for r in range(tbl.rowCount()):
+            if tbl.isRowHidden(r):
                 continue
-            it = t.item(r, 0)
+            it = tbl.item(r, 0)
             if it is not None:
                 it.setCheckState(Qt.CheckState.Checked)
 
     def _uncheck_all_missing(self) -> None:
-        t = self._miss_table
-        for r in range(t.rowCount()):
-            it = t.item(r, 0)
+        tbl = self._miss_table
+        for r in range(tbl.rowCount()):
+            it = tbl.item(r, 0)
             if it is not None:
                 it.setCheckState(Qt.CheckState.Unchecked)
 
     def _apply_filter(self) -> None:
         """页面级查找落地：缺依赖表（编号/标题/缺失列）/ 明细表
-        （编号/标题/状态/被谁依赖）/ 依赖变化列表三处联动，不命中的
-        行隐藏。只隐藏不清数据；清空全恢复；勾选不受影响。幂等。"""
+        （编号/标题/状态/被谁依赖）/ 依赖变化列表三处联动。只隐藏
+        不清数据；清空全恢复；勾选不受影响。幂等。"""
         kw = self._filter_edit.text().strip().casefold()
-        t = self._miss_table
-        for r in range(t.rowCount()):
+        tbl = self._miss_table
+        for r in range(tbl.rowCount()):
             if not kw:
-                t.setRowHidden(r, False)
+                tbl.setRowHidden(r, False)
                 continue
             hay = " ".join(
-                t.item(r, c).text()
-                for c in (1, 2, 4)
-                if t.item(r, c) is not None).casefold()
-            t.setRowHidden(r, kw not in hay)
+                tbl.item(r, c).text() for c in (1, 2, 4)
+                if tbl.item(r, c) is not None).casefold()
+            tbl.setRowHidden(r, kw not in hay)
         d = self._dep_detail
         for r in range(d.rowCount()):
             if not kw:
                 d.setRowHidden(r, False)
                 continue
             hay = " ".join(
-                d.item(r, c).text()
-                for c in (1, 2, 5, 6)
+                d.item(r, c).text() for c in (1, 2, 5, 6)
                 if d.item(r, c) is not None).casefold()
             d.setRowHidden(r, kw not in hay)
         lw = self._sec_changed[1]
         for i in range(lw.count()):
             it = lw.item(i)
             if it is not None:
-                it.setHidden(bool(kw)
-                             and kw not in it.text().casefold())
+                it.setHidden(bool(kw) and kw not in it.text().casefold())
+
     def _checked_dep_ids(self) -> list[int]:
         """明细表勾选行的缺失编号（去重升序）——复制与送登记共用。"""
-        t = self._dep_detail
+        tbl = self._dep_detail
         ids: set[int] = set()
-        for r in range(t.rowCount()):
-            it = t.item(r, 0)
+        for r in range(tbl.rowCount()):
+            it = tbl.item(r, 0)
             if it is not None and it.checkState() == Qt.CheckState.Checked:
                 rid = it.data(Qt.ItemDataRole.UserRole)
                 if rid is not None:
@@ -1017,18 +1018,18 @@ class DepCheckPage(QWidget):
         return sorted(ids)
 
     def _check_all_deps_visible(self) -> None:
-        t = self._dep_detail
-        for r in range(t.rowCount()):
-            if t.isRowHidden(r):
+        tbl = self._dep_detail
+        for r in range(tbl.rowCount()):
+            if tbl.isRowHidden(r):
                 continue
-            it = t.item(r, 0)
+            it = tbl.item(r, 0)
             if it is not None:
                 it.setCheckState(Qt.CheckState.Checked)
 
     def _uncheck_all_deps(self) -> None:
-        t = self._dep_detail
-        for r in range(t.rowCount()):
-            it = t.item(r, 0)
+        tbl = self._dep_detail
+        for r in range(tbl.rowCount()):
+            it = tbl.item(r, 0)
             if it is not None:
                 it.setCheckState(Qt.CheckState.Unchecked)
 

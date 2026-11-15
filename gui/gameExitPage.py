@@ -234,8 +234,7 @@ class GameExitPage(QWidget):
         self._worker.start()
 
     def _on_wipe_done(self, ok: bool, detail: str) -> None:
-        (self._log.ok if ok else self._log.warn)(t("下载内容处置：") + detail)
-
+        (self._log.ok if ok else self._log.warn)(t("下载内容处置：") + t(detail))
     def _on_wipe_crashed(self, message: str) -> None:
         self._log.error(t('删除下载内容时出现预期外错误：') + f"{message}")
         QMessageBox.critical(

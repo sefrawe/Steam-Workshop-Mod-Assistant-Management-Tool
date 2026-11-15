@@ -46,6 +46,7 @@ from core.modRepository import ModRepository
 # 单源复用（见文件头说明）：这三个是 deleteManageFlow 已有且被
 # 既有页面使用着的实现
 from workflows.deleteManageFlow import _dir_size, _find_links, _fmt_size
+from core.i18n import t  # 显示专用串（notes/校验消息/detail 拼接）运行期翻；落库串仍存原词
 
 
 def _is_link(path: str) -> bool:
@@ -155,12 +156,13 @@ def delete_content_dir(download_dir: str, *, app_id: int) -> tuple[bool, str]:
     links = _find_links(p)
     if links:
         shown = "、".join(str(x) for x in links[:3])
-        return False, ("目录树中发现联接/链接，拒绝整目录删除：" + shown +
-                       "——先到「游戏 → 连接指引」理清拓扑，再回来删除")
+        return False, (t('目录树中发现联接/链接，拒绝整目录删除：')
+                       + shown
+                       + t('——先到「游戏 → 连接指引」理清拓扑，再回来删除'))
     size = _dir_size(p)
     try:
         safe_rmtree(p, p.parent)
     except (RuntimeError, OSError) as exc:
-        return False, f"删除失败（内容原样保留）：{exc}"
-    return True, (f"已删除（约 {_fmt_size(size)}）。想反悔：重新下载即可"
-                  "把内容找回来")
+        return False, t('删除失败（内容原样保留）：') + f"{exc}"
+    return True, (t('已删除（约 ') + _fmt_size(size)
+                  + t('）。想反悔：重新下载即可把内容找回来'))

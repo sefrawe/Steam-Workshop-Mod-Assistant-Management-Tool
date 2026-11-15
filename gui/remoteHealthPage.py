@@ -326,17 +326,15 @@ class RemoteHealthPage(QWidget):
             sec[1].setVisible(False)
         self._summary.setText("")
         self._note.setText("")
-
-    def _fill_list(self, t, rows) -> int:
-        """结果表灌装（灌表期关排序、灌完再开）。行 = (编号, 标题,
-        说明)；勾选列默认全不勾；说明列按 section 级别上色。"""
-        t.setSortingEnabled(False)  # 带排序灌数据=边灌边排、行错位
-        t.setRowCount(len(rows))
-        color = t.property("note_color")
+    def _fill_list(self, tbl, rows) -> int:
+        """结果表灌装（灌表期关排序、灌完再开）。行 = (编号, 标题, 说明)；
+        勾选列默认全不勾；说明列按 section 级别上色。"""
+        tbl.setSortingEnabled(False)  # 带排序灌数据=边灌边排、行错位
+        tbl.setRowCount(len(rows))
+        color = tbl.property("note_color")
         for r, (mid, title, note) in enumerate(rows):
             chk = QTableWidgetItem()
-            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable
-                         | Qt.ItemFlag.ItemIsEnabled)
+            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
             chk.setCheckState(Qt.CheckState.Unchecked)
             chk.setData(Qt.ItemDataRole.UserRole, mid)
             from gui.tableSort import SortItem
@@ -345,12 +343,12 @@ class RemoteHealthPage(QWidget):
             c3 = SortItem(note, note)
             if color:
                 c3.setForeground(QColor(color))
-            for c, cell in enumerate((chk, c1, SortItem(title, title),
-                                      c3)):
-                t.setItem(r, c, cell)
-        t.setSortingEnabled(True)  # 灌完再开；点过的排法自动重放
-        t.setVisible(bool(rows))
+            for c, cell in enumerate((chk, c1, SortItem(title, title), c3)):
+                tbl.setItem(r, c, cell)
+        tbl.setSortingEnabled(True)  # 灌完再开；点过的排法自动重放
+        tbl.setVisible(bool(rows))
         return len(rows)
+
 
     def _title_of(self, mid: int) -> str:
         m = self._mods_by_id.get(mid)
@@ -401,27 +399,27 @@ class RemoteHealthPage(QWidget):
 
     def _on_row_dclicked(self, item) -> None:
         """双击行 = 打开该 mod 的工坊页面。"""
-        t = item.tableWidget()
-        it = t.item(item.row(), 1)
+        tbl = item.tableWidget()
+        it = tbl.item(item.row(), 1)
         mid = it.data(Qt.ItemDataRole.UserRole) \
             if it is not None else None
         if mid is not None:
             self._open_url(mid)
-
-    def _check_all_visible(self, t) -> None:
+    def _check_all_visible(self, tbl) -> None:
         """全选只勾可见行（备份页同款）；清空仍作用所有行。"""
-        for r in range(t.rowCount()):
-            if t.isRowHidden(r):
+        for r in range(tbl.rowCount()):
+            if tbl.isRowHidden(r):
                 continue
-            it = t.item(r, 0)
+            it = tbl.item(r, 0)
             if it is not None:
                 it.setCheckState(Qt.CheckState.Checked)
 
-    def _uncheck_all(self, t) -> None:
-        for r in range(t.rowCount()):
-            it = t.item(r, 0)
+    def _uncheck_all(self, tbl) -> None:
+        for r in range(tbl.rowCount()):
+            it = tbl.item(r, 0)
             if it is not None:
                 it.setCheckState(Qt.CheckState.Unchecked)
+
 
     def _copy_checked(self, tbl) -> None:
         ids: list[int] = []
@@ -438,23 +436,21 @@ class RemoteHealthPage(QWidget):
         QApplication.clipboard().setText(
             "\n".join(str(i) for i in sorted(ids)) + "\n")
         self._log.ok(t('已复制勾选的 ') + f"{len(ids)}" + t(' 个编号（每行一个）'))
-
     def _apply_filter(self) -> None:
         """页面级查找落地：三张结果表联动（编号/标题/说明匹配）。
         只隐藏不清数据；清空全恢复；勾选不受影响。幂等。"""
         kw = self._filter_edit.text().strip().casefold()
-        for sec in (self._sec_mismatch, self._sec_abandoned,
-                    self._sec_banned):
-            t = sec[1]
-            for r in range(t.rowCount()):
+        for sec in (self._sec_mismatch, self._sec_abandoned, self._sec_banned):
+            tbl = sec[1]
+            for r in range(tbl.rowCount()):
                 if not kw:
-                    t.setRowHidden(r, False)
+                    tbl.setRowHidden(r, False)
                     continue
                 hay = " ".join(
-                    t.item(r, c).text()
-                    for c in (1, 2, 3)
-                    if t.item(r, c) is not None).casefold()
-                t.setRowHidden(r, kw not in hay)
+                    tbl.item(r, c).text() for c in (1, 2, 3)
+                    if tbl.item(r, c) is not None).casefold()
+                tbl.setRowHidden(r, kw not in hay)
+
 
     def _open_url(self, mid: int) -> None:
         m = self._mods_by_id.get(mid)

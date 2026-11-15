@@ -71,12 +71,13 @@ def _copy_cmd(old: str, new: str) -> str:
         return f'robocopy "{old}" "{new}" {_ROBOCOPY_ARGS}'
     return f'cp -a "{old}/." "{new}/"'
 
-
 def _rename_cmd(old: str, tail: str) -> str:
-    """改名让路命令：Windows=ren（第二个参数只能是要改成的名字），POSIX=mv。"""
+    """改名让路命令：Windows=ren（第二个参数只能是要改成的名字），
+    POSIX=mv。★ 规矩④：目录名后缀不进 t()——文件系统名不随界面
+    语言变，第⑤步的删除指引永远认同一个名字。"""
     if os.name == "nt":
-        return ('ren "' + f"{old}" + '" "' + f"{tail}" + t('_搬家旧目录"'))
-    return ('mv "' + f"{old}" + '" "' + f"{old}" + t('_搬家旧目录"'))
+        return ('ren "' + f"{old}" + '" "' + f"{tail}" + '_搬家旧目录"')
+    return ('mv "' + f"{old}" + '" "' + f"{old}" + '_搬家旧目录"')
 
 
 def _mklink(link: str, target: str) -> str:
@@ -94,15 +95,21 @@ def _rmlink(path: str) -> str:
 
 
 # 命令执行环境提示词（文案里「在 X 里执行」的 X）
-_TERM = "cmd" if os.name == "nt" else t('终端')
+def _term() -> str:
+    """命令执行环境提示词（文案里「在 X 里执行」的 X）。
+    ★ 导入期红线：原 _TERM 模块级求值，非 Windows 分支的词被烤死；
+    改成函数，调用时刻（运行期）才翻。"""
+    return "cmd" if os.name == "nt" else t('终端')
 
-# 旧位置形态 → (颜色, 结论一句话)。命令与步骤在 _refresh 里按形态分派
+
+# 旧位置形态 → (颜色, 结论一句话原词)。★ 导入期红线：值存原词，
+# _refresh 取用时翻
 _STATE_LOOKS = {
-    "real_dir": ("#f5a623", t('可搬家：旧位置是真实目录，里面有备份内容')),
-    "empty_dir": ("#46a758", t('可接通：旧位置是空目录，无需复制，两步就能接上')),
-    "linked": ("#46a758", t('旧位置已经是联接（之前搬家留下的）——本次是「换目标」')),
-    "missing": ("#e5484d", t('旧位置当前不存在——没有可搬的东西')),
-    "file": ("#e5484d", t('旧位置被一个普通文件占用，无法操作')),
+    "real_dir": ("#f5a623", '可搬家：旧位置是真实目录，里面有备份内容'),
+    "empty_dir": ("#46a758", '可接通：旧位置是空目录，无需复制，两步就能接上'),
+    "linked": ("#46a758", '旧位置已经是联接（之前搬家留下的）——本次是「换目标」'),
+    "missing": ("#e5484d", '旧位置当前不存在——没有可搬的东西'),
+    "file": ("#e5484d", '旧位置被一个普通文件占用，无法操作'),
 }
 
 
@@ -139,7 +146,7 @@ class BackupMoveDialog(QDialog):
         v.setSpacing(10)
 
         tip = QLabel(
-            t('用途：备份所在的盘快满了（或想整理位置），把备份整体搬到新位置。\n做法：下面的命令由你在') + f"{_TERM}" + t('里依次执行——复制到新位置、旧位置改名让路、原地建「目录联接」指回新位置。旧路径从此透过联接落到新盘：工具里记录的备份路径一个都不用改，所有备份记录照常对得上（联接跨硬盘也成立）。\n与【重定位备份目录】的分工：搬家 = 备份都在、只是想换位置；重定位 = 盘上找不到备份、记录失联后指认新位置。\n注意：新位置请选本地硬盘上的目录，不要选 OneDrive / 网盘同步目录。'),
+            t('用途：备份所在的盘快满了（或想整理位置），把备份整体搬到新位置。\n做法：下面的命令由你在') + f"{_term()}" + t('里依次执行——复制到新位置、旧位置改名让路、原地建「目录联接」指回新位置。旧路径从此透过联接落到新盘：工具里记录的备份路径一个都不用改，所有备份记录照常对得上（联接跨硬盘也成立）。\n与【重定位备份目录】的分工：搬家 = 备份都在、只是想换位置；重定位 = 盘上找不到备份、记录失联后指认新位置。\n注意：新位置请选本地硬盘上的目录，不要选 OneDrive / 网盘同步目录。'),
             self)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: gray;")
@@ -227,8 +234,8 @@ class BackupMoveDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
-    def _make_path_row(self, label_text: str, preset: str,
-                       dialog_title: str, line: QLineEdit) -> QWidget:
+    def _make_path_row(self, label_text: str, preset: str, dialog_title: str,
+                       line: QLineEdit) -> QWidget:
         """造一行"标签 + 路径输入框 + 目录选择按钮"。"""
         row = QWidget(self)
         h = QHBoxLayout(row)
@@ -239,10 +246,9 @@ class BackupMoveDialog(QDialog):
             line.setText(preset)
         line.textEdited.connect(self._on_edited)
         btn = QPushButton(t("目录选择…"), row)
-        # T15 批 3：补 tooltip（决策 22①）
         btn.setToolTip(t("打开系统目录选择窗口"))
         btn.clicked.connect(
-            lambda _=False, l=line, t=dialog_title: self._pick(l, t))
+            lambda _=False, l=line, ttl=dialog_title: self._pick(l, ttl))
         h.addWidget(btn, 0, Qt.AlignmentFlag.AlignLeft)
         h.addWidget(line, 1)
         return row
@@ -250,11 +256,8 @@ class BackupMoveDialog(QDialog):
     def _make_cmd_block(self, parent: QWidget
                         ) -> tuple[QWidget, QLabel, QPlainTextEdit]:
         """造一个命令块（标题 + 命令文本 + 复制按钮），初始隐藏。
-
         复制按钮用默认参数把文本框本体绑进闭包，点击时取当前内容；
-        T15 批 3 起同时带上按钮与标题——复制后按钮短暂显示"已复制 ✓"、
-        控制台记一行日志（决策 22③：用户动作要有反馈）。
-        """
+        复制后按钮短暂显示"已复制 ✓"、控制台记一行日志。"""
         box = QWidget(parent)
         w = QVBoxLayout(box)
         w.setContentsMargins(0, 0, 0, 0)
@@ -264,8 +267,8 @@ class BackupMoveDialog(QDialog):
         title.setStyleSheet("font-weight: 600;")
         btn = QPushButton(t("复制"), box)
         btn.setFixedWidth(64)
-        # T15 批 3：补 tooltip（决策 22①）
-        btn.setToolTip(t('复制这条命令到剪贴板，粘贴到') + f"{_TERM}" + t('里执行'))
+        btn.setToolTip(t('复制这条命令到剪贴板，粘贴到') + f"{_term()}"
+                       + t('里执行'))
         head.addWidget(title, 1)
         head.addWidget(btn)
         w.addLayout(head)
@@ -274,8 +277,8 @@ class BackupMoveDialog(QDialog):
         edit.setFixedHeight(56)
         w.addWidget(edit)
         btn.clicked.connect(
-            lambda _=False, e=edit, b=btn, t=title:
-            self._copy(e.toPlainText(), b, t))
+            lambda _=False, e=edit, b=btn, ttl=title:
+            self._copy(e.toPlainText(), b, ttl))
         box.setVisible(False)
         return box, title, edit
 
@@ -303,22 +306,19 @@ class BackupMoveDialog(QDialog):
             self._show_idle()
 
     def _copy(self, text: str, btn=None, title_label=None) -> None:
-        """复制命令文本到剪贴板 + 可见反馈。
-
-        T15 批 3：按钮文字短暂变成"已复制 ✓"（1.5 秒后复原），
-        控制台记一行日志。btn/title_label 是可选的（防御式：
-        万一有调用点没带，复制本身照常生效）。
-        """
+        """复制命令文本到剪贴板 + 可见反馈（按钮短暂"已复制 ✓"，
+        控制台记一行日志）。btn/title_label 可选（防御式）。"""
         QApplication.clipboard().setText(text)
         if btn is not None:
             btn.setText(t("已复制 ✓"))
             QTimer.singleShot(1500, lambda: btn.setText(t("复制")))
         if title_label is not None:
             step = title_label.text().split("（")[0]  # 去掉括号里的附注
-            self._log.ok(t('已复制命令：') + f"{step}" + t('（粘贴到') + f"{_TERM}" + t('执行）'))
+            self._log.ok(t('已复制命令：') + f"{step}"
+                         + t('（粘贴到') + f"{_term()}" + t('执行）'))
         else:
-            self._log.ok(t('已复制命令到剪贴板（粘贴到') + f"{_TERM}" + t('执行）'))
-
+            self._log.ok(t('已复制命令到剪贴板（粘贴到')
+                         + f"{_term()}" + t('执行）'))
     # ---------- 检测与分派 ----------
     def _on_check(self) -> None:
         old = self._old_input.text().strip().strip('"').strip()
@@ -389,7 +389,11 @@ class BackupMoveDialog(QDialog):
 
         形态 → 行动的对照就铺在这一个方法里。
         """
-        color, text = _STATE_LOOKS.get(state, ("gray", (t('未知形态：') + f"{state}")))
+        if state in _STATE_LOOKS:
+            color, word = _STATE_LOOKS[state]
+            text = t(word)
+        else:
+            color, text = "gray", (t('未知形态：') + f"{state}")
         self._state_label.setText(text)
         self._state_label.setStyleSheet(f"color: {color}; font-weight: 600;")
         detail = ""
@@ -402,7 +406,7 @@ class BackupMoveDialog(QDialog):
             extra = t('\n（提示：新位置已有内容，复制会把两边合并，已有文件不会被删除。）')
         # ren 命令的第二个参数不能带路径，只能是要改成的名字——
         # 所以取旧路径的最后一段来拼
-        tail = Path(old).name or t('旧目录')
+        tail = Path(old).name or '旧目录'
         if state == "real_dir":
             detail = (t('旧位置：') + f"{old}")
             copy_hint = (t('执行完看末尾 Failed 为 0 才继续') if os.name == "nt"

@@ -393,16 +393,16 @@ class QuickCommandPage(QWidget):
 
     # ---------------- 展示与复制 ----------------
     def _fill_table(self, rows: list[dict]) -> None:
-        t = self._table
-        t.setRowCount(len(rows))
+        tbl = self._table
+        tbl.setRowCount(len(rows))
         for i, r in enumerate(rows):
-            t.setItem(i, 0, QTableWidgetItem(str(r["mid"])))
-            t.setItem(i, 1, QTableWidgetItem(r["title"]))
-            t.setItem(i, 2, QTableWidgetItem(
+            tbl.setItem(i, 0, QTableWidgetItem(str(r["mid"])))
+            tbl.setItem(i, 1, QTableWidgetItem(r["title"]))
+            tbl.setItem(i, 2, QTableWidgetItem(
                 str(r["app"]) if r["app"] else "—"))
             ni = QTableWidgetItem(r["note"])
             ni.setToolTip(r["note"])
-            t.setItem(i, 3, ni)
+            tbl.setItem(i, 3, ni)
 
     def _set_status(self, text: str, color: str) -> None:
         self._status.setText(text)

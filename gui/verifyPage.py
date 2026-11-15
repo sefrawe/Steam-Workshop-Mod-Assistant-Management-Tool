@@ -59,33 +59,29 @@ from gui.modFolderOpener import open_mod_folder
 from gui.collapsibleSection import CollapsibleSection as _Section
 from gui.theme import font_px  # 字号单源（D25）
 
-# 表格 6 列：勾选列（"选"）已随收录/确认退役
-_COLUMNS = [t('编号'), t('标题'), t('账本状态'), t('盘上情况'), t('建议'), t('操作')]
+# 表格 6 列（勾选列已随收录/确认退役）。★ 导入期红线：存原词，_build_ui 用时翻
+_COLUMNS = ['编号', '标题', '账本状态', '盘上情况', '建议', '操作']
 
 # 行类别（kind）：筛选下拉/右键菜单/双击都按它分流。
 # missing/empty = 修复类；claim = 账本外（本页只指路）；confirm =
 # 已收录+盘上有内容（本页只指路）；keep = 软删除/失效保留文件（只提示）
+# ★ 导入期红线：显示词存原词，_build_ui 用时翻
 _BUCKETS = [
-    (t('全部行'), None),
-    (t('盘上缺失（已下载）'), "missing"),
-    (t('空目录（疑似中断）'), "empty"),
-    (t('账本外（盘上有目录）'), "claim"),
-    (t('待下载·盘上有内容'), "confirm"),
-    (t('软删除/失效·保留文件'), "keep"),
+    ('全部行', None),
+    ('盘上缺失（已下载）', "missing"),
+    ('空目录（疑似中断）', "empty"),
+    ('账本外（盘上有目录）', "claim"),
+    ('待下载·盘上有内容', "confirm"),
+    ('软删除/失效·保留文件', "keep"),
 ]
-
 _GUIDE_PARAS = (
-    t('两把尺子先分清：本页核验看的是【磁盘】（下载目录实况，联接布局下即游戏真实读到的目录）；【扫描本地】读的是 steamcmd 自己的账本文件。所以核验能看见的条目，扫描本地未必认——两者对不上不是故障。'),
-
-    t('各行含义：账说「已下载」但盘上缺失/为空 → 点【修复…】三选一；「账本外」（盘上有目录、账本没登记）→ 到入账中心收编；「已收录」且盘上有内容 → 到入账中心确认补版本；软删除/失效记录盘上保留文件 → 正常，不动。'),
-
-    t('账本外、已收录待确认两类，本页只看不办：入账（含补版本号）统一走【入账中心 → 扫描游戏目录】——盘点会把它们摆成待认领，确认时一并取真实版本。入账正门只有一处，账本不会被两头改。'),
-
-    t('修复三选：重新下载（增量，日常首选）／校验重下 validate（怀疑文件被改坏时用，会把改动冲回原版）／标记为已移除（本工具不再为它生成命令；其他前端清单里还有它仍可能被下回来）。双击缺失/空目录行 = 快捷普通重下。'),
-
-    t('本页不删任何文件；写库只发生在你主动的动作（修复三选里的「标记为已移除」）与死路径自动重推导。游戏侧联接的检查在【联接检测】页进行，本页不再重复。'),
-
+    '两把尺子先分清：本页核验看的是【磁盘】（下载目录实况，联接布局下即游戏真实读到的目录）；【扫描本地】读的是 steamcmd 自己的账本文件。所以核验能看见的条目，扫描本地未必认——两者对不上不是故障。',
+    '各行含义：账说「已下载」但盘上缺失/为空 → 点【修复…】三选一；「账本外」（盘上有目录、账本没登记）→ 到入账中心收编；「已收录」且盘上有内容 → 到入账中心确认补版本；软删除/失效记录盘上保留文件 → 正常，不动。',
+    '账本外、已收录待确认两类，本页只看不办：入账（含补版本号）统一走【入账中心 → 扫描游戏目录】——盘点会把它们摆成待认领，确认时一并取真实版本。入账正门只有一处，账本不会被两头改。',
+    '修复三选：重新下载（增量，日常首选）／校验重下 validate（怀疑文件被改坏时用，会把改动冲回原版）／标记为已移除（本工具不再为它生成命令；其他前端清单里还有它仍可能被下回来）。双击缺失/空目录行 = 快捷普通重下。',
+    '本页不删任何文件；写库只发生在你主动的动作（修复三选里的「标记为已移除」）与死路径自动重推导。游戏侧联接的检查在【联接检测】页进行，本页不再重复。',
 )
+
 
 # 折叠记忆的三个键：QSettings 的 session/ 命名空间，值 "1"/"0"
 _SES_SEC_TABLE = "session/verify_sec_table"    # 问题明细
@@ -151,7 +147,7 @@ class VerifyPage(QWidget):
         fh.addWidget(QLabel(t("查看："), frow))
         self._bucket_combo = QComboBox(frow)
         for label, data in _BUCKETS:
-            self._bucket_combo.addItem(label, data)
+            self._bucket_combo.addItem(t(label), data)
         self._bucket_combo.setToolTip(t("只看某一类问题行；筛选只隐藏行"))
         self._bucket_combo.currentIndexChanged.connect(self._apply_row_filter)
         fh.addWidget(self._bucket_combo)
@@ -190,7 +186,8 @@ class VerifyPage(QWidget):
         root.addWidget(self._summary)
 
         self._table = QTableWidget(0, len(_COLUMNS), self)
-        self._table.setHorizontalHeaderLabels(_COLUMNS)
+        self._table.setHorizontalHeaderLabels([t(h) for h in _COLUMNS])
+
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)
         self._table.setWordWrap(False)
@@ -239,7 +236,8 @@ class VerifyPage(QWidget):
         bv.setContentsMargins(4, 4, 4, 4)
         bv.setSpacing(6)
         for text in _GUIDE_PARAS:
-            lbl = QLabel(text, body)
+            lbl = QLabel(t(text), body)
+
             lbl.setWordWrap(True)
             lbl.setStyleSheet(f"color: #8a8a8f; font-size: {font_px(12)}px;")
             bv.addWidget(lbl)

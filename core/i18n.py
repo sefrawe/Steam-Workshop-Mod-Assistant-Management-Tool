@@ -20,8 +20,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from core.appPaths import app_root
-
 _lang: str = "zh"
 _table: dict[str, str] = {}
 
@@ -29,10 +27,13 @@ _table: dict[str, str] = {}
 _SOURCE_LANG = "zh"
 _SOURCE_NAME = "中文（简体）"
 
+from core.appPaths import app_root, resource_path
 
 def _gui_dir() -> Path:
-    """翻译表所在目录：源码=项目根/gui；打包=随代码的数据目录。"""
-    return Path(__file__).resolve().parent.parent / "gui"
+    """翻译表所在目录：源码=项目根/gui；打包=包内资源目录（_MEIPASS）。
+    ★ 走 resource_path 单源：与 schema.sql/icon 同一读法——onefile 解包后
+    __file__ 指向的临时目录不可依赖，资源必须按包清单定位。"""
+    return resource_path("gui")
 
 
 def available_languages() -> list[tuple[str, str]]:
@@ -88,7 +89,7 @@ def _read_config_lang() -> str:
     settings.json 兼容兜底（设置页出现前教过用户手改它——
     GlobalSettings 里没有这个键时旧文件仍然生效）；都读不到→zh。"""
     for path in (app_root() / "config" / "GlobalSettings.json",
-                 _gui_dir().parent / "settings.json"):
+                 app_root() / "settings.json"):
         try:
             cfg = json.loads(path.read_text(encoding="utf-8"))
             v = cfg.get("language")

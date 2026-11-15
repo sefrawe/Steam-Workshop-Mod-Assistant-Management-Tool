@@ -93,7 +93,7 @@ class BaseProvider:
 
     def translate_batch(self, texts: list[str], target: str) -> list[str]:
         """一组段 → 一组译文（同序，失败抛错——单段容错在 worker）。"""
-        return [self.translate(t, target) for t in texts]
+        return [self.translate(seg, target) for seg in texts]
 
 
 class EdgeProvider(BaseProvider):
@@ -149,8 +149,8 @@ class EdgeProvider(BaseProvider):
         batches: list[list[int]] = []
         cur: list[int] = []
         chars = 0
-        for i, t in enumerate(texts):
-            n = max(len(t), 1)
+        for i, text in enumerate(texts):
+            n = max(len(text), 1)
             if cur and (len(cur) >= self._MAX_ELEMS
                         or chars + n > self._MAX_CHARS):
                 batches.append(cur)

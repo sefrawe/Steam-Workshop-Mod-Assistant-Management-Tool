@@ -253,13 +253,11 @@ _ABANDONED_KEYWORDS = (
 # 每更新一次标题就变一次——不剥掉"标题不符"会误报成灾。
 # 剥完再比，剩下的差异才算真改名
 _VERSION_TOKEN = re.compile(r"v?\d+\.\d+(\.\d+)?", re.IGNORECASE)
-
-
 def _normalize_title(text: str) -> str:
-    """标题规范化：剥版本记号 → 压空白 → casefold。只用于比较。"""
-    t = _VERSION_TOKEN.sub(" ", text)
-    return " ".join(t.split()).casefold()
-
+    """标题规范化：剥版本记号 → 压空白 → casefold。只用于比较。
+    局部名不叫 t（家规：t 恒指翻译函数）。"""
+    norm = _VERSION_TOKEN.sub(" ", text)
+    return " ".join(norm.split()).casefold()
 
 @dataclass
 class HealthFindings:
@@ -330,7 +328,7 @@ def classify_health(entries: Iterable[dict], local_titles: dict[int, str],
         local = str(local_titles.get(pid) or "").strip()
         if local and _normalize_title(local) != _normalize_title(remote_title):
             out.title_mismatch.append((pid, local, remote_title))
-    out.title_mismatch.sort(key=lambda t: t[0])
+    out.title_mismatch.sort(key=lambda item: item[0])
     out.abandoned.sort()
     out.banned.sort()
     out.missing_banned_field = saw_result1 and not banned_known
@@ -454,10 +452,11 @@ def classify_local_titles(local_titles: dict[int, str], keywords_raw: str | None
     if not kws:
         return out
     for mid, title in local_titles.items():
-        t = str(title or "").casefold()
-        if not t:
+        low = str(title or "").casefold()
+        if not low:
             continue
-        hit = [k for k in kws if k in t]
+        hit = [k for k in kws if k in low]
         if hit:
             out.hits[mid] = hit
+
     return out

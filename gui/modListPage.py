@@ -114,16 +114,28 @@ _COL_SETTING = {
 # 排序下拉的人话（T19⑰ 沿用）：列号 → 中文名 / 方向说法。
 # 排序串一律 _SORT_MAP 白名单 + " DESC" 后缀，本页不发明新排序串
 _SORT_COL_NAME = {
-    COL_ID: t('编号'), COL_TITLE: t('标题'), COL_STATUS: t('状态'),
-    COL_LOCAL: t('本地版本'), COL_REMOTE: t('远端版本'), COL_SIZE: t('大小'),
+    COL_ID: '编号',
+    COL_TITLE: '标题',
+    COL_STATUS: '状态',
+    COL_LOCAL: '本地版本',
+    COL_REMOTE: '远端版本',
+    COL_SIZE: '大小',
 }
 _SORT_ASC = {
-    COL_ID: t('小→大'), COL_TITLE: "A→Z", COL_STATUS: t('升序'),
-    COL_LOCAL: t('旧→新'), COL_REMOTE: t('旧→新'), COL_SIZE: t('小→大'),
+    COL_ID: '小→大',
+    COL_TITLE: "A→Z",
+    COL_STATUS: '升序',
+    COL_LOCAL: '旧→新',
+    COL_REMOTE: '旧→新',
+    COL_SIZE: '小→大',
 }
 _SORT_DESC = {
-    COL_ID: t('大→小'), COL_TITLE: "Z→A", COL_STATUS: t('降序'),
-    COL_LOCAL: t('新→旧'), COL_REMOTE: t('新→旧'), COL_SIZE: t('大→小'),
+    COL_ID: '大→小',
+    COL_TITLE: "Z→A",
+    COL_STATUS: '降序',
+    COL_LOCAL: '新→旧',
+    COL_REMOTE: '新→旧',
+    COL_SIZE: '大→小',
 }
 
 # ---- 会话记忆键（T19⑤）：QSettings 而非 AppSettings，与 MainWindow
@@ -139,16 +151,15 @@ _SES_COLW = "session/modlib_colwidths_v2"  # 列数 9→12 换血：旧键按列
 # "半个月"取 15 天；月/年以上按日历月/年回退（addMonths/addYears）
 # ——"1 个月前"按日历算才符合直觉，固定 30 天会漂。
 _VERSION_PRESETS: tuple[tuple[str, object], ...] = (
-    (t('1 天前'),   lambda dt: dt.addDays(-1)),
-    (t('3 天前'),   lambda dt: dt.addDays(-3)),
-    (t('1 周前'),   lambda dt: dt.addDays(-7)),
-    (t('半个月前'), lambda dt: dt.addDays(-15)),
-    (t('1 个月前'), lambda dt: dt.addMonths(-1)),
-    (t('3 个月前'), lambda dt: dt.addMonths(-3)),
-    (t('半年前'),   lambda dt: dt.addMonths(-6)),
-    (t('1 年前'),   lambda dt: dt.addYears(-1)),
+    ('1 天前', lambda dt: dt.addDays(-1)),
+    ('3 天前', lambda dt: dt.addDays(-3)),
+    ('1 周前', lambda dt: dt.addDays(-7)),
+    ('半个月前', lambda dt: dt.addDays(-15)),
+    ('1 个月前', lambda dt: dt.addMonths(-1)),
+    ('3 个月前', lambda dt: dt.addMonths(-3)),
+    ('半年前', lambda dt: dt.addMonths(-6)),
+    ('1 年前', lambda dt: dt.addYears(-1)),
 )
-
 
 class ManualVersionDialog(QDialog):
     """「设定本地版本」对话框——单条右键与批量操作共用一张。
@@ -198,7 +209,7 @@ class ManualVersionDialog(QDialog):
         self._preset = QComboBox(prow)
         self._preset.addItem(t('（选一个常用时段，或直接在下面改时间）'))
         for text, _fn in _VERSION_PRESETS:
-            self._preset.addItem(text)
+            self._preset.addItem(t(text))
         self._preset.activated.connect(self._on_preset)
         self._preset.setToolTip(
             t("按当前时刻往回推：天数按天、月以上按日历月/年。"
@@ -258,15 +269,16 @@ class ManualVersionDialog(QDialog):
         self._dt.setDateTime(fn(QDateTime.currentDateTime()))
 
     def result_version(self) -> int | None:
-        """收集结果：勾了「版本未知」→ None；否则按 59 秒口径返回
-        Unix 秒（显示格式只到分钟、秒一直停在 00，这里强制改成 59，
-        理由见类 docstring）。"""
+        """收集结果：勾了「版本未知」→ None；否则按 59 秒口径返回 Unix 秒
+        （显示格式只到分钟、秒一直停在 00，这里强制改成 59，理由见类
+        docstring）。"""
         if self._unknown.isChecked():
             return None
         dt = self._dt.dateTime()
-        t = dt.time()
-        dt.setTime(QTime(t.hour(), t.minute(), 59))
+        tm = dt.time()  # ★ 原名 t：与 core.i18n 的 t() 同名的雷，改名拆除
+        dt.setTime(QTime(tm.hour(), tm.minute(), 59))
         return dt.toSecsSinceEpoch()
+
 
 class ModListPage(QWidget):
     # 跨页信号（落点页未搬迁，暂无菜单项触发；定义保留待接线）：
@@ -396,10 +408,12 @@ class ModListPage(QWidget):
         # 将来下载/备份批次的执行顺序
         self._sort_combo = QComboBox(row)
         for col, key in _SORT_MAP.items():
-            for suffix, lab in (("", _SORT_ASC[col]),
-                                (" DESC", _SORT_DESC[col])):
+            for suffix, lab in (("", _SORT_ASC[col]), (" DESC", _SORT_DESC[col])):
                 self._sort_combo.addItem(
-                    t('按') + f"{_SORT_COL_NAME[col]}" + t('排（') + f"{lab}" + f'）', (col, key + suffix))
+                    t('按') + f"{t(_SORT_COL_NAME[col])}" + t('排（')
+                    + f"{t(lab)}" + f'）',
+                    (col, key + suffix))
+
         self._sort_combo.setToolTip(
             t("排序方式（唯一排序入口）。\n"
             "下载/备份选中项将来按列表当前顺序执行"))
@@ -821,8 +835,7 @@ class ModListPage(QWidget):
 
 
         # 标签池：当前清单出现过的标签并集（对话框内部保留已勾选项）
-        tag_pool = sorted({t for m in rows
-                           for t in (getattr(m, "tags", None) or [])})
+        tag_pool = sorted({tag for m in rows for tag in (getattr(m, "tags", None) or [])})
         self._adv_dialog.set_available_tags(tag_pool)
 
         # 生效指示 + 命中数回填

@@ -77,10 +77,12 @@ _DEBOUNCE_MS = 300
 # ---- 现状对照（平铺）列 ----
 (C_URL, C_TITLE, C_MID, C_STATUS, C_NOTE,
  C_LOCAL, C_REMOTE, C_LAG) = range(8)
-_COLS_FLAT = ["↗", t('mod 标题'), t('mod 编号'), t('状态'), t('备注'),
-              t('本地版本'), t('远端更新'), t('落后')]
+# ★ 导入期红线：存原词，_fill_flat 用时翻
+_COLS_FLAT = ["↗", 'mod 标题', 'mod 编号', '状态', '备注', '本地版本', '远端更新', '落后']
+
 # ---- 分组卡片里的快照小表列 ----
-_COLS_SNAP = [t('快照时间'), t('当时远端版本')]
+_COLS_SNAP = ['快照时间', '当时远端版本']
+
 # ---- 排序下拉 → 平铺表格 (列, 方向) 映射（v2.43.7：下拉两视图通用）----
 # "recent"（快照时间）在平铺没有对应列 → 以远端更新近似（tooltip 注明）
 _FLAT_SORT_MAP = {
@@ -93,21 +95,14 @@ _FLAT_SORT_MAP = {
     "id": (C_MID, Qt.SortOrder.AscendingOrder),
 }
 _GUIDE_PARAS = (
-    t('这页是什么：当前档案全部 mod 的版本对照与更新历史。两种看法——【按 mod 分组】= 每个 mod 一张卡，卡里是它最近几次版本变化的时间线；【现状对照】= 每个 mod 一行，看确认版本比远端旧了多久。'),
-
-    t('「更新 = 整个替换」：steamcmd 更新一个 mod 时不是打补丁，而是把旧的内容文件夹整个删掉、重新下载完整一份——更新完成后，旧版本就不在磁盘上了。想留后路：更新确认清单里选「备份+更新」，或在【备份与恢复】页手动备份；更新后随时可去恢复旧版本。所以“落后天数”越大，越值得先备份再更新。'),
-
-    t('「落后」怎么看：落后 = 远端最新版本比本地确认版本新了几天（0 天显示“最新”）；“—” = 版本未知（还没下载确认过、或还没跑过【更新检测】）。本地确认版本只认三扇正门：批次收尾确认、入账中心认领、右键手动设定——盘面上的值不自动进账。'),
-
-    t('想找“某天更新了哪些”：卡片标题上写着两个日期——「远端」= 作者发布现在这版的日子，「本地」= 确认版本的日子。排序下拉选「远端更新 新→旧」从新往旧翻，或直接在过滤框输入日期（如 2026-09-26；输 2026-09 就是整个 9 月）。注意这是“版本是哪天的”——你哪天跑的检测/下载，看卡片里快照表的「快照时间」。'),
-
-    t('数据从哪来：快照 = 每次【更新检测】落库时自动拍下的“当时的远端版本”。每个 mod 只滚动保留最近几条（设置页「快照保留条数」可调）——所以这里是最近的更新史，不是全史。'),
-
-    t('能做什么动作：平铺视图在行上右键；分组卡片上是常驻按钮——打开工坊页面、打开 mod 文件夹、复制编号、编辑备注（备注保存后立即入库，【mod 库】页同步可见）。'),
-
-    t('本页除了备注以外全只读。要更新请去【下载命令生成】勾选复制；更新完回来点【刷新】看新对照。'),
+    '这页是什么：当前档案全部 mod 的版本对照与更新历史。两种看法——【按 mod 分组】= 每个 mod 一张卡，卡里是它最近几次版本变化的时间线；【现状对照】= 每个 mod 一行，看确认版本比远端旧了多久。',
+    '「更新 = 整个替换」：steamcmd 更新一个 mod 时不是打补丁，而是把旧的内容文件夹整个删掉、重新下载完整一份——更新完成后，旧版本就不在磁盘上了。想留后路：更新确认清单里选「备份+更新」，或在【备份与恢复】页手动备份；更新后随时可去恢复旧版本。所以“落后天数”越大，越值得先备份再更新。',
+    '「落后」怎么看：落后 = 远端最新版本比本地确认版本新了几天（0 天显示“最新”）；“—” = 版本未知（还没下载确认过、或还没跑过【更新检测】）。本地确认版本只认三扇正门：批次收尾确认、入账中心认领、右键手动设定——盘面上的值不自动进账。',
+    '想找“某天更新了哪些”：卡片标题上写着两个日期——「远端」= 作者发布现在这版的日子，「本地」= 确认版本的日子。排序下拉选「远端更新 新→旧」从新往旧翻，或直接在过滤框输入日期（如 2026-09-26；输 2026-09 就是整个 9 月）。注意这是“版本是哪天的”——你哪天跑的检测/下载，看卡片里快照表的「快照时间」。',
+    '数据从哪来：快照 = 每次【更新检测】落库时自动拍下的“当时的远端版本”。每个 mod 只滚动保留最近几条（设置页「快照保留条数」可调）——所以这里是最近的更新史，不是全史。',
+    '能做什么动作：平铺视图在行上右键；分组卡片上是常驻按钮——打开工坊页面、打开 mod 文件夹、复制编号、编辑备注（备注保存后立即入库，【mod 库】页同步可见）。',
+    '本页除了备注以外全只读。要更新请去【下载命令生成】勾选复制；更新完回来点【刷新】看新对照。',
 )
-
 
 class _SortItem(QTableWidgetItem):
     """显示给人看的文本、比较用原始值（备份页同款）。"""
@@ -278,11 +273,13 @@ class UpdateComparePage(QWidget):
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(_DEBOUNCE_MS)
         self._debounce.timeout.connect(self._reload)
+
     def _make_guide(self) -> CollapsibleSection:
         """先读我折叠卡：形态收进 collapsibleSection.make_guide 单源。"""
         return make_guide(
             t("先读我：两种视图 · 更新=整个替换 · 落后天数 · 动作与备注"),
-            _GUIDE_PARAS, self, 250)
+            tuple(t(p) for p in _GUIDE_PARAS),
+            self, 250)
 
     # ---------- 对外 ----------
 
@@ -482,7 +479,8 @@ class UpdateComparePage(QWidget):
         # ---- 快照小表（两列；交替行色——本表无逐格上色，无盖色坑；
         # "当时的本地版本"由判决史承载，快照表不重复记）----
         tbl = QTableWidget(len(snaps), 2, content)
-        tbl.setHorizontalHeaderLabels(_COLS_SNAP)
+        tbl.setHorizontalHeaderLabels([t(h) for h in _COLS_SNAP])
+
         tbl.verticalHeader().setVisible(False)
         tbl.setAlternatingRowColors(True)
         tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -517,7 +515,8 @@ class UpdateComparePage(QWidget):
         tbl.setSortingEnabled(False)
         tbl.clearSpans()
         tbl.setColumnCount(len(_COLS_FLAT))
-        tbl.setHorizontalHeaderLabels(_COLS_FLAT)
+        tbl.setHorizontalHeaderLabels([t(h) for h in _COLS_FLAT])
+
         header = tbl.horizontalHeader()
         header.setSectionResizeMode(C_TITLE, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(C_NOTE, QHeaderView.ResizeMode.Stretch)

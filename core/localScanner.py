@@ -42,8 +42,12 @@ from core.i18n import t
 
 # 质量谓词拦下的跳过原因统一用这个前缀：
 # ScanResult.interrupted 靠它把"疑似下载中断"和"格式不完整"分开算数
-_INTERRUPTED_PREFIX = t('疑似下载中断')
-
+def _interrupted_prefix() -> str:
+    """质量谓词拦下的跳过原因统一前缀。★ 导入期红线：不许在模块级调
+    t()——import 时语言表未初始化，词被烤死；改成函数，调用时刻（运行期）
+    才翻。ScanResult.interrupted 靠它把"疑似下载中断"和"格式不完整"
+    分开算数。"""
+    return t('疑似下载中断')
 
 @dataclass
 class LocalItem:
@@ -72,7 +76,8 @@ class ScanResult:
         或工具出了问题要排查，中断类的修复动作就是重新下载。GUI
         据此单独提醒。"""
         return [k for k, reason in self.skipped
-                if reason.startswith(_INTERRUPTED_PREFIX)]
+                if reason.startswith(_interrupted_prefix())]
+
 
 # locate_acf 已上收单源：core/steamPaths（"路径布局知识只住这一份"纪律
 # 兑现）。收编前两版逐行 diff 行为零差异，无漂移损失；
@@ -137,8 +142,8 @@ def scan_acf(path: str | Path) -> ScanResult:
             # 没有有效的本地时间 = 这次下载没有正常完成
             # （steamcmd/客户端中断时账本里会留下 0）
             skipped.append(
-                (str(raw_id),
-                 (f"{_INTERRUPTED_PREFIX}" + t('：timeupdated 缺失或为 0'))))
+                (str(raw_id), (_interrupted_prefix() + t('：timeupdated 缺失或为 0'))))
+
             continue
         # 空串/缺失一律视为没有 manifest
         manifest = str(block["manifest"]) if block.get("manifest") else None
@@ -146,8 +151,8 @@ def scan_acf(path: str | Path) -> ScanResult:
             # "-1" 是下载中断留在账本里的标志值；缺失/空串同样说明
             # 内容没有完整落地。没有 manifest 就无法定位具体版本
             skipped.append(
-                (str(raw_id),
-                 (f"{_INTERRUPTED_PREFIX}" + t('：manifest 缺失或为 -1'))))
+                (str(raw_id), (_interrupted_prefix() + t('：manifest 缺失或为 -1'))))
+
             continue
 
         # size 只影响展示（备份空间预检另有兜底），缺失/为 0 不拦，

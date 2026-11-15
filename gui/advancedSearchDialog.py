@@ -125,9 +125,9 @@ class AdvancedFilter:
         if self.creator_id:
             parts.append(t('作者=') + f"{self.creator_id}")
         if self.size_min is not None:
-            parts.append(t('大小≥') + f"{self.size_min / 1024 ** 2::.1f}" + f' MiB')
+            parts.append(t('大小≥') + f"{self.size_min / 1024 ** 2:.1f}" + f' MiB')
         if self.size_max is not None:
-            parts.append(t('大小≤') + f"{self.size_max / 1024 ** 2::.1f}" + f' MiB')
+            parts.append(t('大小≤') + f"{self.size_max / 1024 ** 2:.1f}" + f' MiB')
         if self.updated_from is not None and self.updated_to is not None:
             f = QDateTime.fromSecsSinceEpoch(self.updated_from).date()
             tbl = QDateTime.fromSecsSinceEpoch(self.updated_to).date()
@@ -511,7 +511,6 @@ class AdvancedSearchDialog(QDialog):
         return tuple(sorted(out))
 
     # ---------- 对外（mod 库页调用）----------
-
     def set_available_tags(self, tags: list[str]) -> None:
         """重建标签清单。已勾选的标签优先保留——哪怕它暂时没出现在
         列表里（比如列表正被别的条件筛得很窄），条件不该因此悄悄丢掉。"""
@@ -520,16 +519,17 @@ class AdvancedSearchDialog(QDialog):
         self._tag_list.blockSignals(True)  # 重建过程别触发防抖/重查
         try:
             self._tag_list.clear()
-            for t in merged:
-                item = QListWidgetItem(t, self._tag_list)
+            for tag in merged:
+                item = QListWidgetItem(tag, self._tag_list)
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled
                               | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(
-                    Qt.CheckState.Checked if t in checked
+                    Qt.CheckState.Checked if tag in checked
                     else Qt.CheckState.Unchecked)
         finally:
             self._tag_list.blockSignals(False)
         self._apply_tag_filter()  # 重建后套用当前过滤词
+
 
     def conditions(self) -> AdvancedFilter | None:
         """收集当前条件。全空时返回 None——页面据此不传高级参数，

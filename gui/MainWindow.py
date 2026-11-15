@@ -133,7 +133,7 @@ _PAGE_TITLES: dict[int, str] = {
     constants.PAGE_API_KEY: 'Steam API 密钥',
     constants.PAGE_SETTINGS: '设置',
     constants.PAGE_QUICK_CMD: '快速命令查询',
-    constants.PAGE_BROWSER_TABS: t('从浏览器取网址')
+    constants.PAGE_BROWSER_TABS: '从浏览器取网址'
 }
 
 
@@ -1153,7 +1153,7 @@ class MainWindow(QMainWindow):
                 setter(game)
                 notified += 1
             except Exception as exc:
-                name = _PAGE_TITLES.get(pid, (t('页面 ') + f"{pid}"))
+                name = t(_PAGE_TITLES.get(pid, f"页面 {pid}"))
                 failed.append(name)
                 self._log.error(
                     (t('档案广播：') + f"{name}" + t(' 页接收失败（本页可能与当前档案不同步，其余页面不受影响）：') + f"{exc}"))
@@ -1435,7 +1435,7 @@ class MainWindow(QMainWindow):
                     self._settings.get("steamcmd_path"))
                 if cleared or skipped:
                     self._log.info(
-                        (t('退出清缓存：清掉 ') + f"{cleared}" + t(' 项，释放 ') + f"{freed / 2 ** 20:'.1f'}" + ' MB')
+                        (t('退出清缓存：清掉 ') + f"{cleared}" + t(' 项，释放 ') + f"{freed / 2 ** 20:.1f}" + ' MB')
                         + ((t('；跳过 ') + f"{len(skipped)}" + t(' 项（被占用）')) if skipped else ""))
             except OSError as exc:
                 self._log.warn((t('退出清缓存未完成（不影响退出）：') + f"{exc}"))
@@ -1450,16 +1450,21 @@ class MainWindow(QMainWindow):
         """导航树组折叠落盘（T19⑤）。信号带变化的那一条目，统一吞掉——
         要记的永远是"全部组的现状"，逐条传参反而不便。"""
         q = QSettings()
-        expanded = [
-            self._nav.topLevelItem(i).text(0)
-            for i in range(self._nav.topLevelItemCount())
-            if self._nav.topLevelItem(i).childCount() > 0
-               and self._nav.topLevelItem(i).isExpanded()
-        ]
         # 存**原词**（_NAV_SCHEMA 里的组名）而非界面文字：界面语言换了
-        # 之后，"Workbench" 与"工作台"不是同一串，按原词存才能对得上
+        # 之后，"Workbench" 与"工作台"不是同一串，按原词存才能对得上。
+        # 显示文字 → 原词按位置映射（树与 _NAV_SCHEMA 同序同源），
+        # 与 _restore_nav_state 是同一把尺——两边各写一套迟早漂移
         groups = [name for name, spec in _NAV_SCHEMA if not isinstance(spec, int)]
-        expanded = [groups[i] for i in expanded if i < len(groups)]
+        expanded: list[str] = []
+        gi = 0
+        for i in range(self._nav.topLevelItemCount()):
+            it = self._nav.topLevelItem(i)
+            if it.childCount() == 0:
+                continue  # "欢迎"这类单页顶项不是组，不进折叠记忆
+            orig = groups[gi] if gi < len(groups) else it.text(0)
+            gi += 1
+            if it.isExpanded():
+                expanded.append(orig)
         q.setValue(_SES_NAV, ",".join(expanded))
 
     def _restore_nav_state(self) -> None:

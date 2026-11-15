@@ -498,9 +498,9 @@ class ExceptionPage(QWidget):
         busy = netGate.try_acquire(constants.NET_GATE_DEEP_CHECK)
         if busy is not None:
             self._summary.setText(
-                t('另有联网任务在进行（') + f"{busy}" + t('）：等它结束后再跑深度检测。'))
+                t('另有联网任务在进行（') + f"{t(busy)}" + t('）：等它结束后再跑深度检测。'))
             self._summary.setStyleSheet(f"color: {_C_WARN};")
-            self._log.warn(t('深度检测未开始：') + f"{busy}" + t(' 正在使用联网查询'))
+            self._log.warn(t('深度检测未开始：') + f"{t(busy)}" + t(' 正在使用联网查询'))
             return
         self._progress.setRange(0, len(ids))
         self._progress.setValue(0)
@@ -887,7 +887,7 @@ class ExceptionPage(QWidget):
             "b6", t('桶⑥ 多前端环境冲突（无法自动检测，自查）'),
             tip=t('同一个 steamcmd 目录可能被多个工具指挥（如 RimSort），删掉的 mod 可能被别的工具下回来。无法程序化检测，对照卡里的清单自查。'), attention=False)
         card.set_status(t("自查清单"), _C_MUTED)
-        card.add_text(exceptionFlow.MULTIFRONTEND_NOTE)
+        card.add_text(t(exceptionFlow.MULTIFRONTEND_NOTE))
         card.set_expanded(False)
         # ---- 汇总行（三类分开数，互不混计）----
         # 本地发现 = 盘面/账实问题（空目录/缺失/孤儿/非数字）。
@@ -1126,15 +1126,15 @@ class ExceptionPage(QWidget):
         tbl.setFixedHeight(max(120, min(380, 28 * n_vis + 32)))
         if not rows:
             self._log.info(t('桶④：当前筛选下没有条目'))
-
-    def _append_b4_group_header(self, t: QTableWidget, text: str) -> None:
-        row = t.rowCount()
-        t.insertRow(row)
+    def _append_b4_group_header(self, tbl: QTableWidget, text: str) -> None:
+        row = tbl.rowCount()
+        tbl.insertRow(row)
         it = QTableWidgetItem(text)
         it.setFlags(Qt.ItemFlag.ItemIsEnabled)
         it.setBackground(QBrush(QColor("#262626")))
-        t.setItem(row, 0, it)
-        t.setSpan(row, 0, 1, 6)
+        tbl.setItem(row, 0, it)
+        tbl.setSpan(row, 0, 1, 6)
+
 
     def _append_b4_row(self, tbl: QTableWidget, r: dict) -> None:
         row = tbl.rowCount()
@@ -1164,38 +1164,35 @@ class ExceptionPage(QWidget):
         ni = QTableWidgetItem(r["note"])
         ni.setToolTip(r["note"])
         tbl.setItem(row, 5, ni)
-
     def _b4_row_at(self, row: int) -> dict | None:
-        t = self._b4_table
-        if t is None:
+        tbl = self._b4_table
+        if tbl is None:
             return None
-        mi = t.item(row, 3)
+        mi = tbl.item(row, 3)
         if mi is None:
             return None
         mid = mi.data(Qt.ItemDataRole.UserRole)
         if mid is None:
             return None
         return next((r for r in self._b4_rows if r["mid"] == mid), None)
-
     def _on_b4_menu(self, pos) -> None:
-        t = self._b4_table
-        if t is None:
+        tbl = self._b4_table
+        if tbl is None:
             return
-        item = t.itemAt(pos)
+        item = tbl.itemAt(pos)
         if item is None:
             return
         r = self._b4_row_at(item.row())
         if r is None:
-            return   # 分组标题行等：不弹菜单
+            return
+        # 分组标题行等：不弹菜单
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
         self._fill_row_menu(
-            menu, r["mid"],
-            allow_cmd=r["can_delete"],
-            allow_replace=r["can_replace"],
-            allow_delete=r["can_delete"],
+            menu, r["mid"], allow_cmd=r["can_delete"],
+            allow_replace=r["can_replace"], allow_delete=r["can_delete"],
             replaced_by=r["replaced_by"])
-        menu.exec(t.viewport().mapToGlobal(pos))
+        menu.exec(tbl.viewport().mapToGlobal(pos))
 
     def _on_b4_double(self, row: int, _col: int) -> None:
         r = self._b4_row_at(row)

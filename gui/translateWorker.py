@@ -83,9 +83,9 @@ class TranslateWorker(QThread):
                             self.stopped.emit()
                             return
                         one = self._attempt(
-                            lambda t=self._segments[i]:
-                            provider.translate(t, self._target),
+                            lambda seg=self._segments[i]: provider.translate(seg, self._target),
                             retries=1)
+
                         if not isinstance(one, TranslateProviderError):
                             out[i] = one
                 else:

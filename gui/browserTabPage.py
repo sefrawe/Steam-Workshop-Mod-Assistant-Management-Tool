@@ -237,19 +237,20 @@ class BrowserTabPage(QWidget):
             self._btn_collect.setEnabled(True)
             self._btn_stop.setEnabled(False)
 
-        self._fill_tree([(t.url, t.title) for t in tabs])
-        n_ws = sum(1 for t in tabs
-                   if extract_mod_id(t.url) is not None)
+        self._fill_tree([(tab.url, tab.title) for tab in tabs])
+
+        n_ws = sum(1 for tab in tabs if extract_mod_id(tab.url) is not None)
+
         if self._stop_reason:
             # 被刹车中断：单独一行点名是哪一路，方便用户判定到底
             # 停没停、靠什么停的（用户点名要的判定日志）
             self._log.warn(t("已中断采集") + f"（{self._stop_reason}）——"
                            + t("已采集") + f" {len(tabs)} " + t("个标签页")
-                           + f"（{t("工坊条目")} {n_ws} " + t("个，已预勾选") + "）")
+                           + f"（{t('工坊条目')} {n_ws} " + t("个，已预勾选") + "）")
         else:
             done = t("实时采集完成") if _IS_WIN else t("Firefox 标签读取完成")
             self._log.ok(f"{done}：{len(tabs)} " + t("个标签页")
-                         + f"（{t("工坊条目")} {n_ws} " + t("个，已预勾选") + "）")
+                         + f"（{t('工坊条目')} {n_ws} " + t("个，已预勾选") + "）")
         # 采集期间焦点被浏览器拿走：把本工具拉回前台——下一步就是
         # 在这里核对勾选，回工具比回桌面少一步（故不回桌面）
         self.window().activateWindow()

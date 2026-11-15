@@ -297,7 +297,7 @@ class BackupManager:
             if free < mod.local_size:
                 return BackupReport(
                     ok=False,
-                    error=(t('磁盘空间不足：预计需要 ') + f"{mod.local_size / 2 ** 30:'.2f'}" + t(' GiB，备份盘仅剩 ') + f"{free / 2 ** 30:'.2f'}" + ' GiB。'))
+                    error=(t('磁盘空间不足：预计需要 ') + f"{mod.local_size / 2 ** 30:.2f}" + t(' GiB，备份盘仅剩 ') + f"{free / 2 ** 30:.2f}" + ' GiB。'))
             if free < mod.local_size * 1.1:
                 warnings.append(t('备份盘剩余空间偏紧，建议尽快清理旧备份。'))
         else:
@@ -466,24 +466,24 @@ class BackupManager:
                 warnings.append(
                     (t('旧版本目录删除失败（恢复本身已成功）：') + f"{aside}" + '\n' + f"{exc}"))
         return RestoreReport(ok=True, pre_backup=pre, pre_copy_dir=pre_copy,warnings=warnings)
+
     def _pre_backup_unversioned(self, mod, game) -> tuple[Path | None, str | None]:
         """版本未知时的恢复前保命副本（两分的"未知"侧）。
 
         为什么不直接调 backup_mod：backups 表的版本列只存确认值，
         版本未知的东西在账上没有立足之地。本方法只把当前内容原样
         复制到备份区，不写任何数据库记录：
-
         - 恢复成功 → 副本留在原地，报告的 pre_copy_dir 告知位置，
           确认无误后由用户手动删除（不进保留策略、也绝不被自动
           清理——保命的东西不许被静默回收）；
         - 恢复失败 → 调用方已回退原状，副本同样可手动删或留着。
-
         返回 (副本目录, 错误说明)：成功时错误为 None；失败时目录
         为 None、错误必有内容（调用方会中止恢复）。
         """
         root, _derived = self._resolve_root(game)
         if root is None:
-            return None, (t('档案未设置备份目录，且未配置 steamcmd 程序路径，保命副本没有可放的位置。请先在设置页填写 steamcmd 程序，或给档案设置备份目录。'))
+            return None, (
+                t('档案未设置备份目录，且未配置 steamcmd 程序路径，保命副本没有可放的位置。请先在设置页填写 steamcmd 程序，或给档案设置备份目录。'))
         try:
             Path(root).mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -491,19 +491,20 @@ class BackupManager:
         source = Path(game.download_dir or "") / str(mod.mod_id)
         # 目录名与 _fresh_target 同款三段式，版本段写"未知"——
         # 正经备份的版本段是数字，一眼可辨不会混淆。
-        # 同样放进 <mod编号>/ 子文件夹，与正经备份同一存放规律
+        # 同样放进 <mod编号>/ 子文件夹，与正经备份同一存放规律。
+        # ★ 规矩④：目录名不进 t()——文件系统名不随界面语言变，
+        # 英文界面建的保命副本在任何会话里都认得出、清得掉
         stamp = time.strftime("%Y%m%d_%H%M%S")
         mod_dir = Path(root) / str(mod.mod_id)
         try:
             mod_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             return None, (t('备份目录无法创建：') + f"{mod_dir}" + '\n' + f"{exc}")
-        dst = mod_dir / (f"{mod.mod_id}" + t('_v未知_') + f"{stamp}")
+        dst = mod_dir / f"{mod.mod_id}_v未知_{stamp}"
         n = 2
         while dst.exists():
-            dst = mod_dir / (f"{mod.mod_id}" + t('_v未知_') + f"{stamp}" + '_' + f"{n}")
+            dst = mod_dir / f"{mod.mod_id}_v未知_{stamp}_{n}"
             n += 1
-
         rc, out = self._run(str(source), str(dst))
         if not is_success_rc(rc):
             # 复制失败清掉半成品（只在备份根内动手，走路径保险丝）

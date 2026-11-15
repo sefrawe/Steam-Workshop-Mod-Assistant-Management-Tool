@@ -46,8 +46,7 @@ from core.formatters import abs_time, fmt_size
 from core.models import Mod
 from core.i18n import t
 from PySide6.QtGui import QColor, QDesktopServices
-
-_COLUMNS = [t('选'), "", t('编号'), t('标题'), t('远端版本'), t('本地版本'), t('大小'), t('上次执行')]
+_COLUMNS = ['选', "", '编号', '标题', '远端版本', '本地版本', '大小', '上次执行']
 
 
 class UpdateSelectDialog(QDialog):
@@ -110,7 +109,8 @@ class UpdateSelectDialog(QDialog):
         tip.setStyleSheet("color: gray;")
         root.addWidget(tip)
         self._table = QTableWidget(len(self._mods), len(_COLUMNS), self)
-        self._table.setHorizontalHeaderLabels(_COLUMNS)
+        self._table.setHorizontalHeaderLabels([t(h) for h in _COLUMNS])
+
         self._table.verticalHeader().setVisible(False)
         # 交替行必须关：qdarktheme 的 QSS 会把交替色压在单元格背景
         # 之上，三色底会被整个盖住（更新检测结果页/mod 库页同款坑）
@@ -166,7 +166,8 @@ class UpdateSelectDialog(QDialog):
         bottom.addWidget(btn_none)
         self._combo_action = QComboBox(self)
         for value, label in _ACTION_LABELS:
-            self._combo_action.addItem(label, value)
+            self._combo_action.addItem(t(label), value)
+
         self._combo_action.setToolTip(
             t("对本次勾选的条目统一执行这个动作：\n"
             "备份+更新 = 先备份当前版本再下载；仅更新 = 直接下载"))
@@ -366,7 +367,8 @@ class UpdateSelectDialog(QDialog):
             if m.mod_id not in id_set:
                 continue
             self._table.item(r, 0).setCheckState(Qt.CheckState.Unchecked)
-            self._table.item(r, 7).setText(_ACTION_NAME.get(action, action))
+            self._table.item(r, 7).setText(t(_ACTION_NAME.get(action, action)))
+
         self._hint.setStyleSheet("color: #46a758;")
         self._hint.setText(
             t("已受理 ") + f"{len(mod_ids)}" + t(" 个（")
@@ -380,11 +382,10 @@ class UpdateSelectDialog(QDialog):
         self._hint.setText(
             t("批次没有开始：") + f"{reason}"
             + t("（清单可能被主窗口挡住：任务栏或 Alt+Tab 切回来）"))
-
-# 动作 → 显示文案（下拉框条目与留痕列共用）：值引用类常量单源，
-# 别在别处再写一份字面量
+# 动作 → 显示词（下拉框条目与留痕列共用）：值引用类常量单源，
+# 别在别处再写一份字面量。★ 导入期红线：显示词存原词，用时翻
 _ACTION_LABELS = (
-    (UpdateSelectDialog.ACT_BACKUP, t('备份+更新')),
-    (UpdateSelectDialog.ACT_UPDATE, t('仅更新')),
+    (UpdateSelectDialog.ACT_BACKUP, '备份+更新'),
+    (UpdateSelectDialog.ACT_UPDATE, '仅更新'),
 )
 _ACTION_NAME = dict(_ACTION_LABELS)  # 动作值 → 中文（留痕列用）

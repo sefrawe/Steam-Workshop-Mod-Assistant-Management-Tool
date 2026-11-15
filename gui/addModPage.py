@@ -267,12 +267,9 @@ class AddModPage(QWidget):
             self._log.info(t('档案已切换：加入新 mod 的解析结果与批次已作废'))
 
     def receive_external_lines(self, lines: list[str]) -> None:
-        """跨页交接入口（浏览器选择器回填用；改善项池——tabCollector
-        迁入后恢复"从浏览器取标签页"按钮即可接上）：填入第②步输入框
-        并自动解析预览。只填与预览，不替用户入库——第③步按钮仍需亲手
-        点（防呆不省，与解析→入库两段式一致）。"""
-        """addModPage.py——receive_external_lines 的 docstring 说“改善项池——tabCollector 迁入后恢复‘从浏览器取标签页’按钮即可接上”，但按钮与信号本批已是活的。docstring 首句改为："""
-        """跨页交接入口（浏览器选择器回填用）：填入第②步输入框并自动解析预览。…"""
+        """跨页交接入口（浏览器选择器回填用）：填入第②步输入框并自动
+        解析预览。只填与预览，不替用户入库——第③步按钮仍需亲手点
+        （防呆不省，与解析→入库两段式一致）。"""
         self._input.setPlainText("\n".join(lines))
         self._log.info(t('收到 ') + f"{len(lines)}" + t(' 条外部网址，已自动解析预览'))
         self._run_preview()

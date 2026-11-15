@@ -125,7 +125,7 @@ class _BackupPhaseWorker(QThread):
                 # 没有旧内容：没有需要保护的东西，不算失败
                 self.item_done.emit(mid, True, t('无旧版本，跳过备份'))
                 continue
-            report = mgr.backup_mod(mid, note=t('下载前自动备份'))
+            report = mgr.backup_mod(mid, note='下载前自动备份')
             if report.ok:
                 ok_n += 1
                 self.item_done.emit(mid, True, t('已备份旧版本'))
@@ -306,7 +306,8 @@ class BatchDownloadController(QWidget):
                           (trigger_versions or {}).items()}
         self._step_list.reset_for_batch(
             len(ids), has_login=self._has_login_cmd())
-        self._log.info(t('下载批次开始：') + f"{game.name}" + f'（' + f"{app_id}" + t('），共 ') + f"{len(ids)}" + t(' 条'))
+        self._log.info(
+            t('下载批次开始：') + f"{game.name}" + t('（') + f"{app_id}" + t('），共 ') + f"{len(ids)}" + t(' 条'))
 
         if backup_first:
             self._pending_ids = ids
@@ -341,7 +342,7 @@ class BatchDownloadController(QWidget):
             return
         if cleared == 0 and not skipped:
             return  # 缓存本来就空 / 未配置：零日志噪音
-        line = (f"{label}" + t('清缓存：清掉 ') + f"{cleared}" + t(' 项，释放 ') + f"{freed / 2 ** 20:'.1f'}" + ' MB')
+        line = (f"{label}" + t('清缓存：清掉 ') + f"{cleared}" + t(' 项，释放 ') + f"{freed / 2 ** 20:.1f}" + ' MB')
         if skipped:
             line += (t('；跳过 ') + f"{len(skipped)}" + t(' 项（被占用/联接，不影响后续）'))
         self._log.info(line)

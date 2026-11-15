@@ -225,7 +225,7 @@ class BatchDownloadFlow:
                 and self._current is not None:
             self._failed.append(ItemResult(
                 self._current, ok=False,
-                reason=reason or t('steamcmd 已退出'),
+                reason=reason or 'steamcmd 已退出',
                 trigger=self._trigger_for(self._current)))
             self._emit("item_done", mod_id=self._current, ok=False,
                        reason=reason or t('steamcmd 已退出'),
@@ -310,10 +310,9 @@ class BatchDownloadFlow:
                 # 记账不悄悄消失，留在 STOPPING 等 on_idle 收尾
                 # （steamcmd 报错后必回提示符；进程真退了由 abort() 兜底）。
                 self._failed.append(ItemResult(
-                    self._current, ok=False, reason=t('未登录（批次停止中）'),
+                    self._current, ok=False, reason='未登录（批次停止中）',
                     trigger=self._trigger_for(self._current)))
-                self._item_done(self._current, ok=False,
-                                reason=t('未登录（批次停止中）'))
+                self._item_done(self._current, ok=False, reason=t('未登录（批次停止中）'))
                 self._current = None
                 return
             # 未登录：当前条放回队首，暂停等登录（决策 94：终端里
@@ -333,7 +332,7 @@ class BatchDownloadFlow:
         if kind == outputAnalyzer.KIND_DOWNLOAD_FAILED:
             self._failed.append(ItemResult(
                 verdict.mod_id, ok=False,
-                reason=verdict.reason or t('未知'),
+                reason=verdict.reason or '未知',
                 trigger=self._trigger_for(verdict.mod_id)))
             self._item_done(verdict.mod_id, ok=False,
                             reason=verdict.reason or t('未知'))
