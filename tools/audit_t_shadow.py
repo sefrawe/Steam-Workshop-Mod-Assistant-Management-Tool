@@ -1,4 +1,5 @@
-"""tools/audit_t_shadow.py —— 审计 t() 的四类用法错误
+"""审计 t() 的四类用法错误"""
+"""
 判定口径（2026-11-02 bbcodeParser NameError 实证同源）：
   活雷   = 同一函数里既绑定 t（赋值/for/with-as/except-as/形参）又调 t(...)
            ——本函数内调用 → TypeError；嵌套函数里调用 → NameError
