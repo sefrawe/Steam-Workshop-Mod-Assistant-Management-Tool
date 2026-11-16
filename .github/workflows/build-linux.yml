@@ -7,21 +7,25 @@ on:
 
 jobs:
   build:
-    # 宿主只是容器的壳，产物 glibc 由下面 container 决定（仍钉版本，不用 latest）
     runs-on: ubuntu-24.04
-    # 打包底座：glibc 2.35 → AppImage 兼容 Mint 21.x/22.x、Ubuntu 22.04+、Debian 12+
-    # （ubuntu:22.04 ≈ v2.1.0 当时的实际构建环境，实测可跑；从此不再受 runner 镜像漂移影响）
     container: ubuntu:22.04
     timeout-minutes: 40
+    env:
+      # apt 全程免交互：容器里弹出的任何 debconf 对话框都等不到人，
+      # 只会挂到 job 超时（tzdata 时区弹窗实测翻车点）
+      DEBIAN_FRONTEND: noninteractive
 
     steps:
-      # ubuntu:22.04 是精简镜像：git/curl/file 都要现装。
+      # ubuntu:22.04 是精简镜像：git/curl/file/gnupg/ca-certificates/tzdata
+      # 都要显式装（--no-install-recommends 会漏"推荐级"依赖，逐笔显式还）。
       # git 必须在 checkout 之前就位，所以这步排第一
       - name: Install system dependencies
         run: |
+          # 预置 tzdata 的时区答案（双保险：即使 noninteractive 失效也有值可选）
+          echo 'tzdata tzdata/Areasselect Etc' | debconf-set-selections
+          echo 'tzdata tzdata/Zones/Etc UTC' | debconf-set-selections
           apt-get update
-          apt-get install -y --no-install-recommends git curl ca-certificates file gnupg software-properties-common
-      
+          apt-get install -y --no-install-recommends git curl ca-certificates file gnupg software-properties-common tzdata
 
       - uses: actions/checkout@v4
 
