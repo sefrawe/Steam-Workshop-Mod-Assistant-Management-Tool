@@ -455,13 +455,15 @@ def _acquire_single_instance() -> bool:
     # ---- 首选：命名互斥体（Windows）----
     status = _try_windows_mutex()
     if status == 0:
-        print("[main] 单实例锁：互斥体抢锁成功", file=sys.stderr)
+        # 成功日志由 _try_windows_mutex 带分档后缀打（无标签/带 Medium
+        # 标签/默认安全属性）——这里不再重复打一行裸日志：v10.2 实测
+        # 两行并存被误读成两个进程的输出，诊断被带偏过一次
         return True
     if status == 1:
-        # 互斥体已明确判定"有实例在跑"。此时 file_lock_path / exists /
-        # probe_lines 还没定义（它们属于兜底路径），只传 PID 分诊；
-        # 也不给管理员重启按钮——已经在跑了，再提权开一个毫无意义。
-        print("[main] 单实例锁：互斥体报告已有实例", file=sys.stderr)
+        # 互斥体已明确判定"有实例在跑"（日志已在 _try_windows_mutex
+        # 带上下文打出）。此时 file_lock_path / exists / probe_lines
+        # 还没定义（属于兜底路径），只传 PID 分诊；也不给管理员重启
+        # 按钮——已经在跑了，再提权开一个毫无意义。
         _show_already_running_dialog(_find_sibling_process())
         return False
 
