@@ -7,29 +7,45 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # 宿主只是容器的壳，产物 glibc 由下面 container 决定（仍钉版本，不用 latest）
+    runs-on: ubuntu-24.04
+    # 打包底座：glibc 2.35 → AppImage 兼容 Mint 21.x/22.x、Ubuntu 22.04+、Debian 12+
+    # （ubuntu:22.04 ≈ v2.1.0 当时的实际构建环境，实测可跑；从此不再受 runner 镜像漂移影响）
+    container: ubuntu:22.04
     timeout-minutes: 40
+
     steps:
+      # ubuntu:22.04 是精简镜像：git/curl/file 都要现装。
+      # git 必须在 checkout 之前就位，所以这步排第一
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git curl file software-properties-common
+
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # 容器自带 Python 是 3.10，项目要 3.12：deadsnakes PPA 官方支持 22.04 的 3.12
+      - name: Install Python 3.12 and create venv
+        run: |
+          add-apt-repository -y ppa:deadsnakes/ppa
+          apt-get update
+          apt-get install -y --no-install-recommends python3.12 python3.12-venv
+          python3.12 -m venv .venv
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt
 
       - name: Build with PyInstaller (onedir)
-        run: pyinstaller --noconfirm --clean packaging/linux/SteamWorkshopTool-linux.spec
+        run: .venv/bin/pyinstaller --noconfirm --clean packaging/linux/SteamWorkshopTool-linux.spec
 
       - name: Assemble AppDir
         run: |
           set -eux
           mkdir -p AppDir/usr/bin \
-                   AppDir/usr/share/applications \
-                   AppDir/usr/share/icons/hicolor/256x256/apps
+                  AppDir/usr/share/applications \
+                  AppDir/usr/share/icons/hicolor/256x256/apps
           cp -r dist/SteamWorkshopTool/* AppDir/usr/bin/
           cp icon/icon.png AppDir/steamworkshoptool.png
           cp icon/icon.png \
@@ -61,9 +77,9 @@ jobs:
           set -eux
           # appimagetool 连续版（curl -f：HTTP 错误即报错，避免静默下载 403 的 HTML）
           curl -fsSL --retry 3 \
-            -A 'GitHubActions' \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
-            -o appimagetool
+               -A 'GitHubActions' \
+               https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+               -o appimagetool
           chmod +x appimagetool
           ls -l appimagetool
           file appimagetool
@@ -75,14 +91,17 @@ jobs:
             echo "::error::appimagetool 直接运行失败：$(head -n 8 appimagetool1.err | tr '\n' ' ' | cut -c1-500)"
             # 方式2：解包后直跑内部 AppRun，完全绕开 AppImage 运行时
             ./appimagetool --appimage-extract 2>appimagetool2.err || {
-              echo "::error::appimagetool 解包失败：$(head -n 8 appimagetool2.err | tr '\n' ' ' | cut -c1-500)"; exit 1; }
+              echo "::error::appimagetool 解包失败：$(head -n 8 appimagetool2.err | tr '\n' ' ' | cut -c1-500)"
+              exit 1
+            }
             ./squashfs-root/AppRun AppDir SteamWorkshopTool-x86_64.AppImage 2>appimagetool3.err || {
-              echo "::error::AppRun 构建失败：$(head -n 8 appimagetool3.err | tr '\n' ' ' | cut -c1-500)"; exit 1; }
+              echo "::error::AppRun 构建失败：$(head -n 8 appimagetool3.err | tr '\n' ' ' | cut -c1-500)"
+              exit 1
+            }
           fi
           ls -l SteamWorkshopTool-x86_64.AppImage
 
       - uses: actions/upload-artifact@v4
         with:
           name: linux-packages
-          path: |
-            SteamWorkshopTool-x86_64.AppImage
+          path: SteamWorkshopTool-x86_64.AppImage
