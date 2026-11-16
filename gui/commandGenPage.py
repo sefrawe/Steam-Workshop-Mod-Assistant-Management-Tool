@@ -98,7 +98,7 @@ _ROW_H = 28
 _TOOLS_H = 28
 _SEC_MIN_H = 120
 _SEC_MAX_H = 400
-_TIP_ALLOWANCE = 40      # "已收录"说明行的固定高度预算
+_TIP_ALLOWANCE = 40  # "待下载"说明视口的固定高度（视口恒定，超出内部滚动）
 
 
 class CommandGenPage(QWidget):
@@ -310,48 +310,60 @@ class CommandGenPage(QWidget):
         self._refresh_stats()
 
     # ---------------- 分区构建 ----------------
-
     def _section_height(self, key: str, n_rows: int) -> int:
         """分区内容区的固定高度（共享件 set_content 会 setFixedHeight）。
+
         精确数学：行数×28 + 工具行 28 + 布局余量，再夹在上下限之间；
-        "已收录"组因顶部说明行 +40。空组建 56（只放一行静态说明）。"""
+        "待下载"组因顶部说明视口额外 +40。空组建 56（只放一行静态
+        说明）——但"待下载"组的说明视口在空组也常驻，所以 +40 要
+        跟上（v10.2 修复：此前空组漏加，说明被裁切成半截，截图实证）。
+        """
         if n_rows == 0:
-            return 56
+            return 56 + (_TIP_ALLOWANCE if key == "not_downloaded" else 0)
         h = _ROW_H * n_rows + _TOOLS_H + 10
         h = min(_SEC_MAX_H, max(_SEC_MIN_H, h))
         if key == "not_downloaded":
             h += _TIP_ALLOWANCE
         return h
-
     def _make_section(self, key, title, rows):
-        """建一个可折叠分区：内容区自上而下 =
-        说明行（仅已收录组）→ 工具行（全选/清空）→ 筛空占位行 →
-        行清单（固定高度内滚区）。行登记进 self._rows 供筛选与收集。
-        每行 setFixedHeight(28)——高度数学的前提，动它先改 _ROW_H。"""
+        """建一个可折叠分区：内容区自上而下 = 说明视口（仅待下载组）→
+        工具行（全选/清空）→ 筛空占位行 → 行清单（固定高度内滚区）。
+        行登记进 self._rows 供筛选与收集。
+
+        每行 setFixedHeight(28)——高度数学的前提，动它先改 _ROW_H。
+        """
         content = QWidget(self)
         cv = QVBoxLayout(content)
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(2)
 
-        # ---- "已收录"白话说明行（todo 6"事实进提示"的一角）----
-        # 放内容区顶部：展开才可见，随分区收起一起消失，不占外部空间。
-        # 高度预算已计入 _section_height 的 +40
+        # ---- "待下载"白话说明：40px 内滚视口（v10.2）----
+        # 以前是裸 QLabel 直接 addWidget：+40 的高度预算按 12px 字号
+        # 两行折行算的，D25 字号一调、折行变多就被裁切（截图实证：
+        # 空"待下载"组说明切半）。改成与页首"使用方法"同款做法——
+        # 固定高度当视口不当内容预算，装不下内部滚动，字号随便调。
+        # 空组也要建：首次使用走到这步时组常常还是空的，这段说明
+        # 恰恰是给那时候看的。
         if key == "not_downloaded":
             tip = QLabel(
                 t("「待下载」= 已入库还没下载的正常排队，以及已下载但版本"
-                "未知的条目（重下无害，正好补版本），不是异常。默认已"
-                "全部勾上——点右下角【复制命令】去 steamcmd 执行；下完"
-                "到【入账中心】点【扫描游戏目录】，盘上内容会出现在待"
-                "认领区，勾选确认后转正「已下载」并记下版本。"),
+                  "未知的条目（重下无害，正好补版本），不是异常。默认已"
+                  "全部勾上——点右下角【复制命令】去 steamcmd 执行；下完"
+                  "到【入账中心】点【扫描游戏目录】，盘上内容会出现在待"
+                  "认领区，勾选确认后转正「已下载」并记下版本。"),
                 content)
-
-            tip.setWordWrap(True)  # 踩坑⑨
+            tip.setWordWrap(True)
             tip.setStyleSheet(f"color: gray; font-size: {font_px(12)}px;")
-            cv.addWidget(tip)
+            tip_scroll = QScrollArea(content)
+            tip_scroll.setWidgetResizable(True)
+            tip_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+            tip_scroll.setWidget(tip)
+            tip_scroll.setFixedHeight(_TIP_ALLOWANCE)  # 视口：装不下就滚
+            cv.addWidget(tip_scroll)
 
         if not rows:
             # 空组：不给工具行也不给内滚区（全选/清空无意义），
-            # 一行静态说明 + 56px 固定高度即可
+            # 一行静态说明；"待下载"组的说明视口已在上面建好
             lbl = QLabel(t("（本组当前没有条目）"), content)
             lbl.setStyleSheet("color: gray;")
             cv.addWidget(lbl)
@@ -364,7 +376,7 @@ class CommandGenPage(QWidget):
             btn_all = QPushButton(t("全选"), tools)
             btn_all.setToolTip(
                 t("勾选本组当前显示的 mod（有筛选词时只作用于筛出的行；"
-                "没有筛选 = 全组）"))
+                  "没有筛选 = 全组）"))
             btn_none = QPushButton(t("清空"), tools)
             btn_none.setToolTip(
                 t("取消本组当前显示的 mod 的勾选（有筛选词时只作用于筛出的行）"))
@@ -396,8 +408,9 @@ class CommandGenPage(QWidget):
             for m in rows:
                 # 标题还没补全（没跑过更新检测）时显示"（无标题）"而不是
                 # "None"——和 mod 库页列表的兜底口径保持一致
-                cb = QCheckBox(f"{m.mod_id} {m.title or t('（无标题）')}", rows_widget)
-                cb.setToolTip(f"{m.mod_id}　{m.title or t('（无标题）')}")
+                cb = QCheckBox(f"{m.mod_id} {m.title or t('（无标题）')}",
+                               rows_widget)
+                cb.setToolTip(f"{m.mod_id} {m.title or t('（无标题）')}")
                 # 推荐勾选：需要更新 + 已收录 默认勾上；已最新默认不勾
                 cb.setChecked(key in ("needs_update", "not_downloaded"))
                 cb.toggled.connect(self._refresh_stats)
@@ -414,16 +427,17 @@ class CommandGenPage(QWidget):
                 btn_open.setEnabled(bool(m.url))
                 if m.url:
                     btn_open.clicked.connect(
-                        lambda _=False, u=m.url:
-                        QDesktopServices.openUrl(QUrl(u)))
+                        lambda _=False, u=m.url: QDesktopServices.openUrl(QUrl(u)))
                 rh.addWidget(btn_open)
                 rv.addWidget(row_w)
                 # 登记这行：筛选/收集全走登记表，不按行号反查（id 才稳）
-                self._rows[key].append({"mod_id": m.mod_id,
-                                        "title": m.title or "",
-                                        "widget": row_w,
-                                        "checkbox": cb,
-                                        "visible": True})
+                self._rows[key].append({
+                    "mod_id": m.mod_id,
+                    "title": m.title or "",
+                    "widget": row_w,
+                    "checkbox": cb,
+                    "visible": True})
+
             inner = QScrollArea(content)
             inner.setWidgetResizable(True)
             inner.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -436,7 +450,6 @@ class CommandGenPage(QWidget):
         else:
             expanded = len(rows) <= _COLLAPSE_IF_OVER
         self._sec_state[key] = expanded
-
         section = CollapsibleSection(title, self)
         # set_content 每分区只调一次；高度按精确公式（v2.41.1）
         section.set_content(content, self._section_height(key, len(rows)))

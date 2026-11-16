@@ -183,6 +183,8 @@ class UpdateSelectDialog(QDialog):
         bottom.addWidget(self._btn_execute)
         bottom.addStretch(1)
         self._hint = QLabel("", self)
+        self._hint.setWordWrap(True)  # 长提示自动换行，不把窗口撑宽
+
         self._hint.setStyleSheet("color: #f5a623;")
         bottom.addWidget(self._hint)
         btn_done = QPushButton(t("完成"), self)

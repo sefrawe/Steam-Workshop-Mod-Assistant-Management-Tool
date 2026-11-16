@@ -82,16 +82,50 @@ def resource_path(rel: str) -> Path:
     # 源码运行：本文件在 core/ 里，上一级就是项目根（与 app_root 同款算法）
     return Path(__file__).resolve().parent.parent / rel
 
+def _is_system_location(path: Path) -> bool:
+    """判断路径是否位于系统保护目录（Program Files、Windows 等）。
 
+    这些目录对普通权限进程有写入保护（UAC），是「数据目录不可写」的
+    经典成因之一；与之并列的另一成因是安全软件对无签名新程序的观察期
+    拦截——普通文件夹也会发生（实测：同一文件夹记事本能建文件，本程序
+    却被拦）。两种成因的解法不同（挪文件夹 vs 白名单/管理员），文案
+    必须分开说，不能让普通文件夹里的用户白挪一遍。
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        resolved = path.resolve()
+    except Exception:
+        return False
+    for env_name in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)",
+                     "ProgramW6432", "ProgramData"):
+        value = os.environ.get(env_name)
+        if not value:
+            continue
+        try:
+            root = Path(value).resolve()
+        except Exception:
+            continue
+        if resolved == root or root in resolved.parents:
+            return True
+    return False
 def writability_problem() -> str | None:
     """启动守卫（T17）：探测数据/配置目录能不能创建、能不能写入。
+
     能 → 返回 None（放行）；不能 → 返回一段可直接弹窗的中文说明。
+
     探测是真刀真枪的：建目录、写一个几字节的小文件、随手删掉——
     毫秒级，比任何"猜权限"的写法都可靠。
+
+    失败文案按实际位置分流（v9）：
+    - 系统保护目录（Program Files 等）→ 写入保护是目录属性，
+      「挪去普通文件夹」是正解，管理员启动只是绕道；
+    - 普通文件夹 → 权限本身正常，被拦大概率是安全软件对无签名
+      新程序的观察期（实测：同文件夹记事本能建文件），挪文件夹
+      救不了，白名单或管理员启动才是出路。
     """
     from core.i18n import t  # 函数内导入：core.i18n 顶层要用 app_root，
     # 顶层互导会成环
-
     for d in (data_dir(), config_dir()):
         try:
             d.mkdir(parents=True, exist_ok=True)
@@ -101,16 +135,22 @@ def writability_problem() -> str | None:
                 probe.unlink()
             except OSError:
                 pass  # 写得进但删不掉也算可写；小文件留着无害，
-                      # 不为这个误报"不可写"把用户拦在门外
+                # 不为这个误报"不可写"把用户拦在门外
         except OSError as exc:
-            # 典型场景：软件被放进 Program Files 等系统目录，
-            # 普通权限的进程没有写盘资格
+            header = t('程序无法在当前位置保存数据（账本、设置等将无处可写），因此拒绝启动。\n\n出问题的目录：')
             if sys.platform == "win32":
-                advice = (t('解决办法：把整个软件文件夹移动到一个普通文件夹（例如 D:\\SteamModTool），\n不要放在 Program Files、Windows 等系统目录里，然后重新运行。'))
+                if _is_system_location(d):
+                    cause = t('原因说明：\n· 本软件被放在受系统保护的目录（Program Files、Windows 等）。这些位置对普通权限的程序有写入保护，账本、设置随时可能写丢，程序因此拒绝启动。')
+                    advice = t('解决方法：把整个软件文件夹移动到一个普通文件夹（例如 D:\\SteamModTool）后重新运行；或以管理员身份启动（点下方「以管理员身份重启」，或右键 exe → 以管理员身份运行）。')
+                else:
+                    cause = t('原因说明：\n· 当前文件夹是普通文件夹，写入权限本身正常——最可能的原因是安全软件对「刚打包的无签名程序」的观察期拦截：临时禁止本程序创建数据文件，与文件夹位置、数据安全无关，程序成功运行几次后通常会自行解除。')
+                    advice = t('解决方法：把本软件文件夹加入杀毒软件/Windows 安全中心的白名单后重新运行；或以管理员身份启动（点下方「以管理员身份重启」，或右键 exe → 以管理员身份运行）。')
             else:
-                advice = (t('解决办法：确认上面目录的属主是你当前的用户、且可写；\n或设置 XDG_DATA_HOME 环境变量把数据目录指到别处，然后重新运行。'))
-            return (
-                (t('程序无法在当前位置保存数据（账本、设置等将无处可写），因此拒绝启动。\n\n出问题的目录：') + f"{d}" + t('\n系统原因：') + f"{exc}" + '\n\n')
-                + advice
-            )
+                # Linux：没有杀软观察期生态，通常是属主/权限问题，
+                # 沿用原指引（键与翻译都不变）
+                cause = ""
+                advice = t('解决办法：确认上面目录的属主是你当前的用户、且可写；\n或设置 XDG_DATA_HOME 环境变量把数据目录指到别处，然后重新运行。')
+            return (header + f"{d}" + t('\n系统原因：') + f"{exc}"
+                    + (("\n\n" + cause) if cause else "")
+                    + "\n\n" + advice)
     return None

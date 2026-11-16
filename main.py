@@ -92,16 +92,49 @@ _LOCK_KEEPALIVE: list = []
 # kernel32 只在 Windows 上准备；use_last_error=True 让 ctypes 替我们
 # 抓住 API 调用后的系统错误码（直接调 kernel32.GetLastError 会被
 # ctypes 内部调用冲掉，是常见的坑）
+# kernel32/advapi32 只在 Windows 上准备；use_last_error=True 让 ctypes
+# 替我们抓住 API 调用后的系统错误码（直接调 kernel32.GetLastError 会被
+# ctypes 内部调用冲掉，是常见的坑）
 _kernel32 = None
+_advapi32 = None
 if sys.platform == "win32":
     from ctypes import wintypes
+
+    class _SECURITY_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [("nLength", wintypes.DWORD),
+                    ("lpSecurityDescriptor", wintypes.LPVOID),
+                    ("bInheritHandle", wintypes.BOOL)]
+
     _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     _kernel32.CreateMutexW.restype = wintypes.HANDLE          # 返回句柄
     _kernel32.CreateMutexW.argtypes = [
-        wintypes.HANDLE,    # 安全属性（不要，用默认）
+        ctypes.POINTER(_SECURITY_ATTRIBUTES),  # 安全属性（v10 带标签）
         wintypes.BOOL,      # 是否立刻要求所有权（要，True）
         wintypes.LPCWSTR,   # 互斥体名字（Unicode 版本）
     ]
+    _advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    _advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype \
+        = wintypes.BOOL
+    _advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR,                  # SDDL 串
+        wintypes.DWORD,                    # revision（恒为 1）
+        ctypes.POINTER(ctypes.c_void_p),   # 收安全描述符指针
+        ctypes.POINTER(wintypes.ULONG),    # 收长度（不要）
+    ]
+# 互斥体的安全描述符（SDDL，v10.2 拆成两档）：DACL 相同（Everyone 完全
+# 访问），差别在完整性标签——
+# · 带标签版：给管理员实例用。其令牌默认标签是 High，不显式压到 Medium，
+#   普通权限的第二实例打不开它（完整性检查在 DACL 之前）。贴标签需要
+#   SeCreateIntegrityLabelPrivilege 特权，普通用户没有（实测 1314）；
+# · 无标签版：普通实例用。令牌默认标签就是 Medium，创建出的对象天然
+#   就是"Medium + 禁止向上写"，绕开特权要求。
+# Local\ 前缀仍按登录会话隔离，跨账户互不可见，作用域没有放大。
+_SDDL_MUTEX_LABELED = "D:(A;;GA;;;WD)S:(ML;;NW;;;ME)"
+_SDDL_MUTEX_PLAIN = "D:(A;;GA;;;WD)"
+
+# 特权判定结果缓存：None = 还没查过（提不提权出生即定，进程内不变）
+_LABEL_PRIV: bool | None = None
+
 
 # 互斥体句柄：在 _try_windows_mutex 里赋值。模块级先给默认 None，
 # 保证 _relaunch_as_admin 在任何路径下引用都不会 NameError
@@ -167,26 +200,25 @@ def _find_sibling_process() -> int | None:
     except Exception:
         return None
     return None
-
-
 def _probe_file_creation(target_dir: Path) -> str:
     """在指定目录做一次「建文件-删文件」探针，返回一行诊断结果。
 
     只在「互斥体和文件锁全都失败」的罕见路径上使用，把『哪个目录
     不让写』变成事实。探针文件跑完即删；任何失败都不上抛。
+    结论词过 i18n；errno 后的原始系统报错保持原样——那是报障用的
+    原始数据，刻意不翻译。
     """
     probe_path = target_dir / f"smma_v2_probe_{os.getpid()}.tmp"
     try:
         with open(probe_path, "x", encoding="utf-8") as f:
             f.write("probe")
     except OSError as exc:
-        return f"失败：{type(exc).__name__}（errno={exc.errno}）：{exc}"
+        return t("失败：") + f"{type(exc).__name__}（errno={exc.errno}）：{exc}"
     try:
         probe_path.unlink()
     except OSError:
         pass  # 删除失败不影响结论（创建已成功）
-    return "OK（能正常创建文件）"
-
+    return t("OK（能正常创建文件）")
 
 def _relaunch_as_admin() -> bool:
     """以管理员身份重启自己（写路径守卫失败时的快车道，v8）。
@@ -228,17 +260,17 @@ def _relaunch_as_admin() -> bool:
     ERROR_CANCELLED = 1223
     return ret > 32 and ret != ERROR_CANCELLED
 
-
 def _show_already_running_dialog(sibling_pid: int | None,
                                  lock_path: str = "",
                                  lock_exists: bool = False,
-                                 probe_lines: str = "") -> None:
+                                 probe_lines: str = "",
+                                 offer_admin: bool = False) -> None:
     """单实例锁抢锁失败时的弹窗。
 
-    互斥体路径下（Windows 绝大多数情况）：内核已确认有活实例，
-    文案简单直接——去切换到那个窗口，不需要任何"删文件"步骤。
-    文件锁兜底路径下才可能出现残留锁/建锁被拦，那时才带上
-    删文件指引与探针结果（probe_lines 非空时追加显示）。
+    offer_admin=True（文件锁兜底也失败的罕见路径）时给「以管理员身份
+    重启」按钮——连锁机制都确认不了状态时，提权重跑是最实际的出路。
+    互斥体明确判定"已有实例"时不提供：已经在跑了，再开一个只会
+    看到"程序已在运行"，没意义。
     """
     if sibling_pid is not None:
         text = (
@@ -248,7 +280,6 @@ def _show_already_running_dialog(sibling_pid: int | None,
                 + f"\n\nPID: {sibling_pid}"
         )
     elif lock_path and lock_exists:
-        # 残留锁：只可能发生在文件锁兜底路径
         text = (
                 t("没有检测到正在运行的本工具进程，但锁文件存在——可能是"
                   "上一次异常退出（崩溃 / 被杀毒软件拦截 / 被任务管理器"
@@ -259,49 +290,164 @@ def _show_already_running_dialog(sibling_pid: int | None,
         )
     else:
         text = (
-            t("单实例锁机制不可用（互斥体与文件锁都失败了）。\n\n"
-              "最常见原因：杀毒/安全软件对「刚打包的无签名 exe」的观察期"
-              "拦截（每次重新打包都会触发新一轮观察）。\n\n"
-              "处理办法（任选其一验证）：\n"
-              "① 把本软件所在的整个文件夹加入杀毒软件/Windows 安全中心"
+            t("单实例锁检查没有正常完成（互斥体与文件锁都没能确认状态）。\n\n"
+              "最常见的原因：本软件已经在运行——特别是以管理员身份启动的"
+              "那个窗口还在（普通权限再开一个，检查可能被系统完整性保护"
+              "挡住，看不到它）。\n\n"
+              "请先看任务栏 / 任务管理器：如果本工具已在运行，直接去用"
+              "那个窗口即可，本实例已自动退出。\n"
+              "确认没有在运行、仍然弹本提示的，才是杀毒软件对刚打包的"
+              "无签名 exe 的观察期拦截（每次重新打包都会触发新一轮）：\n"
+              "① 把本软件所在的整个文件夹加入杀毒软件 / Windows 安全中心"
               "的白名单；\n"
-              "② 暂时关闭杀毒软件实时防护，再双击试一次；\n"
-              "③ 右键 exe → 以管理员身份运行，试一次（排除权限问题）。\n")
+              "② 右键 exe → 以管理员身份运行，再试一次；或点下方按钮。\n")
         )
         if probe_lines:
             text += "\n" + t("诊断探针（报障时请把控制台对应行一并发来）：\n") + probe_lines
         if lock_path:
             text += "\n" + t("文件锁的预期位置：\n") + lock_path
-    QMessageBox.information(None, t("程序已在运行"), text)
+    if offer_admin and sys.platform == "win32":
+        box = QMessageBox(QMessageBox.Information,
+                          t("程序已在运行"), text)
+        relaunch_btn = box.addButton(t("以管理员身份重启"),
+                                     QMessageBox.AcceptRole)
+        box.addButton(t("退出"), QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is relaunch_btn:
+            _relaunch_as_admin()  # 无论启动成功与否，本进程都退出
+    else:
+        QMessageBox.information(None, t("程序已在运行"), text)
+def _can_assign_integrity_label() -> bool:
+    """本进程能否给对象贴完整性标签（SDDL 的 ML 子句）。
 
+    判定顺序：① 试着启用 SeCreateIntegrityLabelPrivilege（管理员令牌
+    通常已授予但默认禁用；AdjustTokenPrivileges 后 GetLastError=1300
+    = 特权未授予，普通用户走到这）；② 特权路线没走通时用
+    IsUserAnAdmin 兜底猜一把（管理员令牌若默认已启用则不启用也能贴）；
+    ③ 都不行 = False，无标签创建。管理员走到 False 的代价只是退回
+    旧行为（跨提权第二实例看不到它，弹窗文案已兜底）。
+    """
+    global _LABEL_PRIV
+    if _LABEL_PRIV is not None:
+        return _LABEL_PRIV
+    _LABEL_PRIV = False
+    if sys.platform != "win32" or _advapi32 is None or _kernel32 is None:
+        return False
+    try:
+        from ctypes import wintypes
+        adv = _advapi32
+        adv.LookupPrivilegeValueW.restype = wintypes.BOOL
+        adv.LookupPrivilegeValueW.argtypes = [
+            wintypes.LPCWSTR, wintypes.LPCWSTR,
+            ctypes.POINTER(wintypes.LUID)]
+        adv.OpenProcessToken.restype = wintypes.BOOL
+        adv.OpenProcessToken.argtypes = [
+            wintypes.HANDLE, wintypes.DWORD,
+            ctypes.POINTER(wintypes.HANDLE)]
+        adv.AdjustTokenPrivileges.restype = wintypes.BOOL
+        adv.AdjustTokenPrivileges.argtypes = [
+            wintypes.HANDLE, wintypes.BOOL, ctypes.c_void_p,
+            wintypes.DWORD, ctypes.c_void_p,
+            ctypes.POINTER(wintypes.DWORD)]
 
+        class _TP(ctypes.Structure):
+            _fields_ = [("Count", wintypes.DWORD),
+                        ("Luid", wintypes.LUID),
+                        ("Attr", wintypes.DWORD)]
+
+        luid = wintypes.LUID()
+        token = wintypes.HANDLE()
+        if adv.LookupPrivilegeValueW(
+                None, "SeCreateIntegrityLabelPrivilege", ctypes.byref(luid)):
+            if adv.OpenProcessToken(
+                    _kernel32.GetCurrentProcess(), 0x0028,  # 调权|查询
+                    ctypes.byref(token)):
+                tp = _TP(1, luid, 0x0002)  # SE_PRIVILEGE_ENABLED
+                ok = adv.AdjustTokenPrivileges(
+                    token, False, ctypes.byref(tp), 0, None, None)
+                err = ctypes.get_last_error()
+                _kernel32.CloseHandle(token)
+                if ok and err == 0:  # 1300 = 未授予（普通用户）
+                    _LABEL_PRIV = True
+                    return True
+        try:
+            _LABEL_PRIV = bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            _LABEL_PRIV = False
+        return _LABEL_PRIV
+    except Exception:
+        _LABEL_PRIV = False
+        return False
 def _try_windows_mutex() -> int:
     """尝试用 Win32 命名互斥体抢单实例锁。
 
-    返回：0 = 抢到（句柄不关就一直持有，进程死时内核自动释放）；
-          1 = 已有实例（内核确认，铁证）；
-          -1 = 机制不可用（非 Windows / API 意外）→ 调用方走文件锁兜底。
+    返回：0 = 抢到；1 = 已有实例（内核确认）；
+          -1 = 机制不可用 → 调用方走文件锁兜底。
 
-    句柄保活说明：句柄一旦创建，只要我们不调 CloseHandle，内核对象
-    就活到进程退出——不存在"被垃圾回收释放锁"的问题，存成模块级
-    变量只为语义清晰。
+    v10.2：描述符按特权分档（普通→无标签，管理员→带 Medium 标签）；
+    带标签创建若仍失败，自动退回无标签再试——宁可退回旧行为，也不能
+    让互斥体机制整个瘫掉（v10.1 实测教训：1314 把普通首启打废）。
     """
     global _MUTEX_HANDLE
     if _kernel32 is None:
         return -1  # 非 Windows：直接走文件锁兜底
+    labeled = _can_assign_integrity_label()
+    candidates = ([_SDDL_MUTEX_LABELED, _SDDL_MUTEX_PLAIN] if labeled
+                  else [_SDDL_MUTEX_PLAIN])
+    for idx, sddl in enumerate(candidates):
+        try:
+            sd = ctypes.c_void_p()
+            if not _advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    sddl, 1, ctypes.byref(sd), None) or not sd:
+                print(f"[main] SDDL 构造失败：{sddl!r}", file=sys.stderr)
+                continue
+            sa = _SECURITY_ATTRIBUTES()
+            sa.nLength = ctypes.sizeof(sa)
+            sa.lpSecurityDescriptor = sd.value
+            sa.bInheritHandle = False
+            _MUTEX_HANDLE = _kernel32.CreateMutexW(
+                ctypes.byref(sa), True, _MUTEX_NAME)
+            ctypes.windll.kernel32.LocalFree(sd)
+        except Exception as exc:
+            print(f"[main] 互斥体创建异常：{type(exc).__name__}: {exc}",
+                  file=sys.stderr)
+            continue
+        err = ctypes.get_last_error()
+        _INVALID = ctypes.c_void_p(-1).value
+        if _MUTEX_HANDLE and _MUTEX_HANDLE != _INVALID:
+            if err == 183:  # ERROR_ALREADY_EXISTS
+                print("[main] 单实例锁：互斥体已存在（内核判定已有实例）",
+                      file=sys.stderr)
+                return 1
+            tag = "带 Medium 标签" if (idx == 0 and labeled) else "无标签"
+            print(f"[main] 单实例锁：互斥体抢锁成功（{tag}）",
+                  file=sys.stderr)
+            return 0
+        print(f"[main] 互斥体创建失败（{'带标签' if idx == 0 and labeled else '无标签'}）："
+              f"GetLastError={err}", file=sys.stderr)
+        if err == 5:
+            # ACCESS_DENIED：互斥体已存在但打不开——典型：旧版打包的
+            # 管理员实例（High 标签）在跑。重试也是撞同一对象，放弃
+            break
+        # 1314 等：换下一种描述符再试（带标签失败退无标签）
+    # 兜底的兜底：默认安全属性（v5 历史 behavior）
     try:
-        # CreateMutexW：名字不存在就创建并持有；已存在就打开它，
-        # 并用错误码告诉我们"已经有人了"
         _MUTEX_HANDLE = _kernel32.CreateMutexW(None, True, _MUTEX_NAME)
-        _INVALID = ctypes.c_void_p(-1).value  # INVALID_HANDLE_VALUE
-        if not _MUTEX_HANDLE or _MUTEX_HANDLE == _INVALID:
-            return -1  # 创建失败（极少见）→ 文件锁兜底
-        if ctypes.get_last_error() == 183:  # 183 = ERROR_ALREADY_EXISTS
-            return 1
-        return 0
-    except Exception:
-        return -1  # 任何意外都不上抛：锁机制不配挡住启动
-
+    except Exception as exc2:
+        print(f"[main] 互斥体默认创建也失败：{type(exc2).__name__}: {exc2}",
+              file=sys.stderr)
+        return -1
+    err = ctypes.get_last_error()
+    _INVALID = ctypes.c_void_p(-1).value
+    if not _MUTEX_HANDLE or _MUTEX_HANDLE == _INVALID:
+        print(f"[main] 互斥体默认创建失败：GetLastError={err}",
+              file=sys.stderr)
+        return -1
+    if err == 183:
+        return 1
+    print("[main] 单实例锁：互斥体抢锁成功（默认安全属性）",
+          file=sys.stderr)
+    return 0
 
 def _acquire_single_instance() -> bool:
     """单实例锁总入口。返回 True = 可以继续启动（锁已持有）；
@@ -312,6 +458,9 @@ def _acquire_single_instance() -> bool:
         print("[main] 单实例锁：互斥体抢锁成功", file=sys.stderr)
         return True
     if status == 1:
+        # 互斥体已明确判定"有实例在跑"。此时 file_lock_path / exists /
+        # probe_lines 还没定义（它们属于兜底路径），只传 PID 分诊；
+        # 也不给管理员重启按钮——已经在跑了，再提权开一个毫无意义。
         print("[main] 单实例锁：互斥体报告已有实例", file=sys.stderr)
         _show_already_running_dialog(_find_sibling_process())
         return False
@@ -336,6 +485,8 @@ def _acquire_single_instance() -> bool:
         return True
 
     # ---- 文件锁也失败：分诊 + 探针 + 弹窗（罕见路径）----
+    # 走到这里的场景：互斥体机制不可用 + 文件锁也抢不到/建不出来。
+    # 只有这条路径才配得上管理员重启按钮和全套探针诊断。
     exists = os.path.exists(file_lock_path)
     pid = _find_sibling_process()
     if pid is not None:
@@ -343,15 +494,21 @@ def _acquire_single_instance() -> bool:
         return False
     probe_lines = ""
     if sys.platform == "win32":
+        # 三个探针位各司其职：Temp（原锁位）、软件根（守卫同一结论）、
+        # data/（文件锁的父目录——上一轮实测根 OK 但锁失败，嫌疑就在它）
         probe_temp = _probe_file_creation(Path(_TEMP_LOCK_PATH).parent)
         probe_app = _probe_file_creation(_APP_DIR)
+        probe_data = _probe_file_creation(Path(file_lock_path).parent)
         print(f"[main] 探针·Temp 建文件：{probe_temp}", file=sys.stderr)
         print(f"[main] 探针·软件文件夹建文件：{probe_app}", file=sys.stderr)
-        probe_lines = (f"· 临时目录（Temp）建文件测试：{probe_temp}\n"
-                       f"· 软件文件夹建文件测试：{probe_app}")
-    _show_already_running_dialog(None, file_lock_path, exists, probe_lines)
+        print(f"[main] 探针·data 目录建文件：{probe_data}", file=sys.stderr)
+        probe_lines = (
+                t("· 临时目录（Temp）建文件测试：") + f"{probe_temp}\n"
+                + t("· 软件文件夹建文件测试：") + f"{probe_app}\n"
+                + t("· data 目录（文件锁所在）建文件测试：") + f"{probe_data}")
+    _show_already_running_dialog(None, file_lock_path, exists, probe_lines,
+                                 offer_admin=True)
     return False
-
 
 # ==================== 主流程 ====================
 
@@ -379,6 +536,12 @@ def main() -> int:
         app.setWindowIcon(QIcon(str(_icon_path)))
     else:
         print(f"[main] 图标缺失，跳过窗口图标：{_icon_path}", file=sys.stderr)
+    # ---- i18n：语言必须在锁/守卫弹窗之前定下来（v10）----
+    # 否则单实例锁、写路径守卫的启动期弹窗永远显示中文——即使用户
+    # 已切英文。原位置在主题之后：v8 之前启动期没有任何弹窗，晚定
+    # 语言无害；现在弹窗都在主题之前，位置就必须前移。
+    from core.i18n import init_language
+    init_language()
 
     # ---- R12 单实例锁：赶在守卫与主窗口之前 ----
     if not _acquire_single_instance():
@@ -395,7 +558,8 @@ def main() -> int:
         box = QMessageBox(
             QMessageBox.Critical,
             t("无法启动：数据目录不可写"),
-            problem + "\n\n" + t("请以管理员身份运行本程序。"))
+            problem)
+
         relaunch_btn = box.addButton(t("以管理员身份重启"),
                                      QMessageBox.AcceptRole)
         box.addButton(t("退出"), QMessageBox.RejectRole)
@@ -411,10 +575,6 @@ def main() -> int:
     from gui.theme import apply_theme, apply_font_scale
     apply_theme(app)
     apply_font_scale(app)  # D25 界面字号缩放：必须在主窗口构造之前
-
-    # ---- i18n：旧版验证过的位置（主题之后、主窗口之前，v4 回退沿用）----
-    from core.i18n import init_language
-    init_language()
 
     from gui.MainWindow import MainWindow
     win = MainWindow()
