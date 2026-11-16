@@ -20,7 +20,8 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends git curl file software-properties-common
+          apt-get install -y --no-install-recommends git curl ca-certificates file gnupg software-properties-common
+      
 
       - uses: actions/checkout@v4
 
