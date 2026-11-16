@@ -21,11 +21,11 @@ jobs:
       # git 必须在 checkout 之前就位，所以这步排第一
       - name: Install system dependencies
         run: |
-          # 预置 tzdata 的时区答案（双保险：即使 noninteractive 失效也有值可选）
           echo 'tzdata tzdata/Areasselect Etc' | debconf-set-selections
           echo 'tzdata tzdata/Zones/Etc UTC' | debconf-set-selections
           apt-get update
-          apt-get install -y --no-install-recommends git curl ca-certificates file gnupg software-properties-common tzdata
+          apt-get install -y --no-install-recommends git curl ca-certificates file gnupg software-properties-common tzdata binutils
+      
 
       - uses: actions/checkout@v4
 
