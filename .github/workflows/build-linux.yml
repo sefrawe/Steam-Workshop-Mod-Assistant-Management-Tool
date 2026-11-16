@@ -34,8 +34,9 @@ jobs:
         run: |
           add-apt-repository -y ppa:deadsnakes/ppa
           apt-get update
-          apt-get install -y --no-install-recommends python3.12 python3.12-venv
+          apt-get install -y --no-install-recommends python3.12 python3.12-venv libpython3.12
           python3.12 -m venv .venv
+      
 
       - name: Install dependencies
         run: |
