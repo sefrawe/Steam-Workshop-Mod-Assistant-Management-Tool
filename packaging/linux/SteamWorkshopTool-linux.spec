@@ -32,6 +32,11 @@ datas = [
     # PyInstaller 只自动收 .py，数据文件必须显式声明——漏了它，打包版
     # 首次建档就是 FileNotFoundError（v2.0.8 实测翻过车）。
     (os.path.join(PROJECT_ROOT, "core", "schema.sql"), "core"),
+    # 2.2.0 双语界面的英文词表：t() 经 resource_path 加载。漏声明则
+    # Linux 版切 English 静默回退中文（PyInstaller 只收 .py，数据文件
+    # 必须显式声明——v2.0.8 漏 schema.sql 的同族事故，勿再犯）
+    (os.path.join(PROJECT_ROOT, "gui", "i18n_en.json"), "gui"),
+
 ]
 binaries = []
 hiddenimports = ["psutil"]
